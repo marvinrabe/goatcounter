@@ -3,7 +3,6 @@ package testenv
 
 import (
 	"context"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,7 +59,7 @@ func db(t testing.TB, storeFile bool, queries *QueryCounts) context.Context {
 	conn := libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
 	os.Setenv("TESTENV_CONNECT", conn)
 
-	var files fs.FS = os.DirFS(zgo.ModuleRoot())
+	files := os.DirFS(zgo.ModuleRoot())
 	if queries != nil {
 		files = countedFiles{files, queries}
 	}
