@@ -3,7 +3,7 @@ with x as (
         coalesce(ref_id, 1)     as ref_id,
 		coalesce(sum(total), 0) as count
 	from ref_counts
-	where hour >= :start and hour <= :end and :filter
+	where datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end) and :filter
 	group by ref_id
 	order by count desc, ref_id
 	-- Over-select quite a bit here since we may filter on the refs.ref below;

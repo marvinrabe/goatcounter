@@ -26,6 +26,7 @@ type Pages struct {
 	Refs             goatcounter.HitStats
 	Max              int
 	Exclude          []goatcounter.PathID
+	WithStats        bool // Include per-page time series for API clients.
 }
 
 func (w Pages) Name() string { return "pages" }
@@ -61,7 +62,11 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 	}
 
 	var err error
-	w.Display, w.More, err = w.Pages.List(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group)
+	if w.WithStats {
+		w.Display, w.More, err = w.Pages.List(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group)
+	} else {
+		w.Display, w.More, err = w.Pages.ListCounts(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit)
+	}
 	errs.Append(err)
 
 	wg.Wait()

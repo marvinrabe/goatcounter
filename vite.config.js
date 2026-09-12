@@ -2,12 +2,12 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 
 const input = {
-	backend: resolve(import.meta.dirname, 'assets/backend.js'),
-	count: resolve(import.meta.dirname, 'assets/count.js'),
-	styles: resolve(import.meta.dirname, 'assets/backend.css'),
+	backend: resolve(import.meta.dirname, 'assets/js/backend.js'),
+	count: resolve(import.meta.dirname, 'assets/js/count.js'),
+	styles: resolve(import.meta.dirname, 'assets/css/backend.css'),
 }
 export default defineConfig({
-	publicDir: false,
+	publicDir: 'assets/static',
 	build: {
 		emptyOutDir: true,
 		manifest: 'manifest.json',

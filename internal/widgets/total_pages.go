@@ -33,7 +33,8 @@ func (w TotalPages) ID() int                  { return w.id }
 func (w *TotalPages) SetDetail(d string) {}
 
 func (w *TotalPages) GetData(ctx context.Context, a Args) (more bool, err error) {
-	w.Series, err = goatcounter.GetDashboardMetricSeries(ctx, a.Rng, a.PathFilter, a.Group)
+	data, err := a.dashboardData(ctx)
+	w.Series = data.Series
 	w.loaded = true
 	return false, err
 }

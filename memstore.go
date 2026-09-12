@@ -246,10 +246,7 @@ func (m *ms) processHit(ctx context.Context, h *Hit) bool {
 		memlog.Error(ctx, "unknown site", "site", h.Site, "hit", h)
 		return false
 	}
-	if err := site.Load(ctx); err != nil {
-		memlog.Error(ctx, err, "hit", h)
-		return false
-	}
+	site.Defaults(ctx)
 	ctx = WithSite(ctx, &site)
 	var err error
 	if !site.Settings.Collect.Has(CollectHits) {

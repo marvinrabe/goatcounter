@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/marvinrabe/goatcounter/internal/db2"
 	"zgo.at/errors"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zbool"
@@ -117,6 +116,9 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 	}
 
 	err := zdb.TX(ctx, func(ctx context.Context) error {
+		if err := clearFilters(ctx, MustGetSite(ctx).Key); err != nil {
+			return err
+		}
 		// Update stats and counts tables
 		for _, tt := range zreflect.Values(Tables, "", "") {
 			var (
@@ -144,18 +146,16 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 				"OnConflict": t.OnConflict(ctx),
 				"Group":      strings.Join(group, ", "),
 				"path_id":    p.ID,
-				"paths":      db2.Array(ctx, pathIDs),
-				"in":         db2.In(ctx),
+				"paths":      pathIDs,
 			})
 			if err != nil {
 				return err
 			}
 			err = zdb.Exec(ctx, `/* Path.Merge */
-				delete from :tbl where path_id :in (:paths)`,
+				delete from :tbl where path_id in (:paths)`,
 				map[string]any{
 					"tbl":   zdb.SQL(t.Table),
-					"paths": db2.Array(ctx, pathIDs),
-					"in":    db2.In(ctx),
+					"paths": pathIDs,
 				})
 			if err != nil {
 				return err
@@ -164,20 +164,18 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 
 		// Update hits and delete old paths.
 		err := zdb.Exec(ctx, `/* Path.Merge */
-			update hits set path_id=:path_id where path_id :in (:paths)`,
+			update hits set path_id=:path_id where path_id in (:paths)`,
 			map[string]any{
 				"path_id": p.ID,
-				"paths":   db2.Array(ctx, pathIDs),
-				"in":      db2.In(ctx),
+				"paths":   pathIDs,
 			})
 		if err != nil {
 			return err
 		}
 		return zdb.Exec(ctx, `/* Path.Merge */
-			delete from paths where path_id :in (:paths)`,
+			delete from paths where path_id in (:paths)`,
 			map[string]any{
-				"paths": db2.Array(ctx, pathIDs),
-				"in":    db2.In(ctx),
+				"paths": pathIDs,
 			})
 	})
 	return errors.Wrapf(err, "Path.Merge(%d, %v)", p.ID, pathIDs)

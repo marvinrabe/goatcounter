@@ -34,7 +34,8 @@ func (w *TotalCount) GetData(ctx context.Context, a Args) (more bool, err error)
 	if err != nil {
 		return false, err
 	}
-	w.Metrics, err = goatcounter.GetDashboardMetrics(ctx, a.Rng, a.PathFilter)
+	data, err := a.dashboardData(ctx)
+	w.Metrics = data.Metrics
 	w.loaded = true
 	return false, err
 }

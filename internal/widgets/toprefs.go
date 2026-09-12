@@ -44,18 +44,16 @@ func (w *TopRefs) GetData(ctx context.Context, a Args) (more bool, err error) {
 
 func (w TopRefs) RenderHTML(ctx context.Context, shared SharedData) (string, any) {
 	return "_dashboard_toprefs.gohtml", struct {
-		Context     context.Context
-		Base        string
-		Name        string
-		ID          int
-		RowsOnly    bool
-		HasSubMenu  bool
-		Loaded      bool
-		Err         error
-		IsCollected bool
-		Total       int
-		Stats       goatcounter.HitStats
-		Ref         string
-	}{ctx, goatcounter.Config(ctx).BasePath, w.Name(), w.id, shared.RowsOnly, w.Ref == "", w.loaded, w.err,
-		isCol(ctx, goatcounter.CollectReferrer), shared.Total, w.TopRefs, w.Ref}
+		Context    context.Context
+		Name       string
+		ID         int
+		RowsOnly   bool
+		HasSubMenu bool
+		Loaded     bool
+		Err        error
+		Total      int
+		Stats      goatcounter.HitStats
+		Ref        string
+	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Ref == "", w.loaded, w.err,
+		shared.Total, w.TopRefs, w.Ref}
 }

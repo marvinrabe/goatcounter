@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marvinrabe/goatcounter/internal/db2"
 	"zgo.at/errors"
 	"zgo.at/zdb"
 	"zgo.at/zstd/ztime"
@@ -17,6 +16,7 @@ type FilterID int32
 
 type Filter struct {
 	FilterID   FilterID  `db:"filter_id,readonly"`
+	Site       string    `db:"site"`
 	Matches    int       `db:"matches"`
 	Invert     bool      `db:"invert"`
 	Query      string    `db:"query"`
@@ -29,6 +29,7 @@ func (f Filter) Table() string { return "filters" }
 var _ zdb.Defaulter = &Filter{}
 
 func (f *Filter) Defaults(ctx context.Context) {
+	f.Site = MustGetSite(ctx).Key
 	for f.FilterID == 0 {
 		f.FilterID = FilterID(rand.Int32())
 		if rand.IntN(2) == 1 {
@@ -49,7 +50,7 @@ func (f *Filter) Validate(ctx context.Context) error {
 }
 
 func (f *Filter) ByQuery(ctx context.Context, query string) error {
-	err := zdb.Get(ctx, f, `select * from filters where lower(query)=lower(?)`, query)
+	err := zdb.Get(ctx, f, `select * from filters where site=? and lower(query)=lower(?)`, MustGetSite(ctx).Key, query)
 	return errors.Wrapf(err, "Filter.ByQuery(%q)", query)
 }
 
@@ -57,7 +58,12 @@ func (f Filter) Touch(ctx context.Context) error {
 	if f.FilterID == 0 {
 		return errors.New("Filter.Touch: ID==0")
 	}
-	err := zdb.Exec(ctx, `update filters set last_used_at=? where filter_id=?`, ztime.Now(ctx), f.FilterID)
+	now := ztime.Now(ctx)
+	if now.Sub(f.LastUsedAt) < time.Hour {
+		return nil
+	}
+	err := zdb.Exec(ctx, `update filters set last_used_at=? where filter_id=? and site=?
+		and datetime(last_used_at) <= datetime(?)`, now, f.FilterID, MustGetSite(ctx).Key, now.Add(-time.Hour))
 	return errors.Wrapf(err, "Filter.Touch(%d)", f.FilterID)
 }
 
@@ -90,7 +96,7 @@ func (f Filter) Append(ctx context.Context, id PathID) error {
 		if err != nil {
 			return err
 		}
-		return zdb.Exec(ctx, `update filters set matches = matches + 1 where filter_id = ?`, f.FilterID)
+		return zdb.Exec(ctx, `update filters set matches = matches + 1 where filter_id = ? and site = ?`, f.FilterID, MustGetSite(ctx).Key)
 	})
 	return errors.Wrap(err, "Filter.Append")
 }
@@ -133,8 +139,18 @@ func (f Filter) Match(path string, event bool) bool {
 type Filters []Filter
 
 func (f *Filters) List(ctx context.Context) error {
-	err := zdb.Select(ctx, f, `select * from filters`)
+	err := zdb.Select(ctx, f, `select * from filters where site=?`, MustGetSite(ctx).Key)
 	return errors.Wrap(err, "Filters.List")
+}
+
+// clearFilters invalidates cached path selections after a merge or deletion.
+// Call inside the transaction that changes the paths.
+func clearFilters(ctx context.Context, site string) error {
+	if err := zdb.Exec(ctx, `delete from filter_paths where filter_id in
+		(select filter_id from filters where site=?)`, site); err != nil {
+		return err
+	}
+	return zdb.Exec(ctx, `delete from filters where site=?`, site)
 }
 
 type PathFilter struct {
@@ -143,8 +159,11 @@ type PathFilter struct {
 	invert   bool
 }
 
-func (p PathFilter) SQL(ctx context.Context) (zdb.SQL, map[string]any) {
-	siteSQL := "path_id in (select path_id from paths where site = :site)"
+// SQL filters the named table directly so SQLite can use its site/time index.
+// The table name must be a constant from the query, never user input.
+func (p PathFilter) SQL(ctx context.Context, table string) (zdb.SQL, map[string]any) {
+	siteSQL := table + ".site = :site"
+	pathID := table + ".path_id"
 	withSite := func(sql zdb.SQL, params map[string]any) (zdb.SQL, map[string]any) {
 		if params == nil {
 			params = make(map[string]any)
@@ -154,17 +173,17 @@ func (p PathFilter) SQL(ctx context.Context) (zdb.SQL, map[string]any) {
 	}
 	if p.filterID != 0 {
 		if p.invert {
-			return withSite("path_id not in (select path_id from filter_paths where filter_id = :filter_id)", map[string]any{"filter_id": p.filterID})
+			return withSite(zdb.SQL(pathID+" not in (select path_id from filter_paths where filter_id = :filter_id)"), map[string]any{"filter_id": p.filterID})
 		}
-		return withSite("path_id in (select path_id from filter_paths where filter_id = :filter_id)", map[string]any{"filter_id": p.filterID})
+		return withSite(zdb.SQL(pathID+" in (select path_id from filter_paths where filter_id = :filter_id)"), map[string]any{"filter_id": p.filterID})
 	}
 	if len(p.ids) == 0 {
 		return withSite("1=1", nil)
 	}
 	if p.invert {
-		return withSite(db2.NotIn(ctx, "path_id")+" (:paths)", map[string]any{"paths": db2.Array(ctx, p.ids)})
+		return withSite(zdb.SQL(pathID+" not in (:paths)"), map[string]any{"paths": p.ids})
 	}
-	return withSite("path_id "+db2.In(ctx)+" (:paths)", map[string]any{"paths": db2.Array(ctx, p.ids)})
+	return withSite(zdb.SQL(pathID+" in (:paths)"), map[string]any{"paths": p.ids})
 }
 
 func PathFilterFromIDs(ids []PathID) PathFilter {
@@ -172,6 +191,22 @@ func PathFilterFromIDs(ids []PathID) PathFilter {
 }
 
 func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) {
+	if strings.TrimSpace(query) == "" {
+		return PathFilter{}, nil
+	}
+
+	// Reuse persisted path IDs before scanning paths, including the original
+	// inversion choice. Recently used filters need no timestamp write.
+	var cached Filter
+	if err := cached.ByQuery(ctx, query); err == nil {
+		if err := cached.Touch(ctx); err != nil {
+			return PathFilter{}, err
+		}
+		return PathFilter{filterID: cached.FilterID, invert: cached.Invert}, nil
+	} else if !zdb.ErrNoRows(err) {
+		return PathFilter{}, errors.Wrap(err, "PathFilter")
+	}
+
 	like, kw := findFilter(strings.ReplaceAll(query, "%", "%%"),
 		"at:start", "at:end", "is:event", "is:pageview", "in:path", ":not")
 	var (
@@ -256,6 +291,7 @@ func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) 
 			return PathFilter{}, errors.Wrap(err, "PathFilter")
 		}
 		pathIDs = pathIDs[:0]
+		invert = filter.Invert
 	}
 
 	return PathFilter{filterID: filter.FilterID, ids: pathIDs, invert: invert}, nil

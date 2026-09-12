@@ -12,12 +12,11 @@ import (
 	_ "time/tzdata"
 
 	"github.com/marvinrabe/goatcounter"
+	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
 	"zgo.at/json"
 	"zgo.at/zdb"
-	"zgo.at/zdb-drivers/go-sqlite3"
-	"zgo.at/zdb/drivers"
 	"zgo.at/zli"
 	"zgo.at/zstd/zfs"
 	"zgo.at/zstd/zruntime"
@@ -54,7 +53,7 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 	mainDone.Add(1)
 	defer mainDone.Done()
 
-	cmd, err := f.ShiftCommand("help", "version", "serve", "db", "healthcheck")
+	cmd, err := f.ShiftCommand("help", "version", "serve", "healthcheck")
 	if zslice.ContainsAny(f.Args, "-h", "-help", "--help") {
 		f.Args = append([]string{cmd}, f.Args...)
 		cmd = "help"
@@ -102,27 +101,10 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 		zli.Exit(0)
 		return
 
-	case "db", "database":
-		run = cmdDB
 	case "healthcheck":
 		run = runHealthcheck
 	case "serve":
 		run = cmdServe
-	case "create":
-		flags := os.Args[2:]
-		for i, ff := range flags {
-			if ff == "-domain" {
-				flags[i] = "-vhost"
-			}
-			if strings.HasPrefix(ff, "-domain=") {
-				flags[i] = "-vhost=" + ff[8:]
-			}
-		}
-		fmt.Fprintf(zli.Stderr,
-			"The create command is moved to \"goatcounter db create site\"\n\n\t$ goatcounter db create site %s\n",
-			strings.Join(flags, " "))
-		zli.Exit(5)
-		return
 	}
 
 	err = run(f, ready, stop)
@@ -162,12 +144,8 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 	zli.Exit(0)
 }
 
-func connectDB(connect, dbConn string, migrate []string, create, dev bool) (zdb.DB, context.Context, error) {
-	if strings.Contains(connect, "://") && !strings.Contains(connect, "+") {
-		connect = strings.Replace(connect, "://", "+", 1)
-		log.Warnf(context.Background(), `the connection string for -db changed from "engine://connectString"`+
-			` to "engine+connectString"; the ://-variant will work for now, but will be removed in a future release`)
-	}
+func connectDB(connect, dbConn string, dev bool) (zdb.DB, context.Context, error) {
+	connect = normalizeDBConnect(connect)
 
 	var open, idle int
 	if dbConn != "" {
@@ -191,35 +169,14 @@ func connectDB(connect, dbConn string, migrate []string, create, dev bool) (zdb.
 		return nil, nil, err
 	}
 
-	sqlite3.DefaultHook(goatcounter.SQLiteHook)
-
-	db, err := zdb.Connect(context.Background(), zdb.ConnectOptions{
+	db, err := libsqldriver.Open(context.Background(), zdb.ConnectOptions{
 		Connect:      connect,
 		Files:        fsys,
-		Migrate:      migrate,
-		Create:       create,
+		Create:       true,
 		MaxOpenConns: open,
 		MaxIdleConns: idle,
-		MigrateLog:   func(name string) { log.Infof(context.Background(), "running migration %q", name) },
 	})
-	var pErr *zdb.PendingMigrationsError
-	if errors.As(err, &pErr) {
-		log.Warnf(context.Background(), "%s; continuing but things may be broken", err)
-		err = nil
-	}
 
-	var cErr *drivers.NotExistError
-	if errors.As(err, &cErr) {
-		if cErr.DB == "" {
-			err = fmt.Errorf("%s database at %q exists but is empty.\n"+
-				"Add the -createdb flag to create this database if you're sure this is the right location",
-				cErr.Driver, connect)
-		} else {
-			err = fmt.Errorf("%s database at %q doesn't exist.\n"+
-				"Add the -createdb flag to create this database if you're sure this is the right location",
-				cErr.Driver, cErr.DB)
-		}
-	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -230,6 +187,15 @@ func connectDB(connect, dbConn string, migrate []string, create, dev bool) (zdb.
 		db = zdb.NewLogDB(db, os.Stderr, zdb.DumpQuery|zdb.DumpLocation|zdb.DumpResult, "")
 	}
 	return db, goatcounter.NewContext(context.Background(), db), nil
+}
+
+func normalizeDBConnect(connect string) string {
+	// Keep standard libSQL URLs usable at the command line while adding the
+	// driver separator zdb expects.
+	if strings.HasPrefix(connect, "libsql://") || strings.HasPrefix(connect, "http://") || strings.HasPrefix(connect, "https://") {
+		return "libsql+" + connect
+	}
+	return connect
 }
 
 func setupLog(dev, asJSON bool, debug []string) {

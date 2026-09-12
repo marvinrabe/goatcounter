@@ -3,7 +3,7 @@ with x as (
 		browser_id,
 		sum(count) as count
 	from browser_stats
-	where day >= :start and day <= :end and :filter
+	where day >= date(:start) and day <= date(:end) and :filter
 	group by browser_id
 	order by count desc
 )

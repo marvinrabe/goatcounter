@@ -10,8 +10,7 @@ import (
 )
 
 func TestEmbed(t *testing.T) {
-	err := fstest.TestFS(DB, "db/schema.gotxt", "db/languages.sql",
-		"db/migrate/2026-09-11-1-single-site.sql", "db/migrate/2026-09-12-1-languages.gotxt")
+	err := fstest.TestFS(DB, "db/schema.gotxt", "db/languages.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,9 +28,9 @@ func TestAssets(t *testing.T) {
 	}
 
 	for _, source := range []string{
-		"assets/backend.css",
-		"assets/backend.js",
-		"assets/count.js",
+		"assets/css/backend.css",
+		"assets/js/backend.js",
+		"assets/js/count.js",
 	} {
 		built, ok := assets[source]
 		if !ok {

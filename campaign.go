@@ -2,6 +2,7 @@ package goatcounter
 
 import (
 	"context"
+	"strings"
 
 	"zgo.at/errors"
 	"zgo.at/zdb"
@@ -31,11 +32,14 @@ func (c *Campaign) Validate(ctx context.Context) error {
 
 func (c *Campaign) Insert(ctx context.Context) error {
 	err := zdb.Insert(ctx, c)
+	if err == nil {
+		c.cache(ctx)
+	}
 	return errors.Wrap(err, "Campaign.Insert")
 }
 
 func (c *Campaign) ByName(ctx context.Context, name string) error {
-	k := c.Name
+	k := strings.ToLower(name)
 	if cc, ok := cacheCampaigns(ctx).Get(k); ok {
 		*c = *cc
 		return nil
@@ -46,6 +50,14 @@ func (c *Campaign) ByName(ctx context.Context, name string) error {
 		return errors.Wrap(err, "Campaign.ByName")
 	}
 
-	cacheCampaigns(ctx).Set(k, c)
+	c.cache(ctx)
 	return nil
+}
+
+// Store a copy so reusing a receiver cannot change another campaign's entry.
+// Uncommitted inserts must never escape into the shared cache.
+func (c Campaign) cache(ctx context.Context) {
+	if _, tx := zdb.DBSQL(ctx); tx == nil {
+		cacheCampaigns(ctx).Set(strings.ToLower(c.Name), &c)
+	}
 }

@@ -1,55 +1,26 @@
 package cron
 
 import (
-	"context"
-	"strconv"
-
 	"github.com/marvinrabe/goatcounter"
-	"zgo.at/errors"
-	"zgo.at/zdb"
 )
 
-func updateHitCounts(ctx context.Context, hits []goatcounter.Hit) error {
-	err := zdb.TX(ctx, func(ctx context.Context) error {
-		// Group by day + pathID
-		type gt struct {
-			total  int
-			hour   string
-			pathID goatcounter.PathID
-		}
-		grouped := map[string]gt{}
-		siteByPath := map[goatcounter.PathID]string{}
-		for _, h := range hits {
-			siteByPath[h.PathID] = h.Site
-			if h.Bot > 0 {
-				continue
-			}
-
-			hour := h.CreatedAt.Format("2006-01-02 15:00:00")
-			k := hour + strconv.Itoa(int(h.PathID))
-			v := grouped[k]
-			if v.total == 0 {
-				v.hour = hour
-				v.pathID = h.PathID
-			}
-
-			if h.FirstVisit {
-				v.total += 1
-			}
-			grouped[k] = v
+func groupHitCounts(hits []goatcounter.Hit) statBatch {
+	type key struct {
+		site   string
+		pathID goatcounter.PathID
+		at     string
+	}
+	grouped := make(map[key]int)
+	for _, h := range hits {
+		if h.Bot > 0 || !h.FirstVisit {
+			continue
 		}
 
-		ins, err := goatcounter.Tables.HitCounts.Bulk(ctx)
-		if err != nil {
-			return err
-		}
-
-		for _, v := range grouped {
-			if v.total > 0 {
-				ins.Values(siteByPath[v.pathID], v.pathID, v.hour, v.total)
-			}
-		}
-		return ins.Finish()
-	})
-	return errors.Wrap(err, "cron.updateHitCounts")
+		grouped[key{h.Site, h.PathID, h.CreatedAt.Format("2006-01-02 15:00:00")}]++
+	}
+	batch := statBatch{bulk: goatcounter.Tables.HitCounts.Bulk}
+	for k, count := range grouped {
+		batch.rows = append(batch.rows, []any{k.site, k.pathID, k.at, count})
+	}
+	return batch
 }

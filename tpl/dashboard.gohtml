@@ -4,26 +4,6 @@
 	GoatCounter report for {{tformat $.Context .Period.Start ""}} to {{tformat $.Context .Period.End ""}}
 </div>
 
-	{{if not .Site.ReceivedData}}
-		<div class="flash flash-i">
-			{{.T `p/no-data|<p>
-				%[%bold No data received] – GoatCounter hasn’t received any data yet.<br>
-				Getting started is pretty easy, just add the following JavaScript anywhere on the page:</p>
-
-				%[%pre %(js_code)]
-
-				<p>Check if your adblocker is blocking GoatCounter if you don’t see any pageviews (%(domain) and/or gc.zgo.at domain).</p>
-
-				<p>This message will disappear once we receive data.</p>`
-				(map
-				"bold"      (tag "strong" "")
-				"pre"       (tag "pre" "")
-				"domain"    (.Site.Domain .Context)
-				"js_code"   (printf "<script data-site=\"%s\"\n        async src=\"//%s/count.js\"></script>" .Site.LinkDomain .CountDomain)
-			)}}
-		</div>
-	{{end}}
-
 {{/* Hide in CSS as the JavaScript uses a number of the elements to render the charts. */}}
 {{if .HideUI}}
 	<style>
@@ -45,12 +25,10 @@
 		<div>
 			<span>
 				<input type="date" autocomplete="off" id="period-start" name="period-start"
-					min="{{.Site.FirstHitAt.Format "2006-01-02"}}" max="{{time "now" "2006-01-02"}}"
 					aria-label="{{.T "nav-dash/start-date|First day to display"}}"
 					value="{{tformat $.Context .Period.Start ""}}"
 				>–{{- "" -}}
 				<input type="date" autocomplete="off" id="period-end" name="period-end"
-					min="{{.Site.FirstHitAt.Format "2006-01-02"}}" max="{{time "now" "2006-01-02"}}"
 					aria-label="{{.T "nav-dash/end-date|Last day to display"}}"
 					value="{{tformat $.Context .Period.End ""}}"
 				>{{- "" -}}
@@ -109,6 +87,10 @@
                {{end}}
                {{if .AllowGroups.Monthly}}
                    {{$dot}}<button class="link" name="group" value="month">{{.T "nav-dash/month|month"}}</button>
+                   {{$dot = "· "}}
+               {{end}}
+               {{if .AllowGroups.Yearly}}
+                   {{$dot}}<button class="link" name="group" value="year">{{.T "nav-dash/year|year"}}</button>
                {{end}}
                <input type="hidden" name="group" value="{{.Group}}">
 			</span>

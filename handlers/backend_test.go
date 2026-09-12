@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
@@ -16,6 +18,46 @@ import (
 	"zgo.at/zstd/ztest"
 	"zgo.at/zstd/ztime"
 )
+
+func TestBackendSiteIndependentRoutes(t *testing.T) {
+	for _, base := range []string{"", "/stats"} {
+		ctx := goatcounter.NewConfig(context.Background())
+		goatcounter.Config(ctx).BasePath = base
+		auth := Auth{Mode: AuthBasic, BasicUsers: map[string]string{"admin": "password"}}
+		router := NewBackend(nil, false, "", base, 10, Ratelimits{}, "secret", auth)
+		for _, tt := range []struct {
+			path, authorization string
+			code                int
+		}{
+			{"/", "", http.StatusUnauthorized},
+			{"/load-widget", "", http.StatusUnauthorized},
+			{"/api", "", http.StatusUnauthorized},
+			{"/api", "Bearer secret", http.StatusOK},
+			{"/missing", "", http.StatusNotFound},
+		} {
+			r := httptest.NewRequest(http.MethodGet, base+tt.path+"?site=unknown", nil).WithContext(ctx)
+			r.Header.Set("Authorization", tt.authorization)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, r)
+			if w.Code != tt.code {
+				t.Errorf("%s: got %d; want %d", r.URL, w.Code, tt.code)
+			}
+		}
+
+		auth = Auth{Mode: AuthOIDC, OIDC: &OIDCAuth{basePath: base}}
+		router = NewBackend(nil, false, "", base, 10, Ratelimits{}, "", auth)
+		for path, code := range map[string]int{
+			"/auth/callback?error=access_denied": http.StatusUnauthorized,
+			"/auth/logout":                       http.StatusFound,
+		} {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, base+path, nil).WithContext(ctx))
+			if w.Code != code {
+				t.Errorf("%s%s: got %d; want %d", base, path, w.Code, code)
+			}
+		}
+	}
+}
 
 func TestBackendPagesMore(t *testing.T) {
 	ctx := testenv.DB(t)

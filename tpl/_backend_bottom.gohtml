@@ -6,12 +6,11 @@
 
 	<span id="js-settings"
 		data-offset="{{.TZOffset}}"
-		data-first-hit-at="{{.Site.FirstHitAt.Unix}}"
 		data-dev="{{.Dev}}"
 		{{if .Base}}data-base-path="{{.Base}}"{{end}}
 	></span>
 	<span id="js-i18n">{{.JSTranslations | json}}</span>
 
-	<script crossorigin="anonymous" src="{{.Asset "assets/backend.js"}}"></script>
+	<script crossorigin="anonymous" src="{{.Asset "assets/js/backend.js"}}"></script>
 </body>
 </html>

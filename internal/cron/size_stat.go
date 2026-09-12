@@ -1,61 +1,30 @@
 package cron
 
 import (
-	"context"
-	"strconv"
-
 	"github.com/marvinrabe/goatcounter"
-	"zgo.at/errors"
-	"zgo.at/zdb"
 )
 
-func updateSizeStats(ctx context.Context, hits []goatcounter.Hit) error {
-	err := zdb.TX(ctx, func(ctx context.Context) error {
-		type gt struct {
-			count  int
-			day    string
-			width  int
-			pathID goatcounter.PathID
+func groupSizeStats(hits []goatcounter.Hit) statBatch {
+	type key struct {
+		site   string
+		pathID goatcounter.PathID
+		at     string
+		width  int
+	}
+	grouped := make(map[key]int)
+	for _, h := range hits {
+		if h.Bot > 0 || !h.FirstVisit {
+			continue
 		}
-		grouped := map[string]gt{}
-		siteByPath := map[goatcounter.PathID]string{}
-		for _, h := range hits {
-			siteByPath[h.PathID] = h.Site
-			if h.Bot > 0 {
-				continue
-			}
-
-			var width int
-			if len(h.Size) > 0 {
-				width = int(h.Size[0])
-			}
-
-			day := h.CreatedAt.Format("2006-01-02")
-			k := day + strconv.Itoa(width) + strconv.Itoa(int(h.PathID))
-			v := grouped[k]
-			if v.count == 0 {
-				v.day = day
-				v.width = width
-				v.pathID = h.PathID
-			}
-
-			if h.FirstVisit {
-				v.count += 1
-			}
-			grouped[k] = v
+		var width int
+		if len(h.Size) > 0 {
+			width = int(h.Size[0])
 		}
-
-		ins, err := goatcounter.Tables.SizeStats.Bulk(ctx)
-		if err != nil {
-			return err
-		}
-
-		for _, v := range grouped {
-			if v.count > 0 {
-				ins.Values(siteByPath[v.pathID], v.pathID, v.day, v.width, v.count)
-			}
-		}
-		return ins.Finish()
-	})
-	return errors.Wrap(err, "cron.updateSizeStats")
+		grouped[key{h.Site, h.PathID, h.CreatedAt.Format("2006-01-02"), width}]++
+	}
+	batch := statBatch{bulk: goatcounter.Tables.SizeStats.Bulk}
+	for k, count := range grouped {
+		batch.rows = append(batch.rows, []any{k.site, k.pathID, k.at, k.width, count})
+	}
+	return batch
 }

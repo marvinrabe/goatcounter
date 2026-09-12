@@ -1,6 +1,6 @@
 with x as (
 	select {{.SelectCTE}} from {{.Table}}
-	where path_id :in (:paths)
+	where path_id in (:paths)
 	group by {{.Group}}
 )
 insert into {{.Table}} ({{.Columns}})

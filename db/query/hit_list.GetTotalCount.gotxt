@@ -1,17 +1,17 @@
 with x as (
 	select coalesce(sum(total), 0) as total
 	from hit_counts
-	where hour >= :start and hour <= :end and :filter
+	where datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end) and :filter
 ), y as (
 	select coalesce(sum(total), 0) as total_utc
 	from hit_counts
-	where hour >= :start_utc and hour <= :end_utc and :filter
+	where datetime(hour) >= datetime(:start_utc) and datetime(hour) <= datetime(:end_utc) and :filter
 )
 {{if .total_events}}, z as (
 	select coalesce(sum(total), 0) as total_events
 	from hit_counts
 	join paths using (path_id)
-	where hour >= :start and hour <= :end and paths.event = 1 and :filter
+	where datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end) and paths.event = 1 and :filter
 )
 {{end}}
 select

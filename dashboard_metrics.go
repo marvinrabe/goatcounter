@@ -35,6 +35,12 @@ type DashboardMetricSeries struct {
 	Points []DashboardMetricPoint `json:"points"`
 }
 
+// DashboardData contains totals and chart points from a single session query.
+type DashboardData struct {
+	Metrics DashboardMetrics
+	Series  DashboardMetricSeries
+}
+
 type dashboardMetricBucket struct {
 	Hour      string  `db:"hour"`
 	Visits    int     `db:"visits"`
@@ -57,7 +63,7 @@ func (m DashboardMetrics) VisitDuration() time.Duration {
 // GetDashboardMetrics calculates visit and pageview metrics for a period. Only
 // pageviews are included: custom events are not visits and cannot be bounces.
 func GetDashboardMetrics(ctx context.Context, rng ztime.Range, pathFilter PathFilter) (DashboardMetrics, error) {
-	filterSQL, filterParams := pathFilter.SQL(ctx)
+	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
 	var m DashboardMetrics
 	err := zdb.Get(ctx, &m, "load:dashboard_metrics.Get", filterParams, map[string]any{
 		"start":  rng.Start,
@@ -73,7 +79,16 @@ func GetDashboardMetrics(ctx context.Context, rng ztime.Range, pathFilter PathFi
 func GetDashboardMetricSeries(
 	ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group,
 ) (DashboardMetricSeries, error) {
-	filterSQL, filterParams := pathFilter.SQL(ctx)
+	data, err := GetDashboardData(ctx, rng, pathFilter, group)
+	return data.Series, err
+}
+
+// GetDashboardData calculates totals and chart points together. Totals are
+// weighted by visits, rather than averaging the per-bucket rates.
+func GetDashboardData(ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group) (DashboardData, error) {
+	loc := Config(ctx).Timezone.Loc()
+	group = ChartGroup(rng.In(loc), group)
+	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
 	var rows []dashboardMetricBucket
 	err := zdb.Select(ctx, &rows, "load:dashboard_metrics.Series", filterParams, map[string]any{
 		"start":   rng.Start,
@@ -84,17 +99,21 @@ func GetDashboardMetricSeries(
 		"sqlite":  zdb.SQLDialect(ctx) == zdb.DialectSQLite,
 	})
 	if err != nil {
-		return DashboardMetricSeries{}, errors.Wrap(err, "GetDashboardMetricSeries")
+		return DashboardData{}, errors.Wrap(err, "GetDashboardData")
 	}
 
-	loc := Config(ctx).Timezone.Loc()
 	start := metricBucketStart(rng.Start.In(loc), group)
 	end := rng.End.In(loc)
 	buckets := make(map[string]dashboardMetricBucket)
+	var total dashboardMetricBucket
 	for _, row := range rows {
+		total.Visits += row.Visits
+		total.Pageviews += row.Pageviews
+		total.Bounces += row.Bounces
+		total.Duration += row.Duration
 		t, err := time.ParseInLocation("2006-01-02 15", row.Hour, loc)
 		if err != nil {
-			return DashboardMetricSeries{}, errors.Wrap(err, "parse dashboard metric bucket")
+			return DashboardData{}, errors.Wrap(err, "parse dashboard metric bucket")
 		}
 		key := metricBucketStart(t, group).Format("2006-01-02 15")
 		b := buckets[key]
@@ -107,6 +126,9 @@ func GetDashboardMetricSeries(
 
 	series := DashboardMetricSeries{Group: group.String()}
 	for at := start; !at.After(end); at = nextMetricBucket(at, group) {
+		if err := ctx.Err(); err != nil {
+			return DashboardData{}, err
+		}
 		b := buckets[at.Format("2006-01-02 15")]
 		p := DashboardMetricPoint{
 			Day:       at.Format("2006-01-02"),
@@ -123,7 +145,37 @@ func GetDashboardMetricSeries(
 		}
 		series.Points = append(series.Points, p)
 	}
-	return series, nil
+	metrics := DashboardMetrics{Visits: total.Visits, Pageviews: total.Pageviews}
+	if total.Visits > 0 {
+		metrics.BounceRate = 100 * float64(total.Bounces) / float64(total.Visits)
+		metrics.VisitDurationSeconds = total.Duration / float64(total.Visits)
+	}
+	return DashboardData{Metrics: metrics, Series: series}, nil
+}
+
+// ChartGroup coarsens long ranges without changing their dates. This bounds
+// empty chart buckets even while a date input contains a partially typed year.
+// Yearly charts have at most 10,000 points for the four-digit years we accept.
+func ChartGroup(rng ztime.Range, group Group) Group {
+	const maxPoints = 2400
+	for ; group < GroupYearly; group++ {
+		start := metricBucketStart(rng.Start, group)
+		var limit time.Time
+		switch group {
+		case GroupHourly:
+			limit = start.Add(maxPoints * time.Hour)
+		case GroupDaily:
+			limit = start.AddDate(0, 0, maxPoints)
+		case GroupWeekly:
+			limit = start.AddDate(0, 0, maxPoints*7)
+		case GroupMonthly:
+			limit = start.AddDate(0, maxPoints, 0)
+		}
+		if rng.End.Before(limit) {
+			return group
+		}
+	}
+	return GroupYearly
 }
 
 func metricBucketStart(t time.Time, group Group) time.Time {
@@ -135,6 +187,9 @@ func metricBucketStart(t time.Time, group Group) time.Time {
 	}
 	if group.Monthly() {
 		return ztime.StartOf(t, ztime.Month)
+	}
+	if group.Yearly() {
+		return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location())
 	}
 	return ztime.StartOf(t, ztime.Day)
 }
@@ -149,13 +204,16 @@ func nextMetricBucket(t time.Time, group Group) time.Time {
 	if group.Monthly() {
 		return t.AddDate(0, 1, 0)
 	}
+	if group.Yearly() {
+		return t.AddDate(1, 0, 0)
+	}
 	return t.AddDate(0, 0, 1)
 }
 
 // PageviewTotals returns the raw pageview time series used by the main chart.
 // This differs from Totals, which counts a path at most once per session.
 func (h *HitList) PageviewTotals(ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group) error {
-	filterSQL, filterParams := pathFilter.SQL(ctx)
+	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
 	err := zdb.Get(ctx, &h.Stats2, "load:dashboard_metrics.Pageviews", filterParams, map[string]any{
 		"start":   rng.Start,
 		"end":     rng.End,

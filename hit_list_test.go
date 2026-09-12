@@ -170,6 +170,23 @@ func TestHitListsList(t *testing.T) {
 			if d := ztest.Diff(out, want); d != "" {
 				t.Fatal(d)
 			}
+
+			var counts HitLists
+			display, more, err := counts.ListCounts(ctx, rng, pathsFilter, tt.inExclude, 2)
+			if have := fmt.Sprintf("%d %t %v", display, more, err); have != tt.wantReturn {
+				t.Fatalf("ListCounts: %s; want %s", have, tt.wantReturn)
+			}
+			if len(counts) != len(stats) {
+				t.Fatalf("ListCounts: %d rows; want %d", len(counts), len(stats))
+			}
+			for i, count := range counts {
+				if count.Count != stats[i].Count || count.PathID != stats[i].PathID || count.Path != stats[i].Path || count.Event != stats[i].Event {
+					t.Errorf("ListCounts: row differs: %#v", count)
+				}
+				if count.Stats != nil || count.Stats2 != nil {
+					t.Error("ListCounts loaded unused time series")
+				}
+			}
 		})
 	}
 
@@ -212,6 +229,48 @@ func TestHitListsList(t *testing.T) {
 			t.Fatalf("Total: %d; TotalUTC: %d; want: %d", tc.Total, tc.TotalUTC, want)
 		}
 	})
+}
+
+func TestSiteTotalUTCTimestampBounds(t *testing.T) {
+	ctx := testenv.DB(t)
+	for _, row := range []struct {
+		site, hour string
+		total      int
+	}{
+		{"example.com", "2026-09-09 23:00:00", 100},
+		{"example.com", "2026-09-10 00:00:00", 2},
+		{"example.com", "2026-09-10T12:00:00Z", 3},
+		{"example.com", "2026-09-11T01:00:00+02:00", 2},
+		{"example.com", "2026-09-11 00:00:00", 100},
+		{"another.example", "2026-09-10 12:00:00", 100},
+	} {
+		if err := zdb.Exec(ctx, `insert into hit_counts (site, path_id, hour, total) values (?, 1, ?, ?)`, row.site, row.hour, row.total); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24*time.Hour - time.Second)
+	for _, tt := range []struct {
+		name string
+		rng  ztime.Range
+		want int
+	}{
+		{"single day", ztime.NewRange(start).To(end), 7},
+		{"offset bounds", ztime.NewRange(start.In(time.FixedZone("UTC+2", 7200))).To(end.In(time.FixedZone("UTC+2", 7200))), 7},
+		{"start only", ztime.Range{Start: start}, 107},
+		{"end only", ztime.Range{End: end}, 107},
+		{"unbounded", ztime.Range{}, 207},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var total HitList
+			if err := total.SiteTotalUTC(ctx, tt.rng); err != nil {
+				t.Fatal(err)
+			}
+			if total.Count != tt.want {
+				t.Errorf("got %d visits, want %d", total.Count, tt.want)
+			}
+		})
+	}
 }
 
 func TestGetTotalCount(t *testing.T) {

@@ -3,10 +3,10 @@ package widgets
 import (
 	"context"
 	"html/template"
+	"sync"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/zstd/zint"
 	"zgo.at/zstd/ztime"
 )
 
@@ -38,6 +38,7 @@ type (
 		Group       goatcounter.Group
 		AllowGroups goatcounter.Groups
 		ShowRefs    goatcounter.PathID
+		metrics     *sharedMetrics
 	}
 
 	// SharedData gets passed to every widget.
@@ -77,7 +78,25 @@ func NewArgs(
 		rng.End = ztime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), ztime.Month).UTC()
 	}
 
-	return Args{Rng: rng, Group: group, AllowGroups: allowGroups, ShowRefs: showRefs}
+	return Args{Rng: rng, Group: group, AllowGroups: allowGroups, ShowRefs: showRefs, metrics: new(sharedMetrics)}
+}
+
+// Copies of Args share this request's session query, even when widgets load
+// concurrently. NewArgs creates a new cache for every dashboard/API request.
+type sharedMetrics struct {
+	once sync.Once
+	data goatcounter.DashboardData
+	err  error
+}
+
+func (a Args) dashboardData(ctx context.Context) (goatcounter.DashboardData, error) {
+	if a.metrics == nil {
+		return goatcounter.GetDashboardData(ctx, a.Rng, a.PathFilter, a.Group)
+	}
+	a.metrics.once.Do(func() {
+		a.metrics.data, a.metrics.err = goatcounter.GetDashboardData(ctx, a.Rng, a.PathFilter, a.Group)
+	})
+	return a.metrics.data, a.metrics.err
 }
 
 // Layout is the dashboard layout: the widgets that are shown, in order. It is
@@ -110,7 +129,7 @@ func NewList(ctx context.Context) List {
 // ByID gets the widget at this position in the layout.
 func ByID(ctx context.Context, id int) Widget {
 	if id < 0 || id >= len(Layout) {
-		return &Dummy{}
+		return nil
 	}
 	return NewWidget(ctx, Layout[id], id)
 }
@@ -171,9 +190,5 @@ func NewWidget(ctx context.Context, name string, id int) Widget {
 		return &Languages{id: id, Limit: hchartSize}
 	}
 	log.Errorf(ctx, "unknown widget: %q", name)
-	return &Dummy{}
-}
-
-func isCol(ctx context.Context, flag zint.Bitflag16) bool {
-	return goatcounter.MustGetSite(ctx).Settings.Collect.Has(flag)
+	return nil
 }

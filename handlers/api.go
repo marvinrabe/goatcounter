@@ -387,9 +387,7 @@ func apiSiteContext(ctx context.Context, name string) (context.Context, goatcoun
 	if !ok {
 		return ctx, site, guru.Errorf(400, "unknown site %q", name)
 	}
-	if err := site.Load(ctx); err != nil {
-		return ctx, site, err
-	}
+	site.Defaults(ctx)
 	return goatcounter.WithSite(ctx, &site), site, nil
 }
 
@@ -405,8 +403,7 @@ func apiSites(ctx context.Context) (any, error) {
 			return nil, err
 		}
 		result = append(result, map[string]any{
-			"site": site.Key, "link_domain": site.LinkDomain, "received_data": bool(site.ReceivedData),
-			"first_hit_at": site.FirstHitAt, "raw_pageviews": pageviews,
+			"site": site.Key, "link_domain": site.LinkDomain, "raw_pageviews": pageviews,
 		})
 	}
 	return map[string]any{"sites": result, "timezone": goatcounter.Config(ctx).Timezone.String()}, nil
@@ -484,6 +481,7 @@ func (h backend) apiDashboard(ctx context.Context, in dashboardArgs) (any, error
 		switch v := w.(type) {
 		case *widgets.Pages:
 			v.Limit, v.LimitRefs = limit, limit
+			v.WithStats = true
 		case *widgets.TopRefs:
 			v.Limit = limit
 		case *widgets.Campaigns:

@@ -29,9 +29,9 @@ Running it:
 - English only: the `i18n/` translations, the translation UI, and the
   per-user locale are gone. Dates, numbers, and times use international formats
   (ISO dates, 24-hour clock, thin-space thousands separator).
-- Only four commands: `serve`, `db`, `help`, and `version`. The `import`,
-  `monitor`, and `dashboard` commands are gone, as are the `db` subcommands for
-  sites and API tokens.
+- Only four commands: `serve`, `healthcheck`, `help`, and `version`. Use external
+  SQLite/libSQL tools for database administration. Empty databases are initialized
+  automatically by `serve`.
 - No runtime metrics collection and no admin ("bosmang") pages for cache,
   background jobs, GeoIP, and metrics.
 
@@ -65,7 +65,7 @@ Features
 - **Privacy-aware**; doesn’t track users with unique identifiers and doesn't
   need a GDPR notice.
 
-- **Lightweight** and **fast**; adds just ~3.5K of extra data to your site.
+- **Lightweight** and **fast**; the tracking script is about 0.6 KB gzipped.
 
 - Identify **unique visits** without cookies using a non-identifiable hash.
 
@@ -85,20 +85,41 @@ Features
   `https://stats.example.com/count`. Override this when needed with
   `data-endpoint`, such as `data-endpoint="//foobar.com/events"`.
 
+The script counts one pageview when the page first becomes visible. It sends
+the current path and query string, referrer, screen width, and an automation
+flag. It does not read canonical URLs or page titles.
+
+Once the script has loaded, use `window.goatcounter.count()` to count another
+pageview, or `window.goatcounter.count({path: 'download', event: true})` to count
+an event. The optional fields are `path`, `referrer`, `event`, `no_session`, and
+`site`. Use strings for paths, referrers, and sites, and booleans for the flags.
+Single-page apps should call `count()` after changing the URL.
+
+To disable the automatic pageview, set `window.goatcounter = {no_onload: true}`
+before loading the script. Local addresses and frames are skipped by default;
+set `allow_local: true` or `allow_frame: true` in the same object to enable them.
+An `endpoint` in that object is also supported; `data-endpoint` takes precedence.
+
+This minimal tracker replaces the upstream JavaScript API. JSON settings in
+`data-goatcounter-settings`, automatic `data-goatcounter-click` bindings,
+path/referrer callbacks, and the old helper methods are no longer supported.
+Use `count()` directly for custom tracking.
+
 
 Self-hosting GoatCounter
 ------------------------
-The only dependency is somewhere to store a SQLite database file. Alternatively
-you can use Docker, as documented in the section below.
+The only dependency is somewhere to store a local SQLite-compatible database
+file, or access to a remote libSQL database. Alternatively you can use Docker,
+as documented in the section below.
 
 ### Running
 You can start a server with:
 
     % goatcounter serve
 
-This will start a server on `*:8080`. The default is to use an SQLite database
-at `./goatcounter-data/db.sqlite3`, which will be created if it doesn't exist
-yet.
+This will start a server on `*:8080`. The default is to use a local database at
+`/data/goatcounter.db`, which will be created if it doesn't exist yet. Set
+`GOATCOUNTER_DB` to a `libsql://` URL to use a remote libSQL service.
 
 Set the sites before starting the server:
 
@@ -160,7 +181,7 @@ upstream's, with everything listed above still in them. Build it yourself:
     % docker build -t goatcounter .
     % docker run \
         -p 8080:8080 \
-        -v goatcounter-data:/home/goatcounter/goatcounter-data \
+        -v goatcounter-data:/data \
         -e GOATCOUNTER_SITES=example.com,foobar.net \
         goatcounter
 
@@ -376,19 +397,12 @@ subscriptions, or SSE stream; an MCP `GET` requesting `text/event-stream`
 returns 405.
 
 ### Updating
-Databases created before environment-configured multi-site support are not
-upgradable; start with a fresh database. Sites can be added, removed, or
-reordered because their configured names are stored with the data.
-
-The migration machinery is still there for future schema changes: use
-`goatcounter serve -automigrate` to run all pending migrations on startup, or
-`goatcounter db migrate all` to run them manually. `goatcounter db migrate
-pending` lists pending migrations and `goatcounter db migrate list` shows all of
-them.
+There is no migration path between schema versions; start with a fresh database
+after a schema change. Sites can be added, removed, or reordered because their
+configured names are stored with the data.
 
 ### Building from source
-You need Go 1.27 or newer, Node.js 22.12 or newer, and a C compiler
-(for SQLite).
+You need Go 1.27 or newer, Node.js 22.12 or newer, and a C compiler.
 
 You can build from source with:
 
@@ -401,10 +415,16 @@ You can build from source with:
 This builds the Vite-managed frontend assets and produces a `goatcounter`
 binary in the current directory.
 
+JavaScript sources and tests live in `assets/js/`, and stylesheets in
+`assets/css/`. `public/` is generated on each frontend build. Edit handwritten
+static files such as `robots.txt` and `security.txt` in `assets/static/`; Vite
+copies them into `public/` alongside the compiled assets, and Go embeds them
+in the binary.
+
 To build a fully statically linked binary:
 
     % go build -trimpath -ldflags='-s -w -extldflags=-static' \
-        -tags='osusergo,netgo,sqlite_omit_load_extension' \
+        -tags='osusergo,netgo' \
         ./cmd/goatcounter
 
 ### Development/testing

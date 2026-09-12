@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/db2"
 	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
 	"zgo.at/zdb"
@@ -14,8 +13,7 @@ import (
 )
 
 func oldBot(ctx context.Context) error {
-	ival := goatcounter.Interval(ctx, 30)
-	err := zdb.Exec(ctx, `delete from bots where created_at < `+ival)
+	err := zdb.Exec(ctx, `delete from bots where created_at < datetime('now', '-30 days')`)
 	if err != nil {
 		log.Module("cron").Error(ctx, err)
 	}
@@ -62,56 +60,67 @@ func persistAndStat(ctx context.Context) error {
 //
 // Exported for tests.
 func UpdateStats(ctx context.Context, hits []goatcounter.Hit) error {
-	site := goatcounter.GetSite(ctx)
-	if site == nil {
-		site = new(goatcounter.Site)
-		if err := site.Load(ctx); err != nil {
-			return err
-		}
-		ctx = goatcounter.WithSite(ctx, site)
+	batches := []statBatch{
+		groupHitCounts(hits), groupRefCounts(hits),
+		groupBrowserStats(hits), groupSystemStats(hits),
+		groupLocationStats(hits), groupLanguageStats(hits),
+		groupSizeStats(hits), groupCampaignStats(hits),
+	}
+	if len(batches[0].rows) == 0 {
+		return nil
 	}
 
-	funs := []func(context.Context, []goatcounter.Hit) error{
-		updateHitCounts,
-		updateRefCounts,
-		updateBrowserStats,
-		updateSystemStats,
-		updateLocationStats,
-		updateLanguageStats,
-		updateSizeStats,
-		updateCampaignStats,
+	// Ensure each location exists once per batch, before taking the aggregate
+	// write lock. Location.ByCode caches these dimension rows.
+	locations := make(map[string]bool)
+	for _, h := range hits {
+		if h.Bot > 0 || !bool(h.FirstVisit) || locations[h.Location] {
+			continue
+		}
+		if err := (&goatcounter.Location{}).ByCode(ctx, h.Location); err != nil {
+			return errors.Wrap(err, "UpdateStats location")
+		}
+		locations[h.Location] = true
 	}
 
-	for _, f := range funs {
-		if err := f(ctx, hits); err != nil {
-			return err
+	return zdb.TX(ctx, func(ctx context.Context) error {
+		for _, batch := range batches {
+			if len(batch.rows) == 0 {
+				continue
+			}
+			ins, err := batch.bulk(ctx)
+			if err != nil {
+				return err
+			}
+			for _, row := range batch.rows {
+				ins.Values(row...)
+			}
+			if err := ins.Finish(); err != nil {
+				return errors.Wrap(err, "UpdateStats")
+			}
 		}
-	}
+		return nil
+	})
+}
 
-	if !site.ReceivedData {
-		err := site.UpdateReceivedData(ctx)
-		if err != nil {
-			return errors.Wrap(err, "update received_data")
-		}
-	}
-	return nil
+// statBatch holds already grouped rows; constructing it performs no SQL.
+type statBatch struct {
+	bulk func(context.Context) (zdb.BulkInsert, error)
+	rows [][]any
 }
 
 func oldFilters(ctx context.Context) error {
 	return zdb.TX(ctx, func(ctx context.Context) error {
-		var (
-			ival = goatcounter.Interval(ctx, 2)
-			ids  []goatcounter.FilterID
-		)
-		err := zdb.Select(ctx, &ids, `delete from filters where last_used_at < `+ival+` returning filter_id`)
+		var ids []goatcounter.FilterID
+		err := zdb.Select(ctx, &ids,
+			`delete from filters where last_used_at < datetime('now', '-2 days') returning filter_id`)
 		if err != nil {
 			return err
 		}
 
 		if len(ids) > 0 {
-			return zdb.Exec(ctx, `delete from filter_paths where filter_id :in (:ids)`, map[string]any{
-				"in":  db2.In(ctx),
-				"ids": db2.Array(ctx, ids),
+			return zdb.Exec(ctx, `delete from filter_paths where filter_id in (:ids)`, map[string]any{
+				"ids": ids,
 			})
 		}
 		return nil

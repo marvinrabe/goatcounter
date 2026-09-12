@@ -7,7 +7,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/marvinrabe/goatcounter/internal/log"
-	"github.com/sethvargo/go-limiter"
 	"zgo.at/guru"
 	"zgo.at/zdb"
 	"zgo.at/zhttp"
@@ -25,7 +24,7 @@ func NewBackend(db zdb.DB, dev bool,
 		root.Mount(basePath, r)
 	}
 
-	backend{dashTimeout: dashTimeout, apiToken: apiToken}.Mount(r, db, dev, domainStatic, ratelimits, auth)
+	backend{dashTimeout: dashTimeout, apiToken: apiToken}.Mount(r, db, dev, domainStatic, basePath, ratelimits, auth)
 
 	NewStatic(r, dev, basePath)
 
@@ -37,13 +36,12 @@ type backend struct {
 	apiToken    string
 }
 
-func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, ratelimits Ratelimits, auth Auth) {
+func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic, basePath string, ratelimits Ratelimits, auth Auth) {
 	r.Use(
 		mware.RealIP(),
 		mware.WrapWriter(),
 		mware.Unpanic("github.com/marvinrabe/goatcounter/handlers.add"),
-		addctx(db, true, h.dashTimeout),
-		addcsp(domainStatic),
+		addcsp(domainStatic, basePath),
 		middleware.RedirectSlashes,
 		mware.NoStore(),
 		middleware.Compress(5))
@@ -63,37 +61,17 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, r
 		zhttp.ErrPage(w, r, guru.New(405, "Method Not Allowed"))
 	})
 
+	// Health checks do not require a site or dashboard authentication.
+	health := r.With(requestContext(3 * time.Second))
+	health.Get("/status", status(db))
+	health.Head("/status", status(db))
+
 	{
-		rr := r.With(mware.Headers(nil))
-		rr.Get("/robots.txt", zhttp.HandlerRobots([][]string{{"User-agent: *", "Disallow: /"}}))
-		rr.Get("/security.txt", zhttp.Wrap(func(w http.ResponseWriter, r *http.Request) error {
-			return zhttp.Text(w, "Contact: support@goatcounter.com")
-		}))
+		rr := r.With(requestContext(3*time.Second), mware.Headers(nil))
 		rr.Post("/jserr", zhttp.HandlerJSErr())
 		rr.Post("/csp", zhttp.HandlerCSP())
 
-		// Requests from localhost and -dev aren't rate limited in practice, but
-		// still go through a store so the X-Rate-Limit headers are set. The
-		// store is created once here rather than inside the callback below:
-		// memorystore.New starts a purge goroutine that only stops on Close(),
-		// so building one per request leaks a goroutine and its ticker.
-		//
-		// Note RealIP has already stripped the port by this point, so the
-		// localhost check below matches a same-host reverse proxy that doesn't
-		// set a forwarding header, not just local testing.
-		unlimitedTokens := uint64(1 << 14)
-		if dev {
-			unlimitedTokens = 1 << 30
-		}
-		unlimited := mustNewMem(unlimitedTokens, 1)
-
-		// 4 pageviews/second should be more than enough.
-		rate := rr.With(Ratelimit(true, func(r *http.Request) ([]limiter.Store, string) {
-			if dev || r.RemoteAddr == "127.0.0.1" {
-				return []limiter.Store{unlimited}, ""
-			}
-			return []limiter.Store{ratelimits.Count}, ""
-		}))
+		rate := rr.With(ratelimits.countMiddleware(dev), selectSite(true))
 		rate.Get("/count", zhttp.Wrap(h.count))
 		rate.Post("/count", zhttp.Wrap(h.count)) // to support navigator.sendBeacon (JS)
 	}
@@ -103,14 +81,19 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, r
 		"X-Content-Type-Options":    []string{"nosniff"},
 		"X-Frame-Options":           []string{}, // Clear default from zhttp
 	}))
-	auth.Mount(a)
-	af := a.With(auth.Middleware)
+	auth.Mount(a.With(requestContext(3 * time.Second)))
+
+	// Both the dashboard and its widget requests can run expensive queries.
+	// Authenticate before loading any site data.
+	af := a.With(requestContext(time.Duration(h.dashTimeout+1)*time.Second), auth.Middleware, selectSite(false))
 	af.Get("/", zhttp.Wrap(h.dashboard))
 	af.Get("/load-widget", zhttp.Wrap(h.loadWidget))
 
 	// An empty token disables the API completely: no route is registered.
 	if h.apiToken != "" {
-		a.With(h.bearerAuth).Get("/api", h.api)
-		a.With(h.bearerAuth).Post("/api", h.api)
+		// API actions select their own sites from their arguments.
+		api := a.With(requestContext(time.Duration(h.dashTimeout)*time.Second), h.bearerAuth)
+		api.Get("/api", h.api)
+		api.Post("/api", h.api)
 	}
 }

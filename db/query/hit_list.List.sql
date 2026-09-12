@@ -6,9 +6,9 @@ with x as (
 		{{:sqlite! jsonb_object_agg(substr((hour + :offset * interval '1 minute')::text, 0, 14), total) as stats2}}
 	from hit_counts
 	where
-		{{:exclude not path_id :in (:exclude) and}}
+		{{:exclude path_id not in (:exclude) and}}
 		:filter and
-		hour >=:start and hour<=:end
+		datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end)
 	group by path_id
 	order by total desc, path_id desc
 	limit :limit

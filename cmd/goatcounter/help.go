@@ -27,7 +27,7 @@ func cmdHelp(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 			continue
 		}
 		if a == "all" {
-			topics = []string{"help", "version", "serve", "db", "healthcheck", "listen", "debug"}
+			topics = []string{"help", "version", "serve", "healthcheck", "listen", "debug"}
 			break
 		}
 		topics = append(topics, strings.ToLower(a))
@@ -64,7 +64,6 @@ var usage = map[string]string{
 	"":            usageTop,
 	"help":        usageHelp,
 	"serve":       usageServe,
-	"db":          helpDB,
 	"listen":      helpListen,
 	"debug":       helpDebug,
 	"healthcheck": cmdHealthcheck,
@@ -88,7 +87,6 @@ Commands:
   help         Show help; use "help <topic>" or "help all" for more details.
   version      Show version and build information and exit.
   serve        Start HTTP server.
-  db           Modify the database and print database info.
   healthcheck  Check a running instance is healthy; for Docker HEALTHCHECK.
 
 Extra help topics:
@@ -117,17 +115,17 @@ List of debug modules for the -debug flag; you can add multiple separated by
 commas.
 
     all            Show debug logs for all of the below
-    acme           ACME certificate creation
     cli-trace      Show stack traces in errors on the CLI
-    cron           Background "cron" jobs
-    cron-acme      Cron jobs for ACME certificate creations
+    cron           Background "cron" jobs, including vacuuming old pageviews
     dashboard      Dashboard view
+    geo            Loading of the GeoIP database
     memstore       Storing of pageviews in the database
-    migrate        Database migrations
     refspam        Pageviews blocked due to being in the refspam list
-    req            HTTP requests (all except /count)
+    req            HTTP requests (all except /count and /robots.txt)
     session        Internal "session" generation to track visitors
     sql-query      Log all SQL queries
     sql-result     Log all SQL queries with the data they're returning.
-    vacuum         Deletion of old pageviews
+
+You can also disable a module by prefixing it with "-", for example
+"-debug=all,-sql-query" to debug everything except SQL queries.
 `

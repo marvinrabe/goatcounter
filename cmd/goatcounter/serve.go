@@ -55,7 +55,6 @@ Environment:
 
     GOATCOUNTER_LISTEN=:80
     GOATCOUNTER_STORE_EVERY=60
-    GOATCOUNTER_AUTOMIGRATE=
     GOATCOUNTER_SITES=example.com,foobar.net
     GOATCOUNTER_API_TOKEN=a-long-random-secret
     GOATCOUNTER_AUTH=basic
@@ -70,9 +69,10 @@ Environment:
 
 Flags:
 
-  -db          Database connection: "sqlite+<file>".
-               See "goatcounter help db" for detailed documentation. Default:
-               sqlite+./goatcounter-data/db.sqlite3
+  -db          Local database path or remote libSQL URL.
+               Default: libsql+file:/data/goatcounter.db
+               Remote example: libsql://your-database.turso.io?authToken=TOKEN
+               An empty database is initialized automatically on startup.
 
   -dbconn      Set maximum number of connections, as max_open,max_idle
 
@@ -93,9 +93,6 @@ Flags:
                in some cases it's useful to run GoatCounter under a path
                ("example.com/stats"), in which case you'll need to set this to
                "/stats".
-
-  -automigrate Automatically run all pending migrations on startup.
-
 
   -static      Serve static files from a different domain, such as a CDN or
                cookieless domain. Default: not set.
@@ -126,15 +123,10 @@ Flags:
 
                Updates are only done on restarts.
 
-  -ratelimit   Set rate limits for various actions; the syntax is
-               "name:num-requests/seconds"; multiple values are separated by
-               a comma. The defaults are:
-
-                   count:4/1            4 requests / second
-
-               If one of the names is omitted it will fall back to the default
-               value; for example "-ratelimit count:8/1" will use the default
-               for everything else. Use "none" to disable this ratelimit.
+  -ratelimit   Limit requests to /count. Syntax: count:num-requests/seconds.
+               Default: count:4/1 (4 requests per second).
+               Use count:none to disable the collector limit.
+               Only the count limit is supported.
 
   -store-every How often to persist pageviews to the database, in seconds.
                Higher values will give better performance, but it will take a
@@ -175,7 +167,6 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		dbConn       = f.String("4,2", "dbconn")
 		debugFlag    = f.StringList(nil, "debug")
 		dev          = f.Bool(false, "dev")
-		automigrate  = f.Bool(false, "automigrate")
 		listen       = f.String(":8080", "listen")
 		geodbFlag    = f.String("", "geodb")
 		ratelimit    = f.String("", "ratelimit")
@@ -218,9 +209,7 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		return v
 	}
 
-	db, ctx, err := connectDB(dbConnect.String(), dbConn.String(),
-		map[bool][]string{true: {"all"}, false: {"pending"}}[automigrate.Bool()],
-		true, dev.Bool())
+	db, ctx, err := connectDB(dbConnect.String(), dbConn.String(), dev.Bool())
 	if err != nil {
 		return err
 	}
@@ -388,17 +377,12 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	return nil
 }
 
-// Keep the per-connection page cache small; the default of 20M is multiplied by
-// the number of open connections, which is a lot of memory for a database this
-// size.
-const defaultDBParams = "?_cache_size=-4000"
-
 func defaultDB() string {
-	return "sqlite+./goatcounter-data/db.sqlite3" + defaultDBParams
+	return "libsql+file:/data/goatcounter.db"
 }
 
 func setupReload() error {
-	if !zio.Exists("db/migrate") || !zio.Exists("tpl") || !zio.Exists("public") {
+	if !zio.Exists("db/schema.gotxt") || !zio.Exists("tpl") || !zio.Exists("public") {
 		return errors.New("-dev flag was given but this doesn't seem like a GoatCounter source directory")
 	}
 	if _, err := exec.LookPath("git"); err == nil {
@@ -488,31 +472,31 @@ func setupGeo(v *zvalidate.Validator, geodbFlag string) *geoip2.Reader {
 
 func setupRatelimits(v *zvalidate.Validator, ratelimit string) handlers.Ratelimits {
 	h := handlers.NewRatelimits()
-	if ratelimit != "" {
-		for r := range strings.SplitSeq(ratelimit, ",") {
-			v2 := zvalidate.New()
-
-			name, spec, _ := strings.Cut(r, ":")
-			v2.Required("-ratelimit.name", name)
-			nn := v2.Include("-ratelimit.name", name, []string{"count", "api", "api2", "api-count", "export", "login"})
-			name = nn.(string)
-
-			if strings.TrimSpace(spec) == "none" {
-				h.Clear(name)
-				continue
-			} else {
-				reqs, secs, _ := strings.Cut(spec, "/")
-
-				v2.Required("-ratelimit.requests", reqs)
-				v2.Required("-ratelimit.seconds", secs)
-				r := v2.Integer("-ratelimit.requests", reqs)
-				s := v2.Integer("-ratelimit.seconds", secs)
-				h.Set(name, int(r), s)
-			}
-			if v2.HasErrors() {
-				v.Merge(v2)
-			}
+	if strings.TrimSpace(ratelimit) == "" {
+		return h
+	}
+	for entry := range strings.SplitSeq(ratelimit, ",") {
+		name, spec, _ := strings.Cut(entry, ":")
+		if strings.ToLower(strings.TrimSpace(name)) != "count" {
+			v.Append("-ratelimit.name", fmt.Sprintf("unknown limit %q; only count is supported", name))
+			continue
 		}
+		if strings.TrimSpace(spec) == "none" {
+			h.ClearCount()
+			continue
+		}
+
+		v2 := zvalidate.New()
+		requests, seconds, _ := strings.Cut(spec, "/")
+		tokens := v2.Integer("-ratelimit.requests", requests)
+		secs := v2.Integer("-ratelimit.seconds", seconds)
+		v2.Range("-ratelimit.requests", tokens, 1, 0)
+		v2.Range("-ratelimit.seconds", secs, 1, int64((1<<63-1)/time.Second))
+		if v2.HasErrors() {
+			v.Merge(v2)
+			continue
+		}
+		h.SetCount(uint64(tokens), time.Duration(secs)*time.Second)
 	}
 	return h
 }

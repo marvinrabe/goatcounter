@@ -7,7 +7,7 @@ with session_stats as (
 	from hits
 	join paths using (path_id)
 	where
-		hits.created_at >= :start and hits.created_at <= :end and
+		datetime(hits.created_at) >= datetime(:start) and datetime(hits.created_at) <= datetime(:end) and
 		paths.event = 0 and
 		:filter
 	group by hits.session

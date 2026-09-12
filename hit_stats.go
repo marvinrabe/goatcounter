@@ -129,7 +129,7 @@ func asUTCDate(ctx context.Context, t time.Time) string {
 func (h *HitStats) ListTopRefs(ctx context.Context, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
 		site                    = MustGetSite(ctx)
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "ref_counts")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:ref.ListTopRefs.sql", filterParams, map[string]any{
 		"start":      rng.Start,
@@ -155,7 +155,7 @@ func (h *HitStats) ListTopRefs(ctx context.Context, rng ztime.Range, pathFilter 
 // ListTopRef lists all paths by referrer.
 func (h *HitStats) ListTopRef(ctx context.Context, ref string, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "ref_counts")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ByRef", filterParams, map[string]any{
 		"start":  rng.Start,
@@ -175,7 +175,7 @@ func (h *HitStats) ListTopRef(ctx context.Context, ref string, rng ztime.Range, 
 // ListBrowsers lists all browser statistics for the given time period.
 func (h *HitStats) ListBrowsers(ctx context.Context, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "browser_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListBrowsers", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -194,7 +194,7 @@ func (h *HitStats) ListBrowsers(ctx context.Context, rng ztime.Range, pathFilter
 // ListBrowser lists all the versions for one browser.
 func (h *HitStats) ListBrowser(ctx context.Context, browser string, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "browser_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListBrowser", filterParams, map[string]any{
 		"start":   asUTCDate(ctx, rng.Start),
@@ -214,7 +214,7 @@ func (h *HitStats) ListBrowser(ctx context.Context, browser string, rng ztime.Ra
 // ListSystems lists OS statistics for the given time period.
 func (h *HitStats) ListSystems(ctx context.Context, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "system_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListSystems", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -233,7 +233,7 @@ func (h *HitStats) ListSystems(ctx context.Context, rng ztime.Range, pathFilter 
 // ListSystem lists all the versions for one system.
 func (h *HitStats) ListSystem(ctx context.Context, system string, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "system_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListSystem", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -253,7 +253,7 @@ func (h *HitStats) ListSystem(ctx context.Context, system string, rng ztime.Rang
 // ListLanguages lists all languages.
 func (h *HitStats) ListLanguages(ctx context.Context, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "language_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListLanguages", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -279,7 +279,7 @@ const (
 // ListSizes lists all device sizes.
 func (h *HitStats) ListSizes(ctx context.Context, rng ztime.Range, pathFilter PathFilter, sortByCount bool) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "size_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListSizes", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -338,7 +338,7 @@ func (h *HitStats) ListSize(ctx context.Context, id string, rng ztime.Range, pat
 	}
 
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "size_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListSize", filterParams, map[string]any{
 		"start":    asUTCDate(ctx, rng.Start),
@@ -366,7 +366,7 @@ func (h *HitStats) ListSize(ctx context.Context, id string, rng ztime.Range, pat
 // ListLocations lists all location statistics for the given time period.
 func (h *HitStats) ListLocations(ctx context.Context, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "location_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListLocations", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -385,7 +385,7 @@ func (h *HitStats) ListLocations(ctx context.Context, rng ztime.Range, pathFilte
 // ListLocation lists all divisions for a location
 func (h *HitStats) ListLocation(ctx context.Context, country string, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "location_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListLocation", filterParams, map[string]any{
 		"start":   asUTCDate(ctx, rng.Start),
@@ -405,7 +405,7 @@ func (h *HitStats) ListLocation(ctx context.Context, country string, rng ztime.R
 // ListCampaigns lists all campaigns statistics for the given time period.
 func (h *HitStats) ListCampaigns(ctx context.Context, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "campaign_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListCampaigns", filterParams, map[string]any{
 		"start":  asUTCDate(ctx, rng.Start),
@@ -424,7 +424,7 @@ func (h *HitStats) ListCampaigns(ctx context.Context, rng ztime.Range, pathFilte
 // ListCampaign lists all statistics for a campaign.
 func (h *HitStats) ListCampaign(ctx context.Context, campaign CampaignID, rng ztime.Range, pathFilter PathFilter, limit, offset int) error {
 	var (
-		filterSQL, filterParams = pathFilter.SQL(ctx)
+		filterSQL, filterParams = pathFilter.SQL(ctx, "campaign_stats")
 	)
 	err := zdb.Select(ctx, &h.Stats, "load:hit_stats.ListCampaign", filterParams, map[string]any{
 		"start":    asUTCDate(ctx, rng.Start),

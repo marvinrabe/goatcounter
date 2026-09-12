@@ -266,9 +266,6 @@ import Chart from 'chart.js/auto'
 			var start = get_date($1('#period-start').value),
 			    end   = get_date($1('#period-end').value)
 
-			if (this.value.substr(-2) === '-f' && end.getTime() > (new Date()).getTime())
-				return alert(T('error/date-future'))
-
 			switch (this.value) {
 				case 'day-b':     start.setDate(start.getDate()     - 1); end.setDate(end.getDate()     - 1); break;
 				case 'week-b':    start.setDate(start.getDate()     - 7); end.setDate(end.getDate()     - 7); break;
@@ -281,11 +278,6 @@ import Chart from 'chart.js/auto'
 			}
 			if (start.getDate() === 1 && this.value.substr(0, 5) === 'month')
 				end = new Date(start.getFullYear(), start.getMonth() + 1, 0)
-
-			if (start > (new Date()).getTime())
-				return alert(T('error/date-future'))
-			if (SITE_FIRST_HIT_AT > end.getTime())
-				return alert(T('error/date-past'))
 
 			$1('#dash-select-period').className = ''
 			set_period(start, end);
@@ -311,7 +303,11 @@ import Chart from 'chart.js/auto'
 			}
 		})
 
-		on('#period-start, #period-end', 'change', () => { $1('#dash-form').requestSubmit() })
+		// Date inputs emit change while the year is still being typed.
+		on('#period-start, #period-end', 'blur', function() {
+			if (this.value && this.value !== this.defaultValue)
+				this.form.requestSubmit()
+		})
 	}
 
 	// Reload the dashboard when typing in the filter input, so the user won't
@@ -484,6 +480,8 @@ import Chart from 'chart.js/auto'
 	}
 
 	var metric_point_label = function(point, group) {
+		if (group === 'year')
+			return point.day.slice(0, 4)
 		if (group === 'hour')
 			return `${format_date(point.day, true)} ${String(point.hour ?? 0).padStart(2, '0')}:00`
 		if (group === 'week') {

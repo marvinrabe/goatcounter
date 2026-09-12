@@ -9,7 +9,7 @@ y as (
 		coalesce(sum(total), 0) as count
 	from ref_counts
 	join x using (ref_id)
-	where hour >= :start and hour <= :end and :filter
+	where datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end) and :filter
 	group by path_id
 	order by count desc
 )

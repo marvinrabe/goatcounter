@@ -9,15 +9,13 @@ import (
 	"zgo.at/zstd/ztime"
 )
 
-func TestSiteLoadFromConfig(t *testing.T) {
-	ctx := testenv.DB(t)
+func TestSiteFromConfig(t *testing.T) {
+	ctx := testenv.Context(nil)
 	s, ok := Config(ctx).Site("example.com")
 	if !ok {
 		t.Fatal("configured site not found")
 	}
-	if err := s.Load(ctx); err != nil {
-		t.Fatal(err)
-	}
+	s.Defaults(ctx)
 	if s.Key != "example.com" || s.LinkDomain != "example.com" {
 		t.Fatalf("wrong site: %#v", s)
 	}

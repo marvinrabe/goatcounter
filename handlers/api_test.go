@@ -63,6 +63,14 @@ func TestAPIDisabledAndBearerAuth(t *testing.T) {
 	ztest.Code(t, rr, http.StatusNotFound)
 }
 
+func TestAPISiteContextDoesNotNeedDatabase(t *testing.T) {
+	ctx := testenv.Context(nil)
+	ctx, site, err := apiSiteContext(ctx, "example.com")
+	if err != nil || site.Key != "example.com" || Site(ctx).Key != site.Key {
+		t.Fatalf("configured site: %#v, %v", site, err)
+	}
+}
+
 func TestAPIPageviews(t *testing.T) {
 	ctx := testenv.DB(t)
 	now := ztime.Now(ctx).Add(-time.Hour)
@@ -135,5 +143,26 @@ func TestAPIImportAndDashboard(t *testing.T) {
 	b, _ := json.Marshal(got)
 	if !strings.Contains(string(b), `"pageviews":2`) || !strings.Contains(string(b), `"path":"/imported"`) {
 		t.Fatalf("unexpected dashboard after import: %s", b)
+	}
+}
+
+func TestAPIImportDistinctCampaigns(t *testing.T) {
+	ctx := testenv.DB(t)
+	if err := zdb.Exec(ctx, `insert into campaigns (name) values ('Alpha'), ('Beta')`); err != nil {
+		t.Fatal(err)
+	}
+	created := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	callAPI(t, ctx, "secret", "import_raw", map[string]any{
+		"hits": []map[string]any{
+			{"site": "example.com", "path": "/alpha", "created_at": created, "campaign": "Alpha", "first_visit": true},
+			{"site": "example.com", "path": "/beta", "created_at": created, "campaign": "Beta", "first_visit": true},
+		},
+	})
+	var names []string
+	if err := zdb.Select(ctx, &names, `select campaigns.name from hits join campaigns on campaigns.campaign_id = hits.campaign order by campaigns.name`); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(names, ",") != "Alpha,Beta" {
+		t.Fatalf("imported campaigns: %v", names)
 	}
 }

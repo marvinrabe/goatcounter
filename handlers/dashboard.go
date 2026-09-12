@@ -31,7 +31,6 @@ const defaultPeriod = "week"
 
 func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	site := Site(r.Context())
-
 	q := r.URL.Query()
 
 	// The dashboard view is whatever is in the query string; there is nothing
@@ -42,25 +41,12 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	}
 	filter := q.Get("filter")
 
-	rng, err := getPeriod(w, r, site)
+	rng, err := getPeriod(r)
 	if err != nil {
-		zhttp.FlashError(w, r, err.Error())
+		return err
 	}
-	if rng.Start.IsZero() || rng.End.IsZero() {
+	if q.Get("period-start") == "" || q.Get("period-end") == "" {
 		period = defaultPeriod
-		rng = timeRange(r.Context(), period, goatcounter.Config(r.Context()).Timezone.Loc(), false)
-		if err != nil {
-			return err
-		}
-
-		// Apply the same "a week before the first pageview at the most" limit
-		// that getPeriod() applies to explicit dates, so the first render of a
-		// saved view doesn't show a longer range (with different "view by"
-		// options) than submitting the dashboard form it renders.
-		if c := site.FirstHitAt.Add(-24 * time.Hour * 7); rng.Start.Before(c) {
-			y, m, d := c.In(goatcounter.Config(r.Context()).Timezone.Loc()).Date()
-			rng.Start = time.Date(y, m, d, 0, 0, 0, 0, goatcounter.Config(r.Context()).Timezone.Loc()).UTC()
-		}
 	}
 
 	showRefs, _ := zstrconv.ParseInt[goatcounter.PathID](q.Get("showrefs"), 10)
@@ -219,7 +205,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
-	rng, err := getPeriod(w, r, Site(r.Context()))
+	rng, err := getPeriod(r)
 	if err != nil {
 		return err
 	}
@@ -249,6 +235,9 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	wid := widgets.ByID(r.Context(), widget)
+	if wid == nil {
+		return guru.Errorf(400, `"widget" query parameter out of range: %d`, widget)
+	}
 	if key != "" {
 		wid.SetDetail(key)
 	}
@@ -335,7 +324,7 @@ func timeRange(ctx context.Context, r string, tz *time.Location, sundayStartsWee
 	return rng.UTC()
 }
 
-func getPeriod(w http.ResponseWriter, r *http.Request, site *goatcounter.Site) (ztime.Range, error) {
+func getPeriod(r *http.Request) (ztime.Range, error) {
 	var rng ztime.Range
 
 	if d := r.URL.Query().Get("period-start"); d != "" {
@@ -353,15 +342,11 @@ func getPeriod(w http.ResponseWriter, r *http.Request, site *goatcounter.Site) (
 		}
 	}
 
-	// Allow viewing a week before the site was created at the most.
-	c := site.FirstHitAt.Add(-24 * time.Hour * 7)
-	if rng.Start.Before(c) {
-		y, m, d := c.In(goatcounter.Config(r.Context()).Timezone.Loc()).Date()
-		rng.Start = time.Date(y, m, d, 0, 0, 0, 0, goatcounter.Config(r.Context()).Timezone.Loc())
+	if r.URL.Query().Get("period-start") == "" || r.URL.Query().Get("period-end") == "" {
+		return timeRange(r.Context(), defaultPeriod, goatcounter.Config(r.Context()).Timezone.Loc(), false), nil
 	}
-	if rng.End.Before(c) && !rng.End.IsZero() {
-		y, m, d := c.In(goatcounter.Config(r.Context()).Timezone.Loc()).Date()
-		rng.End = time.Date(y, m, d, 0, 0, 0, 0, goatcounter.Config(r.Context()).Timezone.Loc())
+	if rng.End.Before(rng.Start) {
+		return rng, guru.New(400, T(r.Context(), "error/date-mismatch|end date is before start date"))
 	}
 
 	return rng.From(rng.Start).To(rng.End).UTC(), nil
@@ -389,6 +374,13 @@ func getGroup(r *http.Request, g goatcounter.Group, rng ztime.Range) (goatcounte
 	case d >= 90:
 		g, allow = goatcounter.GroupDaily, append(allow, goatcounter.GroupDaily, goatcounter.GroupWeekly)
 	}
+	// Keep the full date range, but avoid rendering millions of empty points.
+	minimum := goatcounter.ChartGroup(rng, g)
+	allow = slices.DeleteFunc(allow, func(group goatcounter.Group) bool { return group < minimum })
+	if len(allow) == 0 {
+		allow = goatcounter.Groups{minimum}
+	}
+	g = minimum
 
 	// Keep the grouping from the saved view if it makes sense for this period,
 	// instead of always resetting it to the default.
@@ -405,6 +397,8 @@ func getGroup(r *http.Request, g goatcounter.Group, rng ztime.Range) (goatcounte
 		g = goatcounter.GroupWeekly
 	case gg == "month" && slices.Contains(allow, goatcounter.GroupMonthly):
 		g = goatcounter.GroupMonthly
+	case gg == "year" && slices.Contains(allow, goatcounter.GroupYearly):
+		g = goatcounter.GroupYearly
 	}
 
 	return g, allow

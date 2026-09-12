@@ -3,7 +3,7 @@ with x as (
 		language,
 		sum(count) as count
 	from language_stats
-	where day >= :start and day <= :end and :filter
+	where day >= date(:start) and day <= date(:end) and :filter
 	group by language
 	order by count desc, language asc
 	limit :limit offset :offset

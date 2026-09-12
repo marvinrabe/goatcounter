@@ -1,62 +1,27 @@
 package cron
 
 import (
-	"context"
-	"strconv"
-
 	"github.com/marvinrabe/goatcounter"
-	"zgo.at/errors"
-	"zgo.at/zdb"
 )
 
-func updateLocationStats(ctx context.Context, hits []goatcounter.Hit) error {
-	err := zdb.TX(ctx, func(ctx context.Context) error {
-		type gt struct {
-			count    int
-			day      string
-			location string
-			pathID   goatcounter.PathID
-		}
-		grouped := map[string]gt{}
-		siteByPath := map[goatcounter.PathID]string{}
-		for _, h := range hits {
-			siteByPath[h.PathID] = h.Site
-			if h.Bot > 0 {
-				continue
-			}
-
-			day := h.CreatedAt.Format("2006-01-02")
-			k := day + h.Location + strconv.Itoa(int(h.PathID))
-			v := grouped[k]
-			if v.count == 0 {
-				v.day = day
-				v.location = h.Location
-				v.pathID = h.PathID
-			}
-
-			// Call this for the side-effect of creating the rows in the
-			// locations table. Should be the case in almost all codepaths, but
-			// just to be sure. This is all cached, so there's very little
-			// overhead.
-			(&goatcounter.Location{}).ByCode(ctx, h.Location)
-
-			if h.FirstVisit {
-				v.count += 1
-			}
-			grouped[k] = v
+func groupLocationStats(hits []goatcounter.Hit) statBatch {
+	type key struct {
+		site     string
+		pathID   goatcounter.PathID
+		at       string
+		location string
+	}
+	grouped := make(map[key]int)
+	for _, h := range hits {
+		if h.Bot > 0 || !h.FirstVisit {
+			continue
 		}
 
-		ins, err := goatcounter.Tables.LocationStats.Bulk(ctx)
-		if err != nil {
-			return err
-		}
-
-		for _, v := range grouped {
-			if v.count > 0 {
-				ins.Values(siteByPath[v.pathID], v.pathID, v.day, v.location, v.count)
-			}
-		}
-		return ins.Finish()
-	})
-	return errors.Wrap(err, "cron.updateLocationStats")
+		grouped[key{h.Site, h.PathID, h.CreatedAt.Format("2006-01-02"), h.Location}]++
+	}
+	batch := statBatch{bulk: goatcounter.Tables.LocationStats.Bulk}
+	for k, count := range grouped {
+		batch.rows = append(batch.rows, []any{k.site, k.pathID, k.at, k.location, count})
+	}
+	return batch
 }

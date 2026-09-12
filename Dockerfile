@@ -16,7 +16,7 @@ copy --from=assets /goatcounter/public ./public
 env CGO_ENABLED=1
 env GOTOOLCHAIN=auto
 run go build -trimpath -ldflags='-s -w -extldflags=-static' \
-	-tags='osusergo,netgo,sqlite_omit_load_extension' \
+	-tags='osusergo,netgo' \
 	./cmd/goatcounter
 
 # The final image is "from scratch", which has no shell to create the user and
@@ -25,7 +25,7 @@ run go build -trimpath -ldflags='-s -w -extldflags=-static' \
 run <<EOF
 	set -euC
 
-	mkdir -p /rootfs/home/goatcounter/goatcounter-data /rootfs/etc /rootfs/tmp
+	mkdir -p /rootfs/data /rootfs/home/goatcounter /rootfs/etc /rootfs/tmp
 
 	echo 'goatcounter:x:1000:1000::/home/goatcounter:/sbin/nologin' > /rootfs/etc/passwd
 	echo 'goatcounter:x:1000:'                                      > /rootfs/etc/group
@@ -34,7 +34,7 @@ run <<EOF
 	cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/
 
 	chmod 1777 /rootfs/tmp
-	chown -R 1000:1000 /rootfs/home/goatcounter
+	chown -R 1000:1000 /rootfs/data /rootfs/home/goatcounter
 EOF
 
 ### Build container
@@ -50,6 +50,6 @@ expose     8080
 healthcheck cmd ["/bin/goatcounter", "healthcheck"]
 workdir    /home/goatcounter
 user       1000:1000
-volume     ["/home/goatcounter/goatcounter-data"]
+volume     ["/data"]
 entrypoint ["/bin/goatcounter"]
-cmd        ["serve", "-automigrate"]
+cmd        ["serve"]

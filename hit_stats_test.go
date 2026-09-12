@@ -176,8 +176,10 @@ func TestHitStats(t *testing.T) {
 
 			// We don't have the cities db in tests, so it's expected to be
 			// blank.
-			err = zdb.Exec(ctx, `update locations set region_name='Noord-Brabant' where iso_3166_2='NL-NB';
-				update locations set region_name='Bali' where iso_3166_2='ID-BA';`)
+			err = zdb.Exec(ctx, `update locations set region_name='Noord-Brabant' where iso_3166_2='NL-NB'`)
+			if err == nil {
+				err = zdb.Exec(ctx, `update locations set region_name='Bali' where iso_3166_2='ID-BA'`)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -3,7 +3,7 @@
 <head>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{.Site.LinkDomain}} – GoatCounter</title>
-	<link rel="stylesheet" href="{{.Asset "assets/backend.css"}}">
+	<link rel="stylesheet" href="{{.Asset "assets/css/backend.css"}}">
 </head>
 
 <body id="page-{{.Path | path_id}}">
@@ -19,6 +19,17 @@
 				{{range .Sites}}<option value="{{.Key}}" {{if eq .Key $.Site.Key}}selected{{end}}>{{.LinkDomain}}</option>{{end}}
 			</select>
 		</div>
+		<details id="tracking-code">
+			<summary>Code</summary>
+			<div class="code-dropdown">
+				<p>Add this script to the pages you want to track.</p>
+				<textarea id="tracking-snippet" rows="3" readonly spellcheck="false" aria-label="Tracking code">{{printf "<script data-site=\"%s\"\n        async src=\"//%s/count.js\"></script>" .Site.LinkDomain .CountDomain}}</textarea>
+				<div class="code-actions">
+					<button type="button" id="copy-tracking-code">Copy</button>
+					<span id="copy-code-status" role="status"></span>
+				</div>
+			</div>
+		</details>
 	</nav>
 
 	<div class="page">

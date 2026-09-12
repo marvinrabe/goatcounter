@@ -3,21 +3,20 @@ package testenv
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/cron"
+	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 	"github.com/marvinrabe/goatcounter/internal/geo"
 	"zgo.at/zdb"
-	"zgo.at/zdb-drivers/go-sqlite3"
 	"zgo.at/zstd/zgo"
 )
 
 func init() {
-	sqlite3.DefaultHook(goatcounter.SQLiteHook)
-
 	// Keep the extracted GeoIP database out of the source tree: geo.CacheDir is
 	// relative, and under "go test" the working directory is the package being
 	// tested, so every package that opens it would get its own copy. The
@@ -42,7 +41,7 @@ func Context(db zdb.DB) context.Context {
 // DB starts a new database test.
 func DB(t testing.TB) context.Context {
 	t.Helper()
-	return db(t, false)
+	return db(t, false, nil)
 }
 
 // DBFile is like DB(), but guarantees that the database will be written to
@@ -52,22 +51,22 @@ func DB(t testing.TB) context.Context {
 // variable.
 func DBFile(t testing.TB) context.Context {
 	t.Helper()
-	return db(t, true)
+	return db(t, true, nil)
 }
 
-func db(t testing.TB, storeFile bool) context.Context {
+func db(t testing.TB, storeFile bool, queries *QueryCounts) context.Context {
 	t.Helper()
 
-	conn := "sqlite3+:memory:?cache=shared"
-	if storeFile {
-		conn = "sqlite+" + t.TempDir() + "/goatcounter.sqlite3"
-	}
+	conn := libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
 	os.Setenv("TESTENV_CONNECT", conn)
 
-	db, err := zdb.Connect(context.Background(), zdb.ConnectOptions{
+	var files fs.FS = os.DirFS(zgo.ModuleRoot())
+	if queries != nil {
+		files = countedFiles{files, queries}
+	}
+	db, err := libsqldriver.Open(context.Background(), zdb.ConnectOptions{
 		Connect: conn,
-		Files:   os.DirFS(zgo.ModuleRoot()),
-		Migrate: []string{"all"},
+		Files:   files,
 		Create:  true,
 	})
 	if err != nil {
@@ -76,7 +75,8 @@ func db(t testing.TB, storeFile bool) context.Context {
 
 	ctx := Context(db)
 	goatcounter.Memstore.TestInit(db)
-	ctx = initData(ctx, db, t)
+	site := goatcounter.Config(ctx).Sites[0]
+	ctx = goatcounter.WithSite(ctx, &site)
 	cron.Start(ctx)
 
 	t.Cleanup(func() {
@@ -84,17 +84,6 @@ func db(t testing.TB, storeFile bool) context.Context {
 		cron.Stop()
 		db.Close()
 	})
-
-	return ctx
-}
-
-func initData(ctx context.Context, db zdb.DB, t testing.TB) context.Context {
-	var site goatcounter.Site
-	err := site.Load(ctx)
-	if err != nil {
-		t.Fatalf("create site: %s", err)
-	}
-	ctx = goatcounter.WithSite(ctx, &site)
 
 	return ctx
 }

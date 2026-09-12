@@ -10,10 +10,9 @@ import {$$, $1, T, ajax, on} from './helper.js'
 		window.BASE_PATH         = s.getAttribute('data-base-path') || ""
 		window.CSRF              = s.getAttribute('data-csrf')
 		window.TZ_OFFSET         = parseInt(s.getAttribute('data-offset'), 10) || 0
-		window.SITE_FIRST_HIT_AT = s.getAttribute('data-first-hit-at') * 1000
 		window.DEV               = s.getAttribute('data-dev') === 'true'
 
-		;[report_errors, bind_site_selector, onetime].forEach((f) => f.call())
+		;[report_errors, bind_site_selector, bind_tracking_code, onetime].forEach((f) => f.call())
 		;[window.page_dashboard]
 			.forEach((f) => document.body.id.match(new RegExp('^' + f.name.replace(/_/g, '-'))) && f.call())
 	})
@@ -76,6 +75,36 @@ import {$$, $1, T, ajax, on} from './helper.js'
 			let url = new URL(location.href)
 			url.searchParams.set('site', this.value)
 			location.href = url.toString()
+		})
+	}
+
+	var bind_tracking_code = function() {
+		const dropdown = $1('#tracking-code')
+		if (!dropdown) return
+		const snippet = $1('#tracking-snippet'), status = $1('#copy-code-status')
+		snippet.addEventListener('click', () => snippet.select())
+		$1('#copy-tracking-code').addEventListener('click', async () => {
+			status.textContent = ''
+			try {
+				await navigator.clipboard.writeText(snippet.value)
+				status.textContent = 'Copied!'
+			} catch (_) {
+				// Clipboard access may be unavailable on a plain HTTP installation.
+				snippet.focus()
+				snippet.select()
+				let copied = false
+				try { copied = document.execCommand('copy') } catch (_) { }
+				status.textContent = copied ? 'Copied!' : 'Code selected. Press ⌘C or Ctrl+C to copy.'
+			}
+		})
+		document.addEventListener('click', (e) => {
+			if (!dropdown.contains(e.target)) dropdown.open = false
+		})
+		document.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' && dropdown.open) {
+				dropdown.open = false
+				$1('summary', dropdown).focus()
+			}
 		})
 	}
 

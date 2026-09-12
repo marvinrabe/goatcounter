@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marvinrabe/goatcounter/internal/db2"
 	"zgo.at/errors"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zbool"
@@ -379,13 +378,15 @@ func (h *Hits) TestList(ctx context.Context) error {
 // Purge the given paths.
 func (h *Hits) Purge(ctx context.Context, pathIDs []PathID) error {
 	return zdb.TX(ctx, func(ctx context.Context) error {
+		if err := clearFilters(ctx, MustGetSite(ctx).Key); err != nil {
+			return err
+		}
 		for _, t := range append(statTables, "campaign_stats", "hit_counts", "ref_counts", "hits", "paths") {
 			err := zdb.Exec(ctx, `/* Hits.Purge */
-				delete from :tbl where path_id :in (:paths)`,
+				delete from :tbl where path_id in (:paths)`,
 				map[string]any{
 					"tbl":   zdb.SQL(t),
-					"paths": db2.Array(ctx, pathIDs),
-					"in":    db2.In(ctx),
+					"paths": pathIDs,
 				})
 			if err != nil {
 				return errors.Wrapf(err, "Hits.Purge %s", t)

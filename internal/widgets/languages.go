@@ -41,19 +41,17 @@ func (w *Languages) GetData(ctx context.Context, a Args) (more bool, err error) 
 
 func (w Languages) RenderHTML(ctx context.Context, shared SharedData) (string, any) {
 	return "_dashboard_hchart.gohtml", struct {
-		Context     context.Context
-		Base        string
-		Name        string
-		ID          int
-		RowsOnly    bool
-		HasSubMenu  bool
-		Loaded      bool
-		Err         error
-		IsCollected bool
-		Header      string
-		TotalUTC    int
-		Stats       goatcounter.HitStats
-	}{ctx, goatcounter.Config(ctx).BasePath, w.Name(), w.id, shared.RowsOnly, false, w.loaded, w.err,
-		isCol(ctx, goatcounter.CollectLanguage), i18n.T(ctx, "header/languages|Languages"),
+		Context    context.Context
+		Name       string
+		ID         int
+		RowsOnly   bool
+		HasSubMenu bool
+		Loaded     bool
+		Err        error
+		Header     string
+		TotalUTC   int
+		Stats      goatcounter.HitStats
+	}{ctx, w.Name(), w.id, shared.RowsOnly, false, w.loaded, w.err,
+		i18n.T(ctx, "header/languages|Languages"),
 		shared.TotalUTC, w.Stats}
 }

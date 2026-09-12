@@ -8,7 +8,6 @@
 			<h2>{{t .Context "header/toprefs|Top referrers"}}</h2>
 		</div>
 
-		{{template "_dashboard_warn_collect.gohtml" (map "IsCollected" .IsCollected "Context" .Context "Base" .Base)}}
 		{{if .Err}}
 			<em>{{t .Context "p/error|Error: %(error-message)" .Err.Error}}</em>
 		{{else}}

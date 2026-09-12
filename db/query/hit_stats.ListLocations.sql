@@ -3,7 +3,7 @@ with x as (
 		substr(location, 0, 3) as loc,
 		sum(count)      as count
 	from location_stats
-	where day >= :start and day <= :end and :filter
+	where day >= date(:start) and day <= date(:end) and :filter
 	group by loc
 	order by count desc, loc asc
 	limit :limit offset :offset

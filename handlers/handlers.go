@@ -7,85 +7,15 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/i18n"
 	"github.com/marvinrabe/goatcounter/internal/log"
 	_ "github.com/marvinrabe/goatcounter/internal/tpl" // Registers template functions.
-	"github.com/sethvargo/go-limiter"
-	"github.com/sethvargo/go-limiter/memorystore"
 	"zgo.at/json"
 	"zgo.at/zhttp"
-	"zgo.at/zstd/zfs"
 	"zgo.at/ztpl"
 )
-
-func mustNewMem(tokens uint64, interval time.Duration) limiter.Store {
-	s, err := memorystore.New(&memorystore.Config{Tokens: tokens, Interval: interval})
-	if err != nil {
-		// memorystore.New never returns an error, but just in case.
-		panic(err)
-	}
-	return s
-}
-
-type Ratelimits struct {
-	Count, API, API2, APICount, Export, Login limiter.Store
-}
-
-func NewRatelimits() Ratelimits {
-	return Ratelimits{
-		Count:    mustNewMem(4, time.Second),
-		API:      mustNewMem(4, time.Second),
-		API2:     mustNewMem(500, 3600*time.Second),
-		APICount: mustNewMem(60, 120*time.Second),
-		Export:   mustNewMem(1, 3600*time.Second),
-		Login:    mustNewMem(20, 60*time.Second),
-	}
-}
-
-// Clear a ratelimit.
-func (r *Ratelimits) Clear(name string) {
-	switch strings.ToLower(name) {
-	case "count":
-		r.Count = nil
-	case "api":
-		r.API = nil
-	case "api2":
-		r.API2 = nil
-	case "apicount", "api-count":
-		r.APICount = nil
-	case "export":
-		r.Export = nil
-	case "login":
-		r.Login = nil
-	default:
-		panic(fmt.Sprintf("handlers.SetRateLimit: invalid name: %q", name))
-	}
-}
-
-// Set the rate limits for name.
-func (r *Ratelimits) Set(name string, tokens int, secs int64) {
-	l := mustNewMem(uint64(tokens), time.Duration(secs)*time.Second)
-	switch strings.ToLower(name) {
-	case "count":
-		r.Count = l
-	case "api":
-		r.API = l
-	case "api2":
-		r.API2 = l
-	case "apicount", "api-count":
-		r.APICount = l
-	case "export":
-		r.Export = l
-	case "login":
-		r.Login = l
-	default:
-		panic(fmt.Sprintf("handlers.SetRateLimit: invalid name: %q", name))
-	}
-}
 
 // Site calls goatcounter.MustGetSite; it's just shorter :-)
 func Site(ctx context.Context) *goatcounter.Site { return goatcounter.MustGetSite(ctx) }
@@ -159,8 +89,6 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 		TZOffsetDisplay: goatcounter.Config(ctx).Timezone.OffsetDisplay(),
 		HideUI:          r.URL.Query().Get("hideui") != "",
 		JSTranslations: map[string]string{
-			"error/date-future":         T(ctx, "error/date-future|That would be in the future"),
-			"error/date-past":           T(ctx, "error/date-past|That would be before the site’s creation"),
 			"error/date-mismatch":       T(ctx, "error/date-mismatch|end date is before start date"),
 			"error/load-url":            T(ctx, "error/load-url|Could not load %(url): %(error)", i18n.P{"url": "%(url)", "error": "%(error)"}),
 			"notify/saved":              T(ctx, "notify/saved|Saved!"),
@@ -184,39 +112,6 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 	}
 
 	return g
-}
-
-func NewStatic(r chi.Router, dev bool, basePath string) chi.Router {
-	var cache map[string]int
-	if !dev {
-		cache = map[string]int{
-			"/count.js": 86400 * 7,
-			"/assets/*": 86400 * 365,
-			"":          86400 * 90,
-		}
-		for i := range 20 {
-			cache[fmt.Sprintf("/count.v%d.js", i+1)] = 86400 * 365
-		}
-	}
-	fsys, err := zfs.EmbedOrDir(goatcounter.Static, "public", dev)
-	if err != nil {
-		panic(err)
-	}
-
-	s := zhttp.NewStatic("*", fsys, cache)
-	s.Header("/count.js", map[string]string{
-		"Cross-Origin-Resource-Policy": "cross-origin",
-	})
-	for i := range 20 {
-		s.Header(fmt.Sprintf("/count.v%d.js", i+1), map[string]string{
-			"Cross-Origin-Resource-Policy": "cross-origin",
-		})
-	}
-	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, basePath)
-		s.ServeHTTP(w, r)
-	})
-	return r
 }
 
 // Identical to the default errpage, but replaces slog calls with our log calls.

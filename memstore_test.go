@@ -11,6 +11,21 @@ import (
 	"zgo.at/zstd/ztime"
 )
 
+func TestPersistDoesNotReadSiteMetadata(t *testing.T) {
+	ctx := testenv.DB(t)
+	ctx, queries := testenv.CountInlineQueries(ctx)
+	for range 10 {
+		Memstore.Append(Hit{Path: "/one", FirstVisit: true})
+	}
+	hits, err := Memstore.Persist(ctx)
+	if err != nil || len(hits) != 10 {
+		t.Fatalf("persisted %d hits: %v", len(hits), err)
+	}
+	if n := queries.Count(`select unixepoch(min(datetime(created_at))) from hits where site=?`); n != 0 {
+		t.Errorf("per-hit site metadata reads = %d, want 0", n)
+	}
+}
+
 func TestMemstore(t *testing.T) {
 	ctx := testenv.DB(t)
 	site := MustGetSite(ctx)

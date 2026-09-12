@@ -52,3 +52,64 @@ func TestDashboardMetrics(t *testing.T) {
 		t.Fatalf("unexpected series: %#v", series)
 	}
 }
+
+func TestDashboardDataWeightedTotals(t *testing.T) {
+	ctx := testenv.DB(t)
+	start := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
+	one := zint.Uint128{1, 1}
+	testenv.StoreHits(ctx, t, false,
+		Hit{CreatedAt: start, Path: "/one", Session: one, FirstVisit: true},
+		Hit{CreatedAt: start.Add(2 * time.Hour), Path: "/two", Session: one, FirstVisit: true},
+		Hit{CreatedAt: start.Add(24 * time.Hour), Path: "/one", Session: zint.Uint128{2, 2}, FirstVisit: true},
+		Hit{CreatedAt: start.Add(25 * time.Hour), Path: "/one", Session: zint.Uint128{3, 3}, FirstVisit: true},
+	)
+	rng := ztime.NewRange(start).To(start.Add(26 * time.Hour))
+	want, err := GetDashboardMetrics(ctx, rng, PathFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range []Group{GroupHourly, GroupDaily, GroupWeekly, GroupMonthly, GroupYearly} {
+		data, err := GetDashboardData(ctx, rng, PathFilter{}, group)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if data.Metrics != want {
+			t.Errorf("%s: totals = %#v, want %#v", group, data.Metrics, want)
+		}
+		var visits, pageviews float64
+		for _, p := range data.Series.Points {
+			visits += p.Visits
+			pageviews += p.Pageviews
+		}
+		if visits != 3 || pageviews != 4 {
+			t.Errorf("%s: summed series = %v visits, %v pageviews", group, visits, pageviews)
+		}
+	}
+}
+
+func TestDashboardDataLongRange(t *testing.T) {
+	ctx := testenv.DB(t)
+	testenv.StoreHits(ctx, t, false,
+		Hit{CreatedAt: ztime.FromString("2026-09-10"), Path: "/one", Session: zint.Uint128{1, 1}, FirstVisit: true},
+		Hit{CreatedAt: ztime.FromString("2026-09-11"), Path: "/one", Session: zint.Uint128{2, 2}, FirstVisit: true},
+	)
+	rng := ztime.NewRange(ztime.FromString("0000-01-01")).To(ztime.FromString("9999-12-31"))
+	data, err := GetDashboardData(ctx, rng, PathFilter{}, GroupHourly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Series.Group != "year" || len(data.Series.Points) != 10000 {
+		t.Fatalf("long range was not coarsened: %s, %d points", data.Series.Group, len(data.Series.Points))
+	}
+	if data.Series.Points[0].Day != "0000-01-01" || data.Series.Points[9999].Day != "9999-01-01" {
+		t.Fatal("chart no longer covers the entire selected range")
+	}
+	var visits, pageviews float64
+	for _, p := range data.Series.Points {
+		visits += p.Visits
+		pageviews += p.Pageviews
+	}
+	if visits != 2 || pageviews != 2 || data.Metrics.Visits != 2 || data.Metrics.Pageviews != 2 || data.Series.Points[2026].Visits != 2 {
+		t.Fatalf("coarsening lost data: totals=%#v, visits=%v, pageviews=%v", data.Metrics, visits, pageviews)
+	}
+}

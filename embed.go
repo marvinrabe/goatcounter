@@ -11,8 +11,6 @@ import (
 //
 //go:embed db/schema.gotxt
 //go:embed db/languages.sql
-//go:embed db/migrate/*.sql
-//go:embed db/migrate/*.gotxt
 //go:embed db/query/*
 var DB embed.FS
 

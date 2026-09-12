@@ -1,5 +1,5 @@
-# Simple compose for testing. SQLite only, no TLS (put a reverse proxy in
-# front for that).
+# Simple compose for testing with a local libSQL database and no TLS (put a
+# reverse proxy in front for that).
 #
 # Sites are configured with GOATCOUNTER_SITES. The dashboard is public by
 # default; README.md documents Basic authentication and OIDC. Track pageviews
@@ -14,7 +14,7 @@ services:
     ports:
       - '8080:8080'
     volumes:
-      - 'goatcounter-data:/home/goatcounter/goatcounter-data'
+      - 'goatcounter-data:/data'
     environment:
       GOATCOUNTER_LISTEN: ':8080'
       # Comma-separated site names. Each name is stored as the stable key with
@@ -33,14 +33,13 @@ services:
       GOGC: '50'
       # Soft limit on the Go heap: as usage approaches it the GC runs more
       # aggressively rather than growing. It is not a reservation, so a low
-      # value costs nothing when the app is idle. SQLite's page cache and the
-      # memory-mapped GeoIP database sit outside this, which is what mem_limit
-      # below accounts for.
+      # value costs nothing when the app is idle. Native libSQL allocations and
+      # the memory-mapped GeoIP database sit outside this, which is what
+      # mem_limit below accounts for.
       GOMEMLIMIT: '96MiB'
 
-    # Hard backstop. Go heap (<=96M) + SQLite page cache (4M per connection,
-    # -dbconn defaults to 4 open) + the mmapped GeoIP database, which is
-    # reclaimable page cache rather than anonymous memory.
+    # Hard backstop for the Go heap, native libSQL allocations, and the mmapped
+    # GeoIP database (reclaimable page cache rather than anonymous memory).
     mem_limit: 256m
     memswap_limit: 256m
 
