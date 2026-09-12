@@ -1,10 +1,11 @@
-package goatcounter
+package goatcounter_test
 
 import (
 	"fmt"
 	"reflect"
 	"testing"
 
+	. "github.com/marvinrabe/goatcounter"
 	"zgo.at/zstd/ztest"
 )
 

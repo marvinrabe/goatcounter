@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"testing"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
-	"zgo.at/goatcounter/v2/pkg/geo"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/geo"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zdb"
 	"zgo.at/zstd/ztest"
 )
 
 func TestLocations(t *testing.T) {
 	geodb, _ := geo.Open("")
-	ctx := geo.With(gctest.DB(t), geodb)
+	ctx := geo.With(testenv.DB(t), geodb)
 
 	run := func() {
 		{
@@ -63,7 +63,7 @@ func TestLocations(t *testing.T) {
 }
 
 func BenchmarkLocationsByCode(b *testing.B) {
-	ctx := gctest.DB(b)
+	ctx := testenv.DB(b)
 
 	b.ReportAllocs()
 	b.ResetTimer()

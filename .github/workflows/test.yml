@@ -35,18 +35,6 @@ jobs:
           [ $RUNNER_OS = 'Windows' ] && [ $RUNNER_ARCH = 'ARM64' ] && race=''
           go test $race ./...
 
-  # Linux PostgreSQL
-  test_postgresql:
-    name:    'test / ubuntu-latest / postgres'
-    runs-on: 'ubuntu-latest'
-    steps:
-      - uses: 'actions/checkout@v6'
-      - name: 'test / ubuntu-latest / postgres'
-        run: |
-          go build -race ./cmd/goatcounter || exit 1
-          docker compose up -d --wait || exit 1
-          CGO_ENABLED=0 go test -timeout=3m -tags=testpg ./...
-
   # FreeBSD SQLite
   freebsd:
     runs-on: 'ubuntu-latest'

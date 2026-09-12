@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/i18n"
+	"github.com/marvinrabe/goatcounter/internal/log"
+	_ "github.com/marvinrabe/goatcounter/internal/tpl" // Registers template functions.
 	"github.com/sethvargo/go-limiter"
 	"github.com/sethvargo/go-limiter/memorystore"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/pkg/log"
 	"zgo.at/json"
-	"zgo.at/z18n"
 	"zgo.at/zhttp"
 	"zgo.at/zstd/zfs"
 	"zgo.at/ztpl"
@@ -87,33 +88,34 @@ func (r *Ratelimits) Set(name string, tokens int, secs int64) {
 }
 
 // Site calls goatcounter.MustGetSite; it's just shorter :-)
-func Site(ctx context.Context) *goatcounter.Site    { return goatcounter.MustGetSite(ctx) }
-func Account(ctx context.Context) *goatcounter.Site { return goatcounter.MustGetAccount(ctx) }
-func User(ctx context.Context) *goatcounter.User    { return goatcounter.MustGetUser(ctx) }
+func Site(ctx context.Context) *goatcounter.Site { return goatcounter.MustGetSite(ctx) }
+func User(ctx context.Context) *goatcounter.User { return goatcounter.MustGetUser(ctx) }
 
-var T = z18n.T
+var T = i18n.T
 
 type Globals struct {
-	Context        context.Context
-	User           *goatcounter.User
-	Site           *goatcounter.Site
-	Path           string
-	Base           string
-	Flash          *zhttp.FlashMessage
-	Static         string
-	StaticDomain   string
-	Domain         string
-	Version        string
-	GoatcounterCom bool
-	Dev            bool
-	Port           string
-	Websocket      bool
-	JSTranslations map[string]string
-	HideUI         bool
+	Context         context.Context
+	User            *goatcounter.User
+	Site            *goatcounter.Site
+	Path            string
+	Base            string
+	Flash           *zhttp.FlashMessage
+	Static          string
+	StaticDomain    string
+	Domain          string
+	Version         string
+	StaticVersion   string
+	Dev             bool
+	Port            string
+	TZName          string
+	TZOffset        int
+	TZOffsetDisplay string
+	JSTranslations  map[string]string
+	HideUI          bool
 }
 
 func (g Globals) T(msg string, data ...any) template.HTML {
-	return template.HTML(z18n.T(g.Context, msg, data...))
+	return template.HTML(i18n.T(g.Context, msg, data...))
 }
 
 func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
@@ -124,28 +126,31 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 		path = "/"
 	}
 	g := Globals{
-		Context:        ctx,
-		User:           goatcounter.GetUser(ctx),
-		Site:           goatcounter.GetSite(ctx),
-		Path:           path,
-		Base:           base,
-		Flash:          zhttp.ReadFlash(w, r),
-		Static:         goatcounter.Config(ctx).URLStatic,
-		Domain:         goatcounter.Config(ctx).Domain,
-		Version:        goatcounter.Version,
-		GoatcounterCom: goatcounter.Config(ctx).GoatcounterCom,
-		Dev:            goatcounter.Config(ctx).Dev,
-		Port:           goatcounter.Config(ctx).Port,
-		Websocket:      useWebsocket(r),
-		HideUI:         r.URL.Query().Get("hideui") != "",
+		Context:       ctx,
+		User:          goatcounter.GetUser(ctx),
+		Site:          goatcounter.GetSite(ctx),
+		Path:          path,
+		Base:          base,
+		Flash:         zhttp.ReadFlash(w, r),
+		Static:        goatcounter.Config(ctx).URLStatic,
+		Domain:        goatcounter.Config(ctx).Domain,
+		Version:       goatcounter.Version,
+		StaticVersion: goatcounter.StaticVersion(ctx),
+		Dev:           goatcounter.Config(ctx).Dev,
+		Port:          goatcounter.Config(ctx).Port,
+
+		TZName:          goatcounter.Config(ctx).Timezone.Abbr(),
+		TZOffset:        goatcounter.Config(ctx).Timezone.Offset(),
+		TZOffsetDisplay: goatcounter.Config(ctx).Timezone.OffsetDisplay(),
+		HideUI:          r.URL.Query().Get("hideui") != "",
 		JSTranslations: map[string]string{
 			"error/date-future":           T(ctx, "error/date-future|That would be in the future"),
 			"error/date-past":             T(ctx, "error/date-past|That would be before the site’s creation"),
 			"error/date-mismatch":         T(ctx, "error/date-mismatch|end date is before start date"),
-			"error/load-url":              T(ctx, "error/load-url|Could not load %(url): %(error)", z18n.P{"url": "%(url)", "error": "%(error)"}),
+			"error/load-url":              T(ctx, "error/load-url|Could not load %(url): %(error)", i18n.P{"url": "%(url)", "error": "%(error)"}),
 			"notify/saved":                T(ctx, "notify/saved|Saved!"),
-			"dashboard/tooltip-event":     T(ctx, "dashboard/tooltip-event|%(unique) clicks; %(clicks) total clicks", z18n.P{"unique": "%(unique)", "clicks": "%(clicks)"}),
-			"dashboard/totals/num-visits": T(ctx, "dashboard/totals/num-visits|%(num-visits) visits", z18n.P{"num-visits": "%(num-visits)"}),
+			"dashboard/tooltip-event":     T(ctx, "dashboard/tooltip-event|%(unique) clicks; %(clicks) total clicks", i18n.P{"unique": "%(unique)", "clicks": "%(clicks)"}),
+			"dashboard/totals/num-visits": T(ctx, "dashboard/totals/num-visits|%(num-visits) visits", i18n.P{"num-visits": "%(num-visits)"}),
 			"datepicker/keyboard":         T(ctx, "datepicker/keyboard|Use the arrow keys to pick a date"),
 			"datepicker/month-prev":       T(ctx, "datepicker/month-prev|Previous month"),
 			"datepicker/month-next":       T(ctx, "datepicker/month-next|Next month"),
@@ -170,7 +175,7 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 	return g
 }
 
-func NewStatic(r chi.Router, dev, goatcounterCom bool, basePath string) chi.Router {
+func NewStatic(r chi.Router, dev bool, basePath string) chi.Router {
 	var cache map[string]int
 	if !dev {
 		cache = map[string]int{
@@ -282,25 +287,4 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			log.Error(r.Context(), err, log.AttrHTTP(r))
 		}
 	}
-}
-
-// Set SameSite=None to allow embedding GoatCounter in a frame and allowing
-// login; there is no way to make this work with Lax or Strict as far as I can
-// find (there is no way to add exceptions for trusted sites).
-//
-// This is not a huge problem because every POST/DELETE/etc. request already has
-// a CSRF token in the request, which protects against the same thing as
-// SameSite does.
-//
-// Only do this for secure connections, as Google Chrome developers decided to
-// silently reject these cookies if there's no TLS.
-func SameSite(r *http.Request) http.SameSite {
-	if zhttp.IsSecure(r) {
-		// Ideally we'd like to check AllowEmbed setting and only send it when
-		// logging in on a frame, but that seems tricky.
-		if s := goatcounter.GetSite(r.Context()); s != nil && len(s.Settings.AllowEmbed) > 0 {
-			return http.SameSiteNoneMode
-		}
-	}
-	return http.SameSiteLaxMode
 }

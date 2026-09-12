@@ -6,9 +6,9 @@ import (
 	"net"
 	"strings"
 
+	"github.com/marvinrabe/goatcounter/internal/geo"
+	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2/pkg/geo"
-	"zgo.at/goatcounter/v2/pkg/log"
 	"zgo.at/zdb"
 )
 
@@ -22,8 +22,7 @@ type Location struct {
 	CountryName string `db:"country_name" json:"country_name"`
 	RegionName  string `db:"region_name" json:"region_name"`
 
-	// TODO: send patch to staticcheck to deal with this better. This shouldn't
-	// errror since "ISO" is an initialism.
+	// staticcheck flags this even though "ISO" is an initialism.
 	ISO3166_2 string `db:"iso_3166_2,noinsert" json:"-"` //lint:ignore ST1003 staticcheck bug
 }
 
@@ -120,18 +119,6 @@ func (l *Location) insert(ctx context.Context) (err error) {
 		}
 	}
 	return nil
-}
-
-type Locations []Location
-
-// ListCountries lists all counties. The region code/name will always be blank.
-func (l *Locations) ListCountries(ctx context.Context) error {
-	err := zdb.Select(ctx, l, `
-		select country, country_name
-        from locations
-        where country != '' and country_name != '' and region = ''
-        order by country_name`)
-	return errors.Wrap(err, "Locations.ListCountries")
 }
 
 // This takes ~13s for a full iteration for the Cities database on my laptop

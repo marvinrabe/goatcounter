@@ -4,20 +4,20 @@ import (
 	"context"
 	"testing"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zint"
 	"zgo.at/zstd/ztime"
 )
 
 func TestMemstore(t *testing.T) {
-	ctx := gctest.DB(t)
-	var site Site
-	site.Defaults(ctx)
+	ctx := testenv.DB(t)
+	site := MustGetSite(ctx)
 	site.Settings.Collect.Set(CollectHits)
-	ctx = gctest.Site(ctx, t, &site, nil)
-	ctx = WithSite(ctx, &site)
+	if err := site.Update(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	for range 2000 {
 		Memstore.Append(gen(ctx))
@@ -39,9 +39,7 @@ func TestMemstore(t *testing.T) {
 }
 
 func gen(ctx context.Context) Hit {
-	s := MustGetSite(ctx)
 	return Hit{
-		Site:            s.ID,
 		Session:         TestSession,
 		Path:            "/test",
 		Ref:             "https://example.com/test",
@@ -56,7 +54,7 @@ func TestNextUUID(t *testing.T) {
 11223344556677-8899aabbccddeeff`
 
 	t.Run("", func(t *testing.T) {
-		gctest.DB(t)
+		testenv.DB(t)
 
 		have := Memstore.SessionID().Format(16) + "\n" +
 			Memstore.SessionID().Format(16) + "\n" +
@@ -68,7 +66,7 @@ func TestNextUUID(t *testing.T) {
 	})
 
 	t.Run("", func(t *testing.T) {
-		gctest.DB(t)
+		testenv.DB(t)
 
 		have := Memstore.SessionID().Format(16) + "\n" +
 			Memstore.SessionID().Format(16) + "\n" +
@@ -123,23 +121,22 @@ func TestMemstoreCollect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			ctx := gctest.DB(t)
+			ctx := testenv.DB(t)
 			ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18"))
 
-			site := Site{Settings: SiteSettings{
-				Collect:        tt.collect,
-				CollectRegions: tt.collectRegions,
-			}}
-			ctx = gctest.Site(ctx, t, &site, nil)
+			site := MustGetSite(ctx)
+			site.Settings.Collect = tt.collect
+			site.Settings.CollectRegions = tt.collectRegions
+			if err := site.Update(ctx); err != nil {
+				t.Fatal(err)
+			}
 
-			gctest.StoreHits(ctx, t, false, Hit{
-				Site:     site.ID,
+			testenv.StoreHits(ctx, t, false, Hit{
 				Path:     "/test",
 				Ref:      "https://example.com",
 				Location: "NL",
 				Size:     Floats{5, 6, 7},
 			}, Hit{
-				Site:       site.ID,
 				Path:       "/other",
 				Query:      "ref=xxx",
 				Location:   "ID-BA",

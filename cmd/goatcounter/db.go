@@ -8,19 +8,13 @@ import (
 	"slices"
 	"strings"
 
-	"golang.org/x/text/language"
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/pkg/log"
 	"zgo.at/guru"
-	"zgo.at/z18n"
 	"zgo.at/zdb"
 	"zgo.at/zdb/drivers"
 	"zgo.at/zli"
-	"zgo.at/zstd/zcrypto"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/zstrconv"
-	"zgo.at/zstd/zstring"
 	"zgo.at/zvalidate"
 )
 
@@ -29,18 +23,14 @@ The db command manages the GoatCounter database.
 
 Some common examples:
 
-    Create a new site:
+    Create a user to log in with:
 
-        $ goatcounter db create site \
-            -vhost      stats.example.com \
-            -user.email martin@example.com
+        $ goatcounter db create user -email martin@example.com
 
-        You will log in with the -email; -vhost is where your GoatCounter site
-        will be accessible from.
+        GoatCounter tracks a single site; the site itself is created
+        automatically on first run. Any username works when logging in; only
+        the password is checked.
 
-    Create a new API key:
-
-        $ goatcounter db create apitoken -name 'My token' -user 1 -perm count
 
     Run database migrations:
 
@@ -50,10 +40,9 @@ Some common examples:
 
 Flags accepted by all commands:
 
-  -db          Database connection: "sqlite+<file>" or "postgres+<connect>"
+  -db          Database connection: "sqlite+<file>"
                See "goatcounter help db" for detailed documentation. Default:
-               sqlite+./db/goatcounter.sqlite3 if that database file exists, or
-               sqlite+./goatcounter-data/db.sqlite3 if it doesn't.
+               sqlite+./goatcounter-data/db.sqlite3
 
   -createdb    Create the database if it doesn't exist yet.
 
@@ -62,12 +51,8 @@ Flags accepted by all commands:
 
 show command:
 
-    -find       Object to find; you can use the numeric ID column (e.g. 1), but
-                also a friendlier name:
-
-                    site      vhost ("stats.example.com").
-                    user      email ("user@example.com").
-                    apitoken  Token secret (5a1f...).
+    -find       User to find; you can use the numeric ID column (e.g. 1) or the
+                email address ("user@example.com").
 
     -format     Format to print, accepted values:
 
@@ -81,12 +66,8 @@ delete command:
 
     -find       As documented in show
 
-    -force      Force deletion.
+    -force      Force deletion even if this is the last user.
 
-                    site       If there are sites linked to this site then it
-                               will also delete all those sites.
-                    user       Force deletion even if this is the last admin.
-                    apitoken   No effect.
 
 create and update commands:
 
@@ -103,59 +84,12 @@ create and update commands:
     Flags marked with * are required for create; for update only the flags that
     are given are updated.
 
-    Flags for "site":
-
-        -vhost*     Domain to host this site at (e.g. "stats.example.com"). The
-                    site will be available on this domain only, so
-                    "stats.example.com" won't be available on "localhost".
-
-        -link*      Link to this site; the site will use the same users, copies
-                    this site's settings on creation, and will be listed in the
-                    top navigation.
-                    Can be as ID ("1") or vhost ("stats.example.com").
-
-        Only or "create", as a convenience to create a new user:
-
-            -user.email*      Your email address. Will be required to login.
-                              This can not be set if -link is also set (since
-                              that will re-use the same users as the linked
-                              site).
-
-            -user.password*   Password to log in; will be asked interactively
-                              if omitted. Read from stdin if it's "-".
-
     Flags for "user":
-
-        -site*      Site to add the user to. Same format as -find for site.
 
         -email*     Email address; required to log in.
 
-        -access*    Access to give this user:
-
-                        readonly    Can't change any settings.
-                        settings    Can change settings, except site/user
-                                    management.
-                        admin       Full access.
-                        superuser   Full access, including the "server
-                                    management" page.
-
         -password   Password; will be asked interactively if omitted. Read from
                     stdin if it's "-".
-
-    Flags for "apitoken":
-
-        -user*      User to create API key for. Same format as -find for user.
-
-        -name       API key name.
-
-        -perm*      Comma-separated list of permissions to assign; possible
-                    values:
-
-                        count        Allow recording pageviews with /v0/count
-                        export       Allow creating exports.
-                        site_read    Reading site information.
-                        site_create  Creating new sites.
-                        site_update  Updating existing sites.
 
 migrate command:
 
@@ -192,10 +126,10 @@ newdb command:
     Exits with 0 if the database was already created, 2 if the database already
     exists (integrity isn't checked, just existence), or 1 on any other error.
 
-schema-sqlite and schema-pgsql commands:
+schema-sqlite command:
 
-    Print the compiled-in database schema for SQLite or PostgreSQL, in case you
-    want to create the database manually from the schema.
+    Print the compiled-in database schema for SQLite, in case you want to
+    create the database manually from the schema.
 
 test command:
 
@@ -207,15 +141,14 @@ test command:
 
         goatcounter db test -db [..]
         if [ $? -eq 2 ]; then
-            createdb goatcounter
-            goatcounter db schema-pgsql | psql goatcounter
+            goatcounter db newdb -db [..]
         fi
 
 query command:
 
     Run a query against the database, this is unrestricted and can modify or
     delete anything, so use with care. Can be useful in cases where you don't
-    have a psql or sqlite3 CLI available.
+    have a sqlite3 CLI available.
 
     Only runs one query, unless -format=exec is given.
 
@@ -240,18 +173,8 @@ query command:
 
 Detailed documentation on the -db flag:
 
-    GoatCounter can use SQLite and PostgreSQL. All commands accept the -db flag
-    to customize the database connection string.
-
-    You can select a database engine by using "sqlite+[..]" for SQLite, or
-    "postgresql+[..]" (or "postgres+[..]") for PostgreSQL.
-
-    There are no plans to support other database engines such as MySQL/MariaDB.
-
-    SQLite should work fine for most smaller site like blogs and such, but for
-    more serious usage PostgreSQL is recommended. Some basic benchmarks
-    comparing the two can be found here:
-    https://github.com/arp242/goatcounter/blob/master/docs/benchmark.md
+    GoatCounter uses SQLite. All commands accept the -db flag to customize the
+    database connection string.
 
     The database is automatically created for the "serve" command, but you need
     to add -createdb to any other commands to create the database. This is to
@@ -276,64 +199,25 @@ SQLite notes:
                                    with little drawbacks for most use cases.
         _busy_timeout=200          Wait 200ms for locks instead of immediately
                                    throwing an error.
-        _cache_size=-20000         20M cache size, instead of 2M. Can be a
-                                   significant performance improvement.
+        _cache_size=-4000          4M cache size, instead of 2M. Note this is
+                                   per connection, so it multiplies by -dbconn.
 
     But you can change them if you wish; for example to use the SQLite defaults:
 
         -db 'sqlite+mydb.sqlite?_journal_mode=delete&_busy_timeout=0&_cache_size=-2000'
 
-PostgreSQL notes:
-
-    PostgreSQL provides better performance for large instances. If you have
-    millions of pageviews then PostgreSQL is probably a better choice.
-
-    The PostgreSQL connection string can either be as "key=value" or as an URL;
-    the following are identical:
-
-        -db 'postgresql+user=pqgotest dbname=pqgotest sslmode=verify-full'
-        -db 'postgresql+postgres://pqgotest:password@localhost/pqgotest?sslmode=verify-full'
-
-    See the pq documentation for a list of supported parameters:
-    https://pkg.go.dev/github.com/lib/pq?tab=doc#hdr-Connection_String_Parameters
-
-    You can also use the standard PG* environment variables:
-
-        PGDATABASE=goatcounter PGHOST=/var/run goatcounter -db 'postgresql'
-
-Converting from SQLite to PostgreSQL:
-
-    You can use pgloader (https://pgloader.io) to convert from a SQLite to
-    PostgreSQL database; to do this you must first create the PostgreSQL schema
-    manually (pgloader doesn't create it properly), remove the data from the
-    locations and languages tables as they will conflict.
-
-    For example:
-
-        # Create new PostgreSQL database
-        $ createdb --owner goatcounter
-        $ goatcounter db migrate all -createdb -db postgresql+dbname=goatcounter
-
-        # Remove data from languages and locations tables
-        $ psql goatcounter -c 'delete from locations; delete from languages;'
-
-        # Convert data with pgloader
-        $ pgloader --with 'create no tables' ./goatcounter-data/db.sqlite3 postgresql:///goatcounter
 `
 
 const helpDBCommands = `List of commands:
 
-     create [table]     Create a new row.
-     update [table]     Update a row.
-     delete [table]     Delete a row.
-     show   [table]     Show a row.
-
-                        Valid tables are "site", "user", and "apitoken".
+     create user        Create a new user.
+     update user        Update a user.
+     delete user        Delete a user.
+     show   user        Show a user.
 
      newdb              Create a new database.
      migrate            Run or view database migrations.
      schema-sqlite      Print the SQLite schema.
-     schema-pgsql       Print the PostgreSQL schema.
      test               Test if the database exists.
      query              Run a query.`
 
@@ -385,7 +269,7 @@ start:
 		printHelp(helpDB)
 		return nil
 
-	case "schema-sqlite", "schema-pgsql":
+	case "schema-sqlite":
 		return cmdDBSchema(cmd)
 	case "test":
 		return cmdDBTest(f, dbConnect, debug.StringsSplit(","), true)
@@ -399,17 +283,10 @@ start:
 		return cmdDBDelete(f, cmd, dbConnect, debug.StringsSplit(","), createdb)
 
 	case "create", "update":
-		tbl, err := getTable(&f, cmd)
-		if err != nil {
+		if _, err := getTable(&f, cmd); err != nil {
 			return err
 		}
-
-		fun := map[string]func(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error{
-			"site":     cmdDBSite,
-			"user":     cmdDBUser,
-			"apitoken": cmdDBAPIToken,
-		}[tbl]
-		return fun(f, cmd, dbConnect, debug.StringsSplit(","), createdb)
+		return cmdDBUser(f, cmd, dbConnect, debug.StringsSplit(","), createdb)
 
 	case "newdb":
 		err := cmdDBTest(f, dbConnect, debug.StringsSplit(","), false)
@@ -446,12 +323,8 @@ func getTable(f *zli.Flags, cmd string) (string, error) {
 		printHelp(helpDB)
 		return "", guru.New(0, "")
 
-	case "site", "sites":
-		return "site", nil
 	case "user", "users":
 		return "user", nil
-	case "apitoken", "apitokens":
-		return "apitoken", nil
 	}
 }
 
@@ -479,11 +352,7 @@ func cmdDBSchema(cmd string) error {
 	if err != nil {
 		return err
 	}
-	driver := zdb.DialectSQLite
-	if cmd == "schema-pgsql" {
-		driver = zdb.DialectPostgreSQL
-	}
-	d, err = zdb.Template(driver, string(d))
+	d, err = zdb.Template(zdb.DialectSQLite, string(d))
 	if err != nil {
 		return err
 	}
@@ -577,9 +446,7 @@ func getManyFinder(ctx context.Context, f *zli.Flags, cmd string, find []string)
 	}
 
 	finder := map[string]findMany{
-		"site":     &goatcounter.Sites{},
-		"user":     &goatcounter.Users{},
-		"apitoken": &goatcounter.APITokens{},
+		"user": &goatcounter.Users{},
 	}[tbl]
 
 	err = finder.Find(ctx, find)
@@ -598,7 +465,6 @@ func dbParseFlag(f zli.Flags, dbConnect *string, debug []string, createdb *bool)
 	}
 
 	ctx := goatcounter.NewContext(context.Background(), db)
-	ctx = z18n.With(ctx, z18n.NewBundle(language.English).Locale("en"))
 	return db, ctx, nil
 }
 
@@ -619,9 +485,7 @@ func cmdDBShow(f zli.Flags, cmd string, dbConnect *string, debug []string, creat
 	}
 
 	q := map[string]string{
-		"site":     "sites where site_id",
-		"user":     "users where user_id",
-		"apitoken": "api_tokens where api_token_id",
+		"user": "users where user_id",
 	}[tbl]
 
 	ids := finder.IDs()
@@ -656,169 +520,11 @@ func cmdDBDelete(f zli.Flags, cmd string, dbConnect *string, debug []string, cre
 	return finder.Delete(ctx, *force)
 }
 
-func cmdDBSite(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error {
-	// TODO(depr): The second values are for compat with <2.0
-	var (
-		vhost = f.String("", "vhost", "domain")
-		link  = f.String("", "link", "parent")
-		find  *[]string
-		email stringFlag
-		pwd   stringFlag
-	)
-	if cmd == "update" {
-		find = f.StringList(nil, "find").Pointer()
-	}
-	if cmd == "create" {
-		email = f.String("", "user.email", "email")
-		pwd = f.String("", "user.password", "password")
-	}
-	db, ctx, err := dbParseFlag(f, dbConnect, debug, createdb)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	if link.Set() && email != nil && email.Set() {
-		return errors.New("can't set both -link and -user.email")
-	}
-
-	if cmd == "create" {
-		return cmdDBSiteCreate(ctx, vhost.String(), email.String(), link.String(), pwd.String())
-	}
-	return cmdDBSiteUpdate(ctx, *find, vhost, link)
-}
-
-func cmdDBSiteCreate(ctx context.Context, vhost, email, link, pwd string) error {
-	v := zvalidate.New()
-	v.Required("-vhost", vhost)
-	v.Domain("-vhost", vhost)
-	if link == "" {
-		v.Required("-user.email", email)
-		v.Email("-user.email", email)
-	}
-	if v.HasErrors() {
-		return v
-	}
-
-	err := (&goatcounter.Site{}).ByHost(ctx, vhost)
-	if err == nil {
-		return fmt.Errorf("there is already a site for the host %q", vhost)
-	}
-
-	var account goatcounter.Site
-	if link != "" {
-		account, err = findParent(ctx, link)
-		if err != nil {
-			return err
-		}
-	}
-
-	if pwd == "-" {
-		p, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("reading password: %w", err)
-		}
-		pwd = string(p)
-	} else if link == "" && pwd == "" {
-		pwd, err = zli.AskPassword(8)
-		if err != nil {
-			return err
-		}
-	}
-
-	return zdb.TX(ctx, func(ctx context.Context) error {
-		s := goatcounter.Site{
-			Code:  "serve-" + zcrypto.Secret64(),
-			Cname: &vhost,
-		}
-		if account.ID > 0 {
-			s.Parent, s.Settings, s.UserDefaults = &account.ID, account.Settings, account.UserDefaults
-		}
-		err := s.Insert(ctx)
-		if err != nil {
-			return err
-		}
-
-		if link == "" { // Create user as well.
-			err = (&goatcounter.User{
-				Site:          s.ID,
-				Email:         email,
-				Password:      []byte(pwd),
-				EmailVerified: true,
-				Settings:      s.UserDefaults,
-				Access:        goatcounter.UserAccesses{"all": goatcounter.AccessSuperuser},
-			}).Insert(ctx, false)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func cmdDBSiteUpdate(ctx context.Context, find []string,
-	vhost, link stringFlag,
-) error {
-
-	v := zvalidate.New()
-	v.Required("-find", find)
-	v.Domain("-vhost", vhost.String())
-	if v.HasErrors() {
-		return v
-	}
-
-	var sites goatcounter.Sites
-	err := sites.Find(ctx, find)
-	if err != nil {
-		return err
-	}
-
-	return zdb.TX(ctx, func(ctx context.Context) error {
-		for _, s := range sites {
-			if link.Set() {
-				ps, err := findParent(ctx, link.String())
-				if err != nil {
-					return err
-				}
-
-				err = s.UpdateParent(goatcounter.WithSite(ctx, &ps), &ps.ID)
-				if err != nil {
-					return err
-				}
-			}
-
-			if vhost.Set() {
-				s.Cname = new(vhost.String())
-				err := s.Update(ctx)
-				if err != nil {
-					return err
-				}
-			}
-		}
-
-		return nil
-	})
-}
-
-func findParent(ctx context.Context, link string) (goatcounter.Site, error) {
-	var s goatcounter.Site
-	err := s.Find(ctx, link)
-	if err != nil {
-		return s, err
-	}
-	if s.Parent != nil {
-		err = s.ByID(ctx, *s.Parent)
-	}
-	return s, err
-}
-
 func cmdDBUser(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error {
 	var (
-		site   = f.String("", "site")
-		email  = f.String("", "email")
-		access = f.String("", "access")
-		pwd    = f.String("", "password")
-		find   *[]string
+		email = f.String("", "email")
+		pwd   = f.String("", "password")
+		find  *[]string
 	)
 	if cmd == "update" {
 		find = f.StringList(nil, "find").Pointer()
@@ -830,56 +536,38 @@ func cmdDBUser(f zli.Flags, cmd string, dbConnect *string, debug []string, creat
 	defer db.Close()
 
 	if cmd == "create" {
-		return cmdDBUserCreate(ctx, site.String(), email.String(), access.String(), pwd.String())
+		return cmdDBUserCreate(ctx, email.String(), pwd.String())
 	}
-	return cmdDBUserUpdate(ctx, *find, site, email, access, pwd)
+	return cmdDBUserUpdate(ctx, *find, email, pwd)
 }
 
-func cmdDBUserCreate(ctx context.Context,
-	findSite, email, access, pwd string,
-) error {
-
+func cmdDBUserCreate(ctx context.Context, email, pwd string) error {
 	v := zvalidate.New()
-	v.Required("-site", findSite)
 	v.Required("-email", email)
-	v.Required("-access", access)
-	v.Include("-access", access, []string{"readonly", "settings", "admin", "superuser"})
+	v.Email("-email", email)
 	if v.HasErrors() {
 		return v
 	}
 
 	var site goatcounter.Site
-	err := site.Find(ctx, findSite)
+	err := site.Load(ctx)
+	if err != nil {
+		return err
+	}
+	ctx = goatcounter.WithSite(ctx, &site)
+
+	pwd, err = readPassword(pwd)
 	if err != nil {
 		return err
 	}
 
-	if pwd == "-" {
-		p, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("reading password: %w", err)
-		}
-		pwd = string(p)
-	} else if pwd == "" {
-		pwd, err = zli.AskPassword(8)
-		if err != nil {
-			return err
-		}
-	}
-
 	return (&goatcounter.User{
-		Site:     site.ID,
 		Email:    email,
 		Password: []byte(pwd),
-		Settings: site.UserDefaults,
-		Access:   getAccess(access),
 	}).Insert(ctx, false)
 }
 
-func cmdDBUserUpdate(ctx context.Context, find []string,
-	site, email, access, pwd stringFlag,
-) error {
-
+func cmdDBUserUpdate(ctx context.Context, find []string, email, pwd stringFlag) error {
 	v := zvalidate.New()
 	v.Required("-find", find)
 	v.Email("-email", email.String())
@@ -895,39 +583,14 @@ func cmdDBUserUpdate(ctx context.Context, find []string,
 
 	return zdb.TX(ctx, func(ctx context.Context) error {
 		for _, u := range users {
-			ctx = goatcounter.WithSite(ctx, &goatcounter.Site{ID: u.Site})
-
 			if email.Set() {
 				u.Email = email.String()
-			}
-			if access.Set() {
-				u.Access = getAccess(access.String())
-			}
-
-			if email.Set() || access.Set() {
-				err := u.Update(ctx, true)
-				if err != nil {
+				if err := u.Update(ctx, true); err != nil {
 					return err
 				}
 			}
-
-			if site.Set() {
-				var s goatcounter.Site
-				err := s.Find(ctx, site.String())
-				if err != nil {
-					return err
-				}
-
-				u.Site = s.ID
-				err = u.UpdateSite(ctx)
-				if err != nil {
-					return err
-				}
-			}
-
 			if pwd.Set() {
-				err := u.UpdatePassword(ctx, pwd.String())
-				if err != nil {
+				if err := u.UpdatePassword(ctx, pwd.String()); err != nil {
 					return err
 				}
 			}
@@ -936,136 +599,18 @@ func cmdDBUserUpdate(ctx context.Context, find []string,
 	})
 }
 
-func getAccess(a string) goatcounter.UserAccesses {
-	return goatcounter.UserAccesses{
-		"all": map[string]goatcounter.UserAccess{
-			"readonly":  goatcounter.AccessReadOnly,
-			"settings":  goatcounter.AccessSettings,
-			"admin":     goatcounter.AccessAdmin,
-			"superuser": goatcounter.AccessSuperuser,
-		}[a],
-	}
-}
-
-func cmdDBAPIToken(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error {
-	var (
-		user = f.String("", "user")
-		name = f.String("", "name")
-		perm = f.String("", "perm")
-		find *[]string
-	)
-	if cmd == "update" {
-		find = f.StringList(nil, "find").Pointer()
-	}
-	db, ctx, err := dbParseFlag(f, dbConnect, debug, createdb)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	if cmd == "create" {
-		return cmdDBAPITokenCreate(ctx, user.String(), perm.String(), name.String())
-	}
-	return cmdDBAPITokenUpdate(ctx, *find, name, perm)
-}
-
-func cmdDBAPITokenCreate(ctx context.Context,
-	findUser, permFlag, name string,
-) error {
-
-	v := zvalidate.New()
-	v.Required("-user", findUser)
-	v.Required("-perm", permFlag)
-	if v.HasErrors() {
-		return v
-	}
-
-	var siteID goatcounter.SiteID
-	findUserID, _ := zstrconv.ParseInt[goatcounter.UserID](findUser, 10)
-	err := zdb.Get(ctx, &siteID,
-		`select site_id from users where user_id = $1 or email = $2`,
-		findUserID, findUser)
-	if err != nil {
-		return err
-	}
-	ctx = goatcounter.WithSite(ctx, &goatcounter.Site{ID: siteID})
-
-	var user goatcounter.User
-	err = user.Find(ctx, findUser)
-	if err != nil {
-		return err
-	}
-	ctx = goatcounter.WithUser(ctx, &user)
-
-	perm, err := getPerm(permFlag)
-	if err != nil {
-		return err
-	}
-
-	return (&goatcounter.APIToken{
-		SiteID:      user.Site,
-		UserID:      user.ID,
-		Name:        name,
-		Permissions: perm,
-		Sites:       goatcounter.SiteIDs{siteID},
-	}).Insert(ctx)
-}
-
-func cmdDBAPITokenUpdate(ctx context.Context, find []string,
-	name, perm stringFlag,
-) error {
-
-	v := zvalidate.New()
-	v.Required("-find", find)
-	if v.HasErrors() {
-		return v
-	}
-
-	var tokens goatcounter.APITokens
-	err := tokens.Find(ctx, find)
-	if err != nil {
-		return err
-	}
-
-	return zdb.TX(ctx, func(ctx context.Context) error {
-		for _, t := range tokens {
-			ctx = goatcounter.WithSite(ctx, &goatcounter.Site{ID: t.SiteID})
-			ctx = goatcounter.WithUser(ctx, &goatcounter.User{ID: t.UserID})
-
-			if name.Set() {
-				t.Name = name.String()
-			}
-			if perm.Set() {
-				p, err := getPerm(perm.String())
-				if err != nil {
-					return err
-				}
-				t.Permissions = p
-			}
-
-			err := t.Update(ctx)
-			if err != nil {
-				return err
-			}
+// readPassword reads the password from stdin if it's "-", or asks for it
+// interactively if it's empty.
+func readPassword(pwd string) (string, error) {
+	if pwd == "-" {
+		p, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("reading password: %w", err)
 		}
-		return nil
-	})
-}
-
-func getPerm(permFlag string) (zint.Bitflag64, error) {
-	var perm zint.Bitflag64
-	for _, p := range zstring.Fields(permFlag, ",") {
-		pp, ok := map[string]zint.Bitflag64{
-			"count":       goatcounter.APIPermCount,
-			"export":      goatcounter.APIPermExport,
-			"site_read":   goatcounter.APIPermSiteRead,
-			"site_create": goatcounter.APIPermSiteCreate,
-			"site_update": goatcounter.APIPermSiteUpdate,
-		}[p]
-		if !ok {
-			return 0, fmt.Errorf("-perm: invalid value %q", p)
-		}
-		perm |= pp
+		return string(p), nil
 	}
-	return perm, nil
+	if pwd == "" {
+		return zli.AskPassword(8)
+	}
+	return pwd, nil
 }

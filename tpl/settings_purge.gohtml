@@ -39,7 +39,7 @@ Matches are case insensitive. Supports the following special characters:
 			</tr></thead></thead>
 			<tbody>
 				{{range $s := .List}}
-					<tr><td>{{nformat $s.Count $.User}}</td><td>{{$s.Path}}</td><td>{{$s.Title}}</td></tr>
+					<tr><td>{{nformat $s.Count}}</td><td>{{$s.Path}}</td><td>{{$s.Title}}</td></tr>
 				{{end}}
 			</tbody>
 		</table>
@@ -53,7 +53,6 @@ Matches are case insensitive. Supports the following special characters:
 			<form method="post" action="{{.Base}}/settings/merge"
 				data-confirm="{{.T "help/no-undo|This cannot be undone!"}}"
 			>
-				<input type="hidden" name="csrf" value="{{.User.CSRFToken}}">
 				<input type="hidden" name="paths" value="{{range $s := .List}}{{$s.PathID}},{{end}}">
 
 				<label for="merge_with">{{.T "label/merge-to|Merge all the paths to"}}</label><br>
@@ -70,7 +69,6 @@ Matches are case insensitive. Supports the following special characters:
 				data-confirm="{{.T "help/no-undo|This cannot be undone!"}}"
 				style="text-align: right;"
 			>
-				<input type="hidden" name="csrf" value="{{.User.CSRFToken}}">
 				<input type="hidden" name="paths" value="{{range $s := .List}}{{$s.PathID}},{{end}}">
 				<button>{{.T "button/delete-pageviews|Delete pageviews"}}</button><br>
 				<strong>{{.T "help/no-undo|This cannot be undone!"}}</strong>

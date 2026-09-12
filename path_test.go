@@ -3,13 +3,13 @@ package goatcounter_test
 import (
 	"testing"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zdb"
 )
 
 func TestPathsUpdateTitle(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
 	wantTitle := func(want string) {
 		var got string

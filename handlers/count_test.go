@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/isbot"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zcrypto"
@@ -20,6 +20,64 @@ import (
 	"zgo.at/zstd/ztest"
 	"zgo.at/zstd/ztime"
 )
+
+func TestBackendCountLanguage(t *testing.T) {
+	tests := []struct {
+		name    string
+		collect bool
+		header  string
+		want    string
+	}{
+		{"not collected", false, "nl-BE,nl;q=0.9", ""},
+		{"collected", true, "nl-BE,nl;q=0.9", "nld"},
+		{"no header", true, "", ""},
+		{"unknown language", true, "xx", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testenv.DB(t)
+			ctx = ztime.WithNow(ctx, ztime.FromString("2019-06-18 14:42:00"))
+
+			site := Site(ctx)
+			site.Settings.Collect.Set(goatcounter.CollectHits)
+			if tt.collect {
+				site.Settings.Collect.Set(goatcounter.CollectLanguage)
+			}
+			if err := site.Update(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			r, rr := newTest(ctx, "GET", "/count?p=/foo.html", nil)
+			if tt.header != "" {
+				r.Header.Set("Accept-Language", tt.header)
+			}
+			login(t, r)
+			newBackend(ctx).ServeHTTP(rr, r)
+			ztest.Code(t, rr, 200)
+
+			if _, err := goatcounter.Memstore.Persist(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			var hits goatcounter.Hits
+			if err := hits.TestList(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if len(hits) != 1 {
+				t.Fatalf("len(hits) = %d: %#v", len(hits), hits)
+			}
+
+			have := ""
+			if l := hits[0].Language; l != nil {
+				have = *l
+			}
+			if have != tt.want {
+				t.Errorf("\nhave: %q\nwant: %q", have, tt.want)
+			}
+		})
+	}
+}
 
 func TestBackendCount(t *testing.T) {
 	tests := []struct {
@@ -127,18 +185,16 @@ func TestBackendCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := gctest.DB(t)
+			ctx := testenv.DB(t)
 			ctx = ztime.WithNow(ctx, ztime.FromString("2019-06-18 14:42:00"))
 
-			var site goatcounter.Site
-			site.Defaults(ctx)
-
-			site.CreatedAt = time.Date(2019, 01, 01, 0, 0, 0, 0, time.UTC)
+			site := Site(ctx)
 			site.Settings.Collect.Set(goatcounter.CollectHits)
-			ctx = gctest.Site(ctx, t, &site, nil)
+			if err := site.Update(ctx); err != nil {
+				t.Fatal(err)
+			}
 
 			r, rr := newTest(ctx, "GET", "/count?"+tt.query.Encode(), nil)
-			r.Host = site.Code + "." + goatcounter.Config(ctx).Domain
 			if tt.set != nil {
 				tt.set(r)
 			}
@@ -164,7 +220,7 @@ func TestBackendCount(t *testing.T) {
 			}
 
 			var hits goatcounter.Hits
-			err = hits.TestList(ctx, false)
+			err = hits.TestList(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -174,7 +230,6 @@ func TestBackendCount(t *testing.T) {
 				}
 				have := zdb.DumpString(ctx, `select * from bots`, zdb.DumpVertical)
 				want := ztest.NormalizeIndent(fmt.Sprintf(`
-					site_id     2
 					path        %s
 					bot         %d
 					user_agent  %s
@@ -197,7 +252,6 @@ func TestBackendCount(t *testing.T) {
 			}
 
 			tt.hit.ID = h.ID
-			tt.hit.Site = h.Site
 			tt.hit.CreatedAt = ztime.Now(ctx)
 			tt.hit.Session = goatcounter.TestSeqSession // Should all be the same session.
 			h.CreatedAt = h.CreatedAt.In(time.UTC)
@@ -209,28 +263,19 @@ func TestBackendCount(t *testing.T) {
 }
 
 func TestBackendCountSessions(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 	ctx = ztime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 0, 0, time.UTC))
 
-	var set goatcounter.SiteSettings
-	set.Defaults(ctx)
-	set.Collect.Set(goatcounter.CollectHits)
-
-	ctx1 := gctest.Site(ctx, t, &goatcounter.Site{
-		CreatedAt: time.Date(2019, 01, 01, 0, 0, 0, 0, time.UTC),
-		Settings:  set,
-	}, nil)
-	ctx2 := gctest.Site(ctx, t, &goatcounter.Site{
-		CreatedAt: time.Date(2019, 01, 01, 0, 0, 0, 0, time.UTC),
-		Settings:  set,
-	}, nil)
+	site := Site(ctx)
+	site.Settings.Collect.Set(goatcounter.CollectHits)
+	if err := site.Update(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	send := func(ctx context.Context, ua string) {
-		site := Site(ctx)
 		query := url.Values{"p": {"/" + zcrypto.Secret64()}}
 
 		r, rr := newTest(ctx, "GET", "/count?"+query.Encode(), nil)
-		r.Host = site.Code + "." + goatcounter.Config(ctx).Domain
 		r.Header.Set("User-Agent", ua)
 		newBackend(ctx).ServeHTTP(rr, r)
 		if h := rr.Header().Get("X-Goatcounter"); h != "" {
@@ -244,9 +289,9 @@ func TestBackendCountSessions(t *testing.T) {
 		}
 	}
 
-	checkHits := func(ctx context.Context, n int) []goatcounter.Hit {
+	checkHits := func(ctx context.Context, n int) goatcounter.Hits {
 		var hits goatcounter.Hits
-		err := hits.TestList(ctx, true)
+		err := hits.TestList(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,7 +299,7 @@ func TestBackendCountSessions(t *testing.T) {
 		if len(hits) != n {
 			t.Errorf("len(hits) = %d; wanted %d", len(hits), n)
 			for _, h := range hits {
-				t.Logf("ID: %d; Site: %d; Session: %d\n", h.ID, h.Site, h.Session)
+				t.Logf("ID: %d; Session: %d\n", h.ID, h.Session)
 			}
 			t.Fatal()
 		}
@@ -268,14 +313,10 @@ func TestBackendCountSessions(t *testing.T) {
 		return hits
 	}
 
+	// Sessions are keyed on User-Agent + remote address, so the same UA should
+	// re-use the same session until it's evicted.
 	checkSess := func(hits goatcounter.Hits, wantInt []int) {
-		var got []zint.Uint128
-		for _, h := range hits {
-			got = append(got, h.Session)
-			if !h.FirstVisit {
-				t.Errorf("FirstVisit is false for %v", h)
-			}
-		}
+		t.Helper()
 
 		first := zint.Uint128{goatcounter.TestSession[0], goatcounter.TestSession[1] + 1}
 		want := make([]zint.Uint128, len(wantInt))
@@ -284,19 +325,24 @@ func TestBackendCountSessions(t *testing.T) {
 			want[i][1] += uint64(wantInt[i])
 		}
 
-		// TODO: test in order.
+		var got []zint.Uint128
+		for _, h := range hits {
+			got = append(got, h.Session)
+			if !h.FirstVisit {
+				t.Errorf("FirstVisit is false for %v", h)
+			}
+		}
+
 		sort.Slice(want, func(i, j int) bool { return want[i][1] < want[j][1] })
-		var w strings.Builder
+		sort.Slice(got, func(i, j int) bool { return got[i][1] < got[j][1] })
+
+		var w, g strings.Builder
 		for _, ww := range want {
 			w.WriteString(ww.Format(16) + " ")
 		}
-
-		sort.Slice(got, func(i, j int) bool { return got[i][1] < got[j][1] })
-		var g strings.Builder
 		for _, gg := range got {
 			g.WriteString(gg.Format(16) + " ")
 		}
-
 		if w.String() != g.String() {
 			t.Errorf("wrong session\nwant: %s\ngot:  %s", w.String(), g.String())
 		}
@@ -307,39 +353,21 @@ func TestBackendCountSessions(t *testing.T) {
 		ua2 = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36`
 	)
 
-	send(ctx1, ua1)
-	send(ctx1, ua1)
-	send(ctx1, ua2)
-	send(ctx2, ua1)
-	send(ctx2, ua1)
-	send(ctx1, ua1)
-	send(ctx1, ua2)
-
-	hits1 := checkHits(ctx1, 5)
-	hits2 := checkHits(ctx2, 2)
-
-	want := []int{1, 1, 2, 3, 3, 1, 2}
-	checkSess(append(hits1, hits2...), want)
+	send(ctx, ua1)
+	send(ctx, ua1)
+	send(ctx, ua2)
+	send(ctx, ua1)
+	checkSess(checkHits(ctx, 4), []int{1, 1, 2, 1})
 
 	// Should still use the same sessions.
 	goatcounter.SessionTime = 1 * time.Second
 	goatcounter.Memstore.EvictSessions(ctx)
-	send(ctx1, ua1)
-	send(ctx2, ua1)
-	hits1 = checkHits(ctx1, 6)
-	hits2 = checkHits(ctx2, 3)
-	want = []int{1, 1, 2, 3, 3, 1, 2, 1, 3}
-	checkSess(append(hits1, hits2...), want)
+	send(ctx, ua1)
+	checkSess(checkHits(ctx, 5), []int{1, 1, 2, 1, 1})
 
 	// Should use new sessions from now on.
-	now := time.Date(2019, 6, 18, 14, 42, 2, 0, time.UTC)
-	ctx1 = ztime.WithNow(ctx1, now)
-	ctx2 = ztime.WithNow(ctx2, now)
-	goatcounter.Memstore.EvictSessions(ctx1)
-	send(ctx1, ua1)
-	send(ctx2, ua1)
-	hits1 = checkHits(ctx1, 7)
-	hits2 = checkHits(ctx2, 4)
-	want = []int{1, 1, 2, 3, 3, 1, 2, 1, 3, 4, 5}
-	checkSess(append(hits1, hits2...), want)
+	ctx = ztime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 2, 0, time.UTC))
+	goatcounter.Memstore.EvictSessions(ctx)
+	send(ctx, ua1)
+	checkSess(checkHits(ctx, 6), []int{1, 1, 2, 1, 1, 3})
 }

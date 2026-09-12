@@ -3,14 +3,14 @@ package goatcounter
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"zgo.at/goatcounter/v2/pkg/log"
+	"github.com/marvinrabe/goatcounter/internal/log"
+	"github.com/marvinrabe/goatcounter/internal/refspam"
 	"zgo.at/json"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zbool"
@@ -172,31 +172,6 @@ func (m *ms) Len() int {
 	return len(m.hits)
 }
 
-var (
-	refspamSubdomains []string
-	refspamOnce       sync.Once
-)
-
-func isRefspam(host string) bool {
-	if _, ok := refspam[host]; ok {
-		return true
-	}
-
-	refspamOnce.Do(func() {
-		refspamSubdomains = make([]string, 0, len(refspam))
-		for v := range refspam {
-			refspamSubdomains = append(refspamSubdomains, "."+v)
-		}
-	})
-
-	for _, v := range refspamSubdomains {
-		if strings.HasSuffix(host, v) {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 	if m.Len() == 0 {
 		return nil, nil
@@ -208,11 +183,11 @@ func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 	m.hits = make([]Hit, 0, 16)
 	m.hitMu.Unlock()
 
-	bot, err := zdb.NewBulkInsert(ctx, "bots", []string{"site_id", "path", "bot", "user_agent", "created_at"})
+	bot, err := zdb.NewBulkInsert(ctx, "bots", []string{"path", "bot", "user_agent", "created_at"})
 	if err != nil {
 		return nil, err
 	}
-	ins, err := zdb.NewBulkInsert(ctx, "hits", []string{"site_id", "path_id", "ref_id", "browser_id", "system_id",
+	ins, err := zdb.NewBulkInsert(ctx, "hits", []string{"path_id", "ref_id", "browser_id", "system_id",
 		"width", "location", "language", "created_at", "session", "first_visit", "campaign"})
 	if err != nil {
 		return nil, err
@@ -221,7 +196,7 @@ func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 	newHits := make([]Hit, 0, len(hits))
 	for _, h := range hits {
 		if h.Bot > 0 {
-			bot.Values(h.Site, h.Path, h.Bot, h.UserAgentHeader, h.CreatedAt)
+			bot.Values(h.Path, h.Bot, h.UserAgentHeader, h.CreatedAt)
 			continue
 		}
 		if m.processHit(ctx, &h) {
@@ -234,8 +209,8 @@ func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 				if len(h.Size) > 0 {
 					w = &h.Size[0]
 				}
-				ins.Values(h.Site, h.PathID, h.RefID, h.BrowserID, h.SystemID, w, h.Location,
-					h.Language, h.CreatedAt.Round(time.Second), h.Session, h.FirstVisit, h.CampaignID)
+				ins.Values(h.PathID, h.RefID, h.BrowserID, h.SystemID, w, h.Location, h.Language,
+					h.CreatedAt.Round(time.Second), h.Session, h.FirstVisit, h.CampaignID)
 			}
 		}
 	}
@@ -257,20 +232,16 @@ func (m *ms) processHit(ctx context.Context, h *Hit) bool {
 	// Ignore spammers.
 	h.RefURL, _ = url.Parse(h.Ref)
 	if h.RefURL != nil {
-		if isRefspam(h.RefURL.Host) {
+		if refspam.Is(h.RefURL.Host) {
 			refspamlog.Debugf(ctx, "refspam ignored: %q", h.RefURL.Host)
 			return false
 		}
 	}
 
 	var site Site
-	err := site.ByID(ctx, h.Site)
+	err := site.Load(ctx)
 	if err != nil {
-		// This happens if the site gets deleted before the persist runs. We
-		// don't really need to log that as an error.
-		if !zdb.ErrNoRows(err) {
-			memlog.Error(ctx, err, "hit", h)
-		}
+		memlog.Error(ctx, err, "hit", h)
 		return false
 	}
 	ctx = WithSite(ctx, &site)
@@ -293,7 +264,7 @@ func (m *ms) processHit(ctx context.Context, h *Hit) bool {
 	}
 
 	if h.Session.IsZero() && site.Settings.Collect.Has(CollectSession) && !h.NoSession.Bool() {
-		h.Session, h.FirstVisit = m.session(ctx, site.ID, h.PathID, h.UserSessionID, h.UserAgentHeader, h.RemoteAddr)
+		h.Session, h.FirstVisit = m.session(ctx, h.PathID, h.UserSessionID, h.UserAgentHeader, h.RemoteAddr)
 	}
 
 	if !site.Settings.Collect.Has(CollectSession) || h.NoSession.Bool() {
@@ -377,10 +348,10 @@ func (m *ms) SessionID() zint.Uint128 {
 	return UUID()
 }
 
-func (m *ms) session(ctx context.Context, siteID SiteID, pathID PathID, userSessionID, ua, remoteAddr string) (zint.Uint128, zbool.Bool) {
+func (m *ms) session(ctx context.Context, pathID PathID, userSessionID, ua, remoteAddr string) (zint.Uint128, zbool.Bool) {
 	sk := sessionKey(userSessionID)
 	if userSessionID == "" {
-		sk = sessionKey(fmt.Sprintf("%s-%s-%d", ua, remoteAddr, siteID))
+		sk = sessionKey(ua + "-" + remoteAddr)
 	}
 
 	m.sessionMu.Lock()

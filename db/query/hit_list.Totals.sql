@@ -6,7 +6,7 @@ with x as (
 	from hit_counts
 	{{:no_events join paths using (path_id)}}
 	where
-		hit_counts.site_id = :site and hour >= :start and hour <= :end and
+		hour >= :start and hour <= :end and
 		{{:no_events paths.event = 0 and}}
 		:filter
 	group by hour

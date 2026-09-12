@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zstd/zmap"
 	"zgo.at/zstd/ztest"
 )
@@ -36,68 +36,30 @@ func fmtCSP(h string) string {
 
 func TestAddCSP(t *testing.T) {
 	tests := []struct {
-		path  string
-		embed []string
-		want  string
+		path string
+		want string
 	}{
-		{"/", nil, `
+		{"/", `
 			connect-src     'self' wss:
 			default-src     'none'
-			font-src        'self' https://gc.zgo.at
+			font-src        'self'
 			form-action     'self'
 			frame-ancestors 'none'
 			frame-src       'self'
-			img-src         'self' https://gc.zgo.at data:
-			manifest-src    'self' https://gc.zgo.at
-			script-src      'self' https://gc.zgo.at
-			style-src       'self' https://gc.zgo.at 'unsafe-inline'
+			img-src         'self' data:
+			manifest-src    'self'
+			script-src      'self'
+			style-src       'self' 'unsafe-inline'
 		`},
-		{"/api.html", nil, `
-			connect-src     'self' wss:
-			default-src     'none'
-			font-src        'self' https://gc.zgo.at 'unsafe-inline'
-			form-action     'self'
-			frame-ancestors 'none'
-			frame-src       'self'
-			img-src         'self' https://gc.zgo.at 'unsafe-inline' data:
-			manifest-src    'self' https://gc.zgo.at 'unsafe-inline'
-			script-src      'self' https://gc.zgo.at 'unsafe-inline'
-			style-src       'self' https://gc.zgo.at 'unsafe-inline' 'unsafe-inline'
-		`},
-		{"/", []string{"http://example.com example.net"}, `
-			connect-src     'self' wss:
-			default-src     'none'
-			font-src        'self' https://gc.zgo.at
-			form-action     'self'
-			frame-ancestors http://example.com example.net
-			frame-src       'self'
-			img-src         'self' https://gc.zgo.at data:
-			manifest-src    'self' https://gc.zgo.at
-			script-src      'self' https://gc.zgo.at
-			style-src       'self' https://gc.zgo.at 'unsafe-inline'
-		`},
-		{"/", []string{"http://example.com"}, `
-			connect-src     'self' wss:
-			default-src     'none'
-			font-src        'self' https://gc.zgo.at
-			form-action     'self'
-			frame-ancestors http://example.com
-			frame-src       'self'
-			img-src         'self' https://gc.zgo.at data:
-			manifest-src    'self' https://gc.zgo.at
-			script-src      'self' https://gc.zgo.at
-			style-src       'self' https://gc.zgo.at 'unsafe-inline'
-		`},
-		{"/count", []string{"http://example.com"}, ``},
+		{"/count", ``},
 	}
 
 	mw := addcsp("")(http.NewServeMux())
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
 			var (
-				ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{Settings: goatcounter.SiteSettings{AllowEmbed: tt.embed}})
-				r   = ztest.NewRequest("GET", tt.path, nil).WithContext(ctx)
-				rr  = httptest.NewRecorder()
+				r  = ztest.NewRequest("GET", tt.path, nil)
+				rr = httptest.NewRecorder()
 			)
 
 			mw.ServeHTTP(rr, r)
@@ -130,7 +92,7 @@ func BenchmarkAddCtx(b *testing.B) {
 			ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
 			r   = ztest.NewRequest("GET", "/", nil).WithContext(ctx)
 			rr  = httptest.NewRecorder()
-			mw  = addctx(nil, false, true, false, 10)(http.NewServeMux())
+			mw  = addctx(nil, true, 10)(http.NewServeMux())
 		)
 		b.ResetTimer()
 		for b.Loop() {
@@ -140,12 +102,12 @@ func BenchmarkAddCtx(b *testing.B) {
 
 	b.Run("loadsite=true", func(b *testing.B) {
 		var (
-			ctx = gctest.DB(b)
+			ctx = testenv.DB(b)
 			r   = ztest.NewRequest("GET", "/", nil).WithContext(ctx)
 			rr  = httptest.NewRecorder()
-			mw  = addctx(nil, false, true, true, 10)(http.NewServeMux())
+			mw  = addctx(nil, true, 10)(http.NewServeMux())
 		)
-		r.Host = "gctest.localhost"
+		r.Host = "testenv.localhost"
 		b.ResetTimer()
 		for b.Loop() {
 			mw.ServeHTTP(rr, r)

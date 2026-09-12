@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marvinrabe/goatcounter/internal/db2"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2/pkg/db2"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zbool"
 	"zgo.at/zstd/zint"
@@ -20,7 +20,6 @@ type HitID int64
 
 type Hit struct {
 	ID         HitID        `db:"hit_id,id" json:"-"`
-	Site       SiteID       `db:"site_id" json:"-"`
 	PathID     PathID       `db:"path_id" json:"-"`
 	RefID      RefID        `db:"ref_id" json:"-"`
 	BrowserID  BrowserID    `db:"browser_id" json:"-"`
@@ -175,7 +174,6 @@ func (h *Hit) cleanPath(ctx context.Context) {
 // Defaults sets fields to default values, unless they're already set.
 func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 	site := MustGetSite(ctx)
-	h.Site = site.ID
 
 	if h.CreatedAt.IsZero() {
 		h.CreatedAt = ztime.Now(ctx)
@@ -300,7 +298,6 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 func (h *Hit) Validate(ctx context.Context, initial bool) error {
 	v := NewValidate(ctx)
 
-	v.Required("site", h.Site)
 	//v.Required("session", h.Session)
 	v.Required("created_at", h.CreatedAt)
 	v.UTF8("ref", h.Ref)
@@ -338,11 +335,10 @@ func (h *Hit) Validate(ctx context.Context, initial bool) error {
 
 type Hits []Hit
 
-// TestList lists all hits, for all sites, with browser_id, system_id, and paths
-// set.
+// TestList lists all hits with browser_id, system_id, and paths set.
 //
 // This is intended for tests.
-func (h *Hits) TestList(ctx context.Context, siteOnly bool) error {
+func (h *Hits) TestList(ctx context.Context) error {
 	var hh []struct {
 		Hit
 		B BrowserID  `db:"browser_id"`
@@ -365,12 +361,7 @@ func (h *Hits) TestList(ctx context.Context, siteOnly bool) error {
 		from hits
 		join paths using (path_id)
 		left join refs  using (ref_id)
-		{{:site_only where hits.site_id = :site}}
-		order by hit_id asc`,
-		map[string]any{
-			"site":      MustGetSite(ctx).ID,
-			"site_only": siteOnly,
-		})
+		order by hit_id asc`)
 	if err != nil {
 		return errors.Wrap(err, "Hits.TestList")
 	}
@@ -390,15 +381,13 @@ func (h *Hits) TestList(ctx context.Context, siteOnly bool) error {
 // Purge the given paths.
 func (h *Hits) Purge(ctx context.Context, pathIDs []PathID) error {
 	return zdb.TX(ctx, func(ctx context.Context) error {
-		siteID := MustGetSite(ctx).ID
-		for _, t := range append(statTables, "hit_counts", "ref_counts", "hits", "paths") {
+		for _, t := range append(statTables, "campaign_stats", "hit_counts", "ref_counts", "hits", "paths") {
 			err := zdb.Exec(ctx, `/* Hits.Purge */
-				delete from :tbl where site_id=:site_id and path_id :in (:paths)`,
+				delete from :tbl where path_id :in (:paths)`,
 				map[string]any{
-					"tbl":     zdb.SQL(t),
-					"site_id": siteID,
-					"paths":   db2.Array(ctx, pathIDs),
-					"in":      db2.In(ctx),
+					"tbl":   zdb.SQL(t),
+					"paths": db2.Array(ctx, pathIDs),
+					"in":    db2.In(ctx),
 				})
 			if err != nil {
 				return errors.Wrapf(err, "Hits.Purge %s", t)

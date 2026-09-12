@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marvinrabe/goatcounter/internal/db2"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2/pkg/db2"
 	"zgo.at/zdb"
 	"zgo.at/zstd/ztime"
 )
@@ -17,7 +17,6 @@ type FilterID int32
 
 type Filter struct {
 	FilterID   FilterID  `db:"filter_id,readonly"`
-	SiteID     SiteID    `db:"site_id,readonly"`
 	Matches    int       `db:"matches"`
 	Invert     bool      `db:"invert"`
 	Query      string    `db:"query"`
@@ -36,9 +35,6 @@ func (f *Filter) Defaults(ctx context.Context) {
 			f.FilterID = -f.FilterID
 		}
 	}
-	if f.SiteID == 0 {
-		f.SiteID = MustGetSite(ctx).ID
-	}
 	if f.CreatedAt.IsZero() {
 		f.CreatedAt = ztime.Now(ctx)
 	}
@@ -47,16 +43,13 @@ func (f *Filter) Defaults(ctx context.Context) {
 	}
 }
 
-var _ zdb.Validator = &APIToken{}
-
 func (f *Filter) Validate(ctx context.Context) error {
 	v := NewValidate(ctx)
 	return v.ErrorOrNil()
 }
 
 func (f *Filter) ByQuery(ctx context.Context, query string) error {
-	err := zdb.Get(ctx, f, `select * from filters where site_id=? and lower(query)=lower(?)`,
-		MustGetSite(ctx).ID, query)
+	err := zdb.Get(ctx, f, `select * from filters where lower(query)=lower(?)`, query)
 	return errors.Wrapf(err, "Filter.ByQuery(%q)", query)
 }
 
@@ -153,7 +146,7 @@ func (f Filter) Match(path, title string, event bool) bool {
 type Filters []Filter
 
 func (f *Filters) List(ctx context.Context) error {
-	err := zdb.Select(ctx, f, `select * from filters where site_id=?`, MustGetSite(ctx).ID)
+	err := zdb.Select(ctx, f, `select * from filters`)
 	return errors.Wrap(err, "Filters.List")
 }
 
@@ -230,7 +223,6 @@ func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) 
 
 	getPathIDs := func(scan any, invert bool) error {
 		return zdb.Select(ctx, scan, "load:paths.PathFilter", map[string]any{
-			"site":          MustGetSite(ctx).ID,
 			"like":          like,
 			"match_title":   matchTitle,
 			"match_path":    matchPath,
@@ -253,10 +245,8 @@ func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) 
 	// If there's tons of matches then check if we can invert the match. "List
 	// all except these 10,000" is lots faster than "include these 500,000
 	// paths".
-	//
-	// TODO: we always want to use a join in these cases, regardless of how long
-	// paths is, I think? Need to check, but otherwise it will always add these
-	// two queries.
+	// Only worth the extra query to count the inverse once the include list is
+	// large.
 	if len(pathIDs) > 100_000 {
 		var invertIDs []PathID
 		err := getPathIDs(&invertIDs, true)
@@ -272,13 +262,7 @@ func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) 
 	// hit_list.GetTotalCount it uses the path lists three times, so more than
 	// ~10k paths will error out.
 	//
-	// For PostgreSQL we can set the limit higher as it uses a single array
-	// parameter. When using very large arrays PostgreSQL will spend all its
-	// time in deconstruct_array().
 	m := 10_000
-	if zdb.SQLDialect(ctx) == zdb.DialectPostgreSQL {
-		m = 50_000
-	}
 	filter := Filter{Query: query, Invert: invert}
 	if len(pathIDs) > m {
 		err := zdb.TX(ctx, func(ctx context.Context) error {

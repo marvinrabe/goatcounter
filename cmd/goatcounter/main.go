@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"runtime"
@@ -12,16 +11,12 @@ import (
 	"sync"
 	_ "time/tzdata"
 
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/db/migrate/gomig"
-	"zgo.at/goatcounter/v2/pkg/log"
-	"zgo.at/jfmt"
 	"zgo.at/json"
-	"zgo.at/slog_align"
 	"zgo.at/zdb"
 	"zgo.at/zdb-drivers/go-sqlite3"
-	_ "zgo.at/zdb-drivers/pq"
 	"zgo.at/zdb/drivers"
 	"zgo.at/zli"
 	"zgo.at/zstd/zfs"
@@ -30,7 +25,7 @@ import (
 )
 
 func init() {
-	errors.Package = "zgo.at/goatcounter/v2"
+	errors.Package = "github.com/marvinrabe/goatcounter"
 }
 
 type command func(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error
@@ -49,7 +44,7 @@ func main() {
 		ready = make(chan struct{}, 1)
 		stop  = make(chan struct{}, 1)
 	)
-	slog.SetDefault(slog.New(slog_align.NewAlignedHandler(os.Stdout, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	cmdMain(f, ready, stop)
 }
 
@@ -59,9 +54,7 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 	mainDone.Add(1)
 	defer mainDone.Done()
 
-	cmd, err := f.ShiftCommand("help", "version", "serve", "import",
-		"dashboard", "db", "monitor",
-		"saas", "goat")
+	cmd, err := f.ShiftCommand("help", "version", "serve", "db", "healthcheck")
 	if zslice.ContainsAny(f.Args, "-h", "-help", "--help") {
 		f.Args = append([]string{cmd}, f.Args...)
 		cmd = "help"
@@ -89,22 +82,18 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 			zli.F(err)
 		}
 		if jsonFlag.Bool() {
-			j, err := json.Marshal(map[string]any{
+			j, err := json.MarshalIndent(map[string]any{
 				"version": goatcounter.Version,
 				"go":      runtime.Version(),
 				"GOOS":    runtime.GOOS,
 				"GOARCH":  runtime.GOARCH,
 				"race":    zruntime.Race,
 				"cgo":     zruntime.CGO,
-			})
+			}, "", "  ")
 			if err != nil {
 				panic(err)
 			}
-			jj, err := jfmt.NewFormatter(80, "", "  ").FormatString(string(j))
-			if err != nil {
-				panic(err)
-			}
-			fmt.Print(jj)
+			fmt.Println(string(j))
 		} else {
 			fmt.Printf("version=%s; go=%s; GOOS=%s; GOARCH=%s; race=%t; cgo=%t\n",
 				goatcounter.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH,
@@ -115,32 +104,10 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 
 	case "db", "database":
 		run = cmdDB
+	case "healthcheck":
+		run = runHealthcheck
 	case "serve":
-		run = func(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
-			return cmdServe(f, ready, stop, false)
-		}
-	case "saas":
-		run = func(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
-			return cmdServe(f, ready, stop, true)
-		}
-	case "monitor":
-		run = cmdMonitor
-	case "import":
-		run = cmdImport
-	case "dashboard":
-		// Wrap as this also doubles as an example, and these flags just obscure
-		// things.
-		run = func(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
-			defer func() { ready <- struct{}{} }()
-			return cmdDashboard(f)
-		}
-	case "goat":
-		run = func(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
-			defer func() { ready <- struct{}{} }()
-			fmt.Print(goat[1:])
-			return nil
-		}
-
+		run = cmdServe
 	case "create":
 		flags := os.Args[2:]
 		for i, ff := range flags {
@@ -230,7 +197,6 @@ func connectDB(connect, dbConn string, migrate []string, create, dev bool) (zdb.
 		Connect:      connect,
 		Files:        fsys,
 		Migrate:      migrate,
-		GoMigrations: gomig.Migrations,
 		Create:       create,
 		MaxOpenConns: open,
 		MaxIdleConns: idle,
@@ -242,7 +208,6 @@ func connectDB(connect, dbConn string, migrate []string, create, dev bool) (zdb.
 		err = nil
 	}
 
-	// TODO: maybe ask for confirmation here?
 	var cErr *drivers.NotExistError
 	if errors.As(err, &cErr) {
 		if cErr.DB == "" {
@@ -257,27 +222,6 @@ func connectDB(connect, dbConn string, migrate []string, create, dev bool) (zdb.
 	}
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// Insert/update languages. For PostgreSQL this adds ~120ms startup time,
-	// which isn't huge but just large enough to be a tad annoying on dev. So do
-	// it in the background as this data isn't critical. For SQLite we don't
-	// need to do this as it's just ~7ms there (also harder to do fully correct
-	// due to SQLite's concurrency limitations).
-	ins := func() {
-		langs, err := fs.ReadFile(goatcounter.DB, "db/languages.sql")
-		if err != nil {
-			log.Errorf(context.Background(), "unable to populate languages: %s", err)
-		}
-		err = db.Exec(context.Background(), string(langs))
-		if err != nil {
-			log.Errorf(context.Background(), "unable to populate languages: %s", err)
-		}
-	}
-	if db.SQLDialect() == zdb.DialectPostgreSQL && !log.HasDebug("sql") {
-		go ins()
-	} else {
-		ins()
 	}
 
 	if log.HasDebug("sql-query") {
@@ -304,11 +248,17 @@ func setupLog(dev, asJSON bool, debug []string) {
 	if asJSON {
 		handler = slog.NewJSONHandler(os.Stdout, o)
 	} else {
-		h := slog_align.NewAlignedHandler(os.Stdout, o)
 		if !dev {
-			h.SetTimeFormat("Jan _2 15:04:05 ")
+			// Shorter, syslog-ish timestamps rather than full RFC 3339.
+			replace := o.ReplaceAttr
+			o.ReplaceAttr = func(groups []string, a slog.Attr) slog.Attr {
+				if len(groups) == 0 && a.Key == slog.TimeKey {
+					a.Value = slog.StringValue(a.Value.Time().Format("Jan _2 15:04:05"))
+				}
+				return replace(groups, a)
+			}
 		}
-		handler = h
+		handler = slog.NewTextHandler(os.Stdout, o)
 	}
 
 	log.SetDebug(debug)

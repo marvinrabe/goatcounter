@@ -15,9 +15,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
-	"zgo.at/goatcounter/v2/pkg/log"
+	"github.com/marvinrabe/goatcounter/internal/log"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zhttp"
 	"zgo.at/zstd/zgo"
 	"zgo.at/zstd/zjson"
@@ -38,12 +37,9 @@ type handlerTest struct {
 	wantFormCode int
 	wantBody     string
 	wantFormBody string
-	want         string
-	serve        bool
 }
 
 func init() {
-	supportWebsocket.Store(false)
 
 	files, _ := fs.Sub(os.DirFS(zgo.ModuleRoot()), "tpl")
 	err := ztpl.Init(files)
@@ -62,27 +58,14 @@ func init() {
 func TestMain(m *testing.M) {
 	os.Exit(ztpl.TestTemplateExecution(m,
 		// Don't need tests.
-		"", "bosmang.gohtml", "bosmang_site.gohtml", "bosmang_cache.gohtml",
-		"bosmang_bgrun.gohtml", "bosmang_metrics.gohtml", "bosmang_sites.gohtml",
-		"bosmang_email.gohtml", "bosmang_geoip.gohtml", "i18n_list.gohtml", "i18n_show.gohtml",
-		"i18n_manage.gohtml",
+		"", "error.gohtml",
 
-		// Tested in tpl_test.go
-		"email_export_done.gotxt", "email_forgot_site.gotxt",
-		"email_import_done.gotxt", "email_import_error.gotxt",
-		"email_password_reset.gotxt", "email_verify.gotxt",
-		"email_adduser.gotxt", "_email_bottom.gohtml", "email_report.gohtml",
-		"email_report.gotxt",
-
-		// TODO
+		// Not executed by any test yet.
 		"_dashboard_pages_refs.gohtml",
 		"_dashboard_pages_text.gohtml",
 		"_dashboard_pages_text_rows.gohtml",
-		"settings_server.gohtml",
 		"_dashboard_configure_widget.gohtml",
 		"_user_dashboard_widget.gohtml",
-		"settings_merge.gohtml",
-		"settings_batchpurge.gohtml",
 	))
 }
 
@@ -107,8 +90,7 @@ func runTest(
 
 		if tt.wantCode > 0 {
 			t.Run(sn, func(t *testing.T) {
-				ctx := gctest.DB(t)
-				goatcounter.Config(ctx).GoatcounterCom = !tt.serve
+				ctx := testenv.DB(t)
 
 				r, rr := newTest(ctx, tt.method, tt.path, bytes.NewReader(zjson.MustMarshal(tt.body)))
 				if tt.setup != nil {
@@ -136,8 +118,7 @@ func runTest(
 		}
 
 		t.Run("form", func(t *testing.T) {
-			ctx := gctest.DB(t)
-			goatcounter.Config(ctx).GoatcounterCom = !tt.serve
+			ctx := testenv.DB(t)
 
 			form := formBody(tt.body)
 			r, rr := newTest(ctx, tt.method, tt.path, strings.NewReader(form))
@@ -169,34 +150,13 @@ func runTest(
 
 func login(t *testing.T, r *http.Request) {
 	t.Helper()
-
-	// Login user
-	u := User(r.Context())
-	err := u.Login(r.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if u.LoginToken == nil {
-		t.Fatal("u.LoginToken is nil? Should never happen!")
-	}
-
-	// Set CSRF token.
-	// TODO: only works for form requests, which is okay as zhttp csrf checking
-	// only works for forms for now.
-	err = r.ParseForm()
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.Form.Set("csrf", *u.Token)
-	r.Header.Set("Cookie", "key="+*u.LoginToken)
+	r.SetBasicAuth("test@example.com", "coconuts")
 }
-
 func newTest(ctx context.Context, method, path string, body io.Reader) (*http.Request, *httptest.ResponseRecorder) {
 	site := Site(ctx)
 	r, rr := ztest.NewRequest(method, path, body).WithContext(ctx), httptest.NewRecorder()
 	r.Header.Set("User-Agent", "GoatCounter test runner/1.0")
-	r.Host = site.Code + "." + goatcounter.Config(ctx).Domain
+	r.Host = site.Domain(ctx)
 	return r, rr
 }
 
@@ -214,7 +174,5 @@ func formBody(i any) string {
 		f[k] = []string{v}
 	}
 
-	// TODO: null values are:
-	// email=foo%40example.com&frequency=
 	return f.Encode()
 }

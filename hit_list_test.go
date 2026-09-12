@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zjson"
 	"zgo.at/zstd/ztest"
@@ -146,16 +146,9 @@ func TestHitListsList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			ctx := gctest.DB(t)
+			ctx := testenv.DB(t)
 
-			site := MustGetSite(ctx)
-			for j := range tt.in {
-				if tt.in[j].Site == 0 {
-					tt.in[j].Site = site.ID
-				}
-			}
-
-			gctest.StoreHits(ctx, t, false, tt.in...)
+			testenv.StoreHits(ctx, t, false, tt.in...)
 
 			pathsFilter, err := PathFilterFromQuery(ctx, tt.inFilter)
 			if err != nil {
@@ -184,13 +177,13 @@ func TestHitListsList(t *testing.T) {
 	t.Run("70k", func(t *testing.T) {
 		// Directly insert because it's much faster.
 		var (
-			ctx        = gctest.DB(t)
-			bPaths, _  = zdb.NewBulkInsert(ctx, "paths", []string{"site_id", "path"})
-			bCounts, _ = zdb.NewBulkInsert(ctx, "hit_counts", []string{"site_id", "path_id", "hour", "total"})
+			ctx        = testenv.DB(t)
+			bPaths, _  = zdb.NewBulkInsert(ctx, "paths", []string{"path"})
+			bCounts, _ = zdb.NewBulkInsert(ctx, "hit_counts", []string{"path_id", "hour", "total"})
 		)
 		for i := range 70_000 {
-			bPaths.Values(1, fmt.Sprintf("/x-%d", i+1))
-			bCounts.Values(1, i+1, "2019-08-11 01:00:00", 10)
+			bPaths.Values(fmt.Sprintf("/x-%d", i+1))
+			bCounts.Values(i+1, "2019-08-11 01:00:00", 10)
 		}
 		err := bPaths.Finish()
 		if err != nil {
@@ -222,11 +215,11 @@ func TestHitListsList(t *testing.T) {
 }
 
 func TestGetTotalCount(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18 12:00:00"))
 	rng := ztime.NewRange(ztime.Now(ctx)).To(ztime.Now(ctx))
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/a", FirstVisit: true},
 		Hit{Path: "/b", FirstVisit: true},
 		Hit{Path: "/a", FirstVisit: false},
@@ -251,10 +244,10 @@ func TestGetTotalCount(t *testing.T) {
 }
 
 func TestHitListTotals(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18 12:00:00"))
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/a", FirstVisit: true},
 		Hit{Path: "/b", FirstVisit: true},
 		Hit{Path: "/a"},
@@ -440,10 +433,10 @@ func TestHitListTotals(t *testing.T) {
 }
 
 func TestHitListsPathCount(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18"))
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{FirstVisit: true, Path: "/"},
 		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
 		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
@@ -501,10 +494,10 @@ func TestHitListsPathCount(t *testing.T) {
 }
 
 func TestHitListSiteTotalUnique(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18"))
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{FirstVisit: true, Path: "/"},
 		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
 		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
@@ -574,8 +567,8 @@ func TestHitListsListPathsLike(t *testing.T) {
 		return b.String()
 	}
 
-	ctx := gctest.DB(t)
-	gctest.StoreHits(ctx, t, false,
+	ctx := testenv.DB(t)
+	testenv.StoreHits(ctx, t, false,
 		Hit{FirstVisit: true, Path: "/"},
 		Hit{FirstVisit: true, Path: "/hello"},
 		Hit{FirstVisit: true, Path: "/hello\\"},

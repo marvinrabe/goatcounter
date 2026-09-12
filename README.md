@@ -1,16 +1,65 @@
-GoatCounter is an open source web analytics platform available as a (free)
-hosted service or self-hosted app. It aims to offer easy to use and meaningful
-privacy-friendly web analytics as an alternative to Google Analytics or Matomo.
+This is a heavily trimmed-down fork of [GoatCounter][www] for self-hosting a
+single site with the lowest possible CPU and RAM usage. What's left is the
+`count.js` tracking script, the collection endpoint, and the dashboard; most of
+what makes upstream a hosted, multi-tenant, multi-language product is gone.
 
-There are two ways to run this: as hosted service on [goatcounter.com][www], or
-run it on your own server. The source code is completely Open Source/Free
-Software, and it can be self-hosted without restrictions.
+Collecting data:
 
-There's a live demo at [https://stats.arp242.net](https://stats.arp242.net).
+- No API: the `/api/v0` endpoints and API tokens are gone, and so is the
+  `api_token` table.
+- No log-file import (`goatcounter import`) and no importing from another
+  GoatCounter instance.
+- No export: neither the CSV/JSON export pages nor the background export jobs.
+- No visitor counter (the `/counter/…` images and HTML fragment).
+- Only the current `count.js` is served; the pinned `count.v1.js` …
+  `count.v5.js` copies are gone. The `/count` endpoint itself is unchanged, so
+  tracking with an `<img>` pixel still works — it's just not documented here.
 
-Please consider [contributing financially][sponsor].
+Running it:
 
-[sponsor]: http://www.goatcounter.com/contribute
+- SQLite only; PostgreSQL support is gone, including all PostgreSQL-specific
+  queries and migrations.
+- No TLS and no ACME: it serves plain HTTP and expects a reverse proxy in
+  front.
+- No multi-site/SaaS: one site, served on whatever domain you point at it.
+  There is no `sites` table, no vhost/CNAME routing, and no `site_id` column on
+  any table.
+- No email at all: no SMTP, no email reports, no password resets, no email
+  verification, no "email" debug pages.
+- English only: the `i18n/` translations, the translation UI, and the
+  per-user locale are gone. Dates, numbers, and times use international formats
+  (ISO dates, 24-hour clock, thin-space thousands separator).
+- Only four commands: `serve`, `db`, `help`, and `version`. The `import`,
+  `monitor`, and `dashboard` commands are gone, as are the `db` subcommands for
+  sites and API tokens.
+- No runtime metrics collection and no admin ("bosmang") pages for cache,
+  background jobs, GeoIP, and metrics.
+
+Web interface:
+
+- Every user is an admin; there are no access levels and no two-factor auth.
+  Authentication is HTTP basic auth: the username is ignored and the password
+  is checked against the users' bcrypt hashes.
+- No user settings page. The dashboard layout is fixed (totals first), the
+  timezone comes from the `TZ` environment variable, and everything else that
+  was a user preference is now a site setting.
+- No signup, no user management UI, no site deletion, no changing the site
+  code. Settings are two pages: the site settings and managing pageviews.
+- No marketing website (home, "why", contact, contribute, design) and no
+  in-app help pages.
+- No dark theme, no footer menu, and no custom date picker — the browser's
+  native date input is used instead.
+- No third-party front-end code: jQuery, dragula, and pikaday are gone, as are
+  the bundled Lato webfonts (a system font stack is used).
+- No dashboard websocket loader; widgets are rendered with the page and only
+  paging and drill-downs fetch more.
+
+Users are managed with `goatcounter db create|update|delete user`; there is no
+in-app user management.
+
+The dashboard is displayed in the timezone from the `TZ` environment variable
+(e.g. `TZ=Europe/Berlin`), for everyone; it defaults to UTC.
+
 [www]: https://www.goatcounter.com
 
 
@@ -18,69 +67,27 @@ Features
 --------
 - **Privacy-aware**; doesn’t track users with unique identifiers and doesn't
   need a GDPR notice. Fine-grained **control over which data is collected**.
-  Also see the [privacy policy][privacy] and [GDPR consent notices][gdpr].
 
-- **Lightweight** and **fast**; adds just ~3.5K of extra data to your site. Also
-  has JavaScript-free "tracking pixel" option, or you can use it from your
-  application's middleware or **import from logfiles**.
+- **Lightweight** and **fast**; adds just ~3.5K of extra data to your site.
 
-- Identify **unique visits** without cookies using a non-identifiable hash
-  ([technical details][sessions]).
+- Identify **unique visits** without cookies using a non-identifiable hash.
 
-- Keeps useful statistics such as **browser** information, **location**, and
-  **screen size**. Keep track of **referring sites** and **campaigns**.
+- Keeps useful statistics such as **browser** information, **location**,
+  **language**, and **screen size**. Keep track of **referring sites** and
+  **campaigns**.
 
-- **Easy**; if you've been confused by the myriad of options and flexibility of
-  Google Analytics and Matomo that you don't need then GoatCounter will be a
-  breath of fresh air.
-
-- **Accessibility** is a high-priority feature, and the interface works well
-  with assistive technology such as screen readers.
-
-- 100% committed to **open source**; you can see exactly what the code does and
-  make improvements, or <strong>self-host</strong> it for any purpose.
-
-- **Own your data**; you can always export all data and **cancel at any time**.
+- **Own your data**; everything is in a single SQLite database.
 
 - Integrate on your site with just a **single script tag**:
 
-      <script data-goatcounter="https://yoursite.goatcounter.com/count"
-              async src="//gc.zgo.at/count.js"></script>
+      <script data-goatcounter="https://stats.example.com/count"
+              async src="//stats.example.com/count.js"></script>
 
-- The JavaScript integration is a good option for most, but you can also use a
-  **no-JavaScript image-based tracker**, integrate it in your **backend
-  middleware**, or **parse log files**.
-
-[privacy]: https://www.goatcounter.com/privacy
-[gdpr]: https://www.goatcounter.com/gdpr
-[sessions]: http://www.goatcounter.com/help/sessions
-
-
-Getting data in to GoatCounter
-------------------------------
-There are three ways:
-
-1. Add the JavaScript code on your site; this is the easiest and most common
-   method. Detailed documentation for this is available at
-   https://www.goatcounter.com/code
-
-2. Use the HTTP/REST API, for example from your backend server middleware.
-   Detailed documentation for this is available at
-   https://www.goatcounter.com/api#backend-integration
-
-3. Parse logfiles of nginx, Apache, Caddy, CloudFront, or any other HTTP server
-   or proxy. See `goatcounter help import` for detailed documentation on this
-   (this works both for the self-hosted version and goatcounter.com).
 
 Self-hosting GoatCounter
 ------------------------
-The [release page][releases] has binaries for several platforms. These are
-statically compiled and contain everything you need. These should work in pretty
-much any environment. The only dependency is somewhere to store a SQLite
-database file or a PostgreSQL connection. Alternatively you can use Docker, as
-documented in the section below.
-
-[releases]: https://github.com/arp242/goatcounter/releases
+The only dependency is somewhere to store a SQLite database file. Alternatively
+you can use Docker, as documented in the section below.
 
 ### Running
 You can start a server with:
@@ -91,137 +98,62 @@ This will start a server on `*:8080`. The default is to use an SQLite database
 at `./goatcounter-data/db.sqlite3`, which will be created if it doesn't exist
 yet.
 
-Both SQLite and PostgreSQL are supported. SQLite should work well for most
-smaller sites, but PostgreSQL gives better performance especially for larger
-sites. The main bottleneck is not so much the number of pageviews, but how
-spread out they are over different pages (10 million pageviews spread out over 5
-pages is quite fast even on SQLite, but spread out over 1 million different
-pages is much slower).
+The site itself is created automatically on first run. To create a user to log
+in with:
 
-To create the first site, use the wizard on http://localhost:8080 or the CLI
-with:
+    % goatcounter db create user -email=me@example.com -password=secret
 
-    % goatcounter db create site -vhost=stats.example.com -user.email=me@example.com
+You must also pass the `-db` flag here if you use something other than the
+default. Log in on the web interface with HTTP basic auth; any username works,
+the password is what you set above.
 
-This will ask for a password; you can also add a password on the commandline
-with `-password`. You must also pass the `-db` flag here if you use something
-other than the default.
-
-GoatCounter includes TLS and automatic ACME certificate generation; to run in
-production you probably want something like:
-
-    % goatcounter serve -listen=:443 -tls=tls,rdr,acme
-
-See `goatcounter help serve` for details.
-
-### PostgreSQL
-To use PostgreSQL, run GoatCounter with a custom `-db` flag. For example:
-
-    % goatcounter serve -db 'postgresql+dbname=goatcounter'
-    % goatcounter serve -db 'postgresql+host=/run/postgresql dbname=goatcounter sslmode=disable'
-
-This follows the format in the `psql` CLI; you can also use the `PG*`
-[environment variables](https://www.postgresql.org/docs/current/libpq-envars.html):
-
-    % PGDATABASE=goatcounter PGHOST=/run/postgresql goatcounter serve -db 'postgresql'
-
-The database will be created automatically if possible; if you want to create it
-for a specific user you can use:
-
-    % createuser --interactive --pwprompt goatcounter
-    % createdb --owner goatcounter goatcounter
-
-You can manually import the schema with:
-
-    % goatcounter db schema-pgsql | psql --user=goatcounter --dbname=goatcounter
-
-See `goatcounter help db` and the [pq docs][pq] for more details.
-
-[pq]: https://pkg.go.dev/github.com/lib/pq#NewConfig
+GoatCounter serves plain HTTP; put a reverse proxy (nginx, Caddy, …) in front
+of it for TLS.
 
 ### Running with Docker
-GoatCounter is available on DockerHub at [arp242/goatcounter].
+There is no published image for this fork; the images on DockerHub are
+upstream's, with everything listed above still in them. Build it yourself:
 
-Example to run a new container:
-
+    % docker build -t goatcounter .
     % docker run \
         -p 8080:8080 \
         -v goatcounter-data:/home/goatcounter/goatcounter-data \
-        arp242/goatcounter
+        goatcounter
 
 This uses a named volume, which is recommended as this stores the SQLite
-database and ACME certificates (when using ACME) and anonymous volumes can be
-easy to accidentally delete.
+database and anonymous volumes can be easy to accidentally delete.
 
-To create the first site, use the wizard on http://localhost:8080 or the CLI
-with:
+To create the first user:
 
-    % docker exec -it [..] goatcounter db create site -vhost=stats.example.com -user.email=me@example.com
+    % docker exec -it [..] goatcounter db create user \
+        -email=me@example.com -password=secret
 
-To set options you can use `GOATCOUNTER_..` environment variables. For example
-to enable TLS and automatic certificate generation:
-
-    % docker run \
-        -p 80:80 \
-        -p 443:443 \
-        -v goatcounter-data:/home/goatcounter/goatcounter-data \
-        -e GOATCOUNTER_LISTEN=:443 \
-        -e GOATCOUNTER_TLS=tls,rdr,acme \
-        arp242/goatcounter
-
-Set `GOATCOUNTER_DB` to use PostgreSQL. For example:
-
-    % docker run \
-        -p 8080:8080 \
-        -v goatcounter-data:/home/goatcounter/goatcounter-data \
-        -e GOATCOUNTER_DB='postgresql+postgresql://goatcounter:goatcounter@postgres:5432/goatcounter?sslmode=disable' \
-        arp242/goatcounter
-
-See `goatcounter help serve` (or: `docker run --rm arp242/goatcounter help serve`)
-for all options.
-
-All of the above should also work with Podman.
-
-You can also run GoatCounter from compose.yaml with `docker compose`. For a
-basic SQLite setup:
-
-    % docker compose up -d goatcounter-sqlite
-
-Or PostgreSQL (also starts PostgreSQL from compose.yaml):
-
-    % docker compose up -d goatcounter-postgres
-
-[arp242/goatcounter]: https://hub.docker.com/r/arp242/goatcounter
+`compose.yaml` has a ready-to-run example, including the memory limits and
+`GOGC`/`GOMEMLIMIT` settings this fork is tuned for.
 
 ### Management
-A Server management page is available at *Settings → Server management*, which
-can be useful to debug and test some things.
-
 A status URL is available at `/status`, which can be used for health monitors.
 
 ### Updating
-You may need to run the database migrations when updating. Use  `goatcounter
-serve -automigrate` to always run all pending migrations on startup.
+Databases created before the multi-site removal are not upgradable; start with a
+fresh database.
 
-Use `goatcounter db migrate <file>` or `goatcounter db migrate all` to manually run
-migrations.
-
-Use `goatcounter db migrate pending` to get a list of pending migrations, or
-`goatcounter db migrate list` to show all migrations.
+The migration machinery is still there for future schema changes: use
+`goatcounter serve -automigrate` to run all pending migrations on startup, or
+`goatcounter db migrate all` to run them manually. `goatcounter db migrate
+pending` lists pending migrations and `goatcounter db migrate list` shows all of
+them.
 
 ### Building from source
-You need Go 1.21 or newer and a C compiler. If you compile it with
-`CGO_ENABLED=0` you don't need a C compiler but can only use PostgreSQL.
+You need Go 1.27 or newer and a C compiler (for SQLite).
 
 You can build from source with:
 
-    % git clone --branch=release-2.7 https://github.com/arp242/goatcounter
+    % git clone https://github.com/marvinrabe/goatcounter
     % cd goatcounter
     % go build ./cmd/goatcounter
 
 Which will produce a `goatcounter` binary in the current directory.
-
-To use the latest development version switch to the `main` branch.
 
 To build a fully statically linked binary:
 
@@ -229,28 +161,13 @@ To build a fully statically linked binary:
         -tags='osusergo,netgo,sqlite_omit_load_extension' \
         ./cmd/goatcounter
 
-It's recommended to use the latest release as in the above command. The main
-branch should be reasonably stable but no guarantees, and sometimes I don't
-write detailed release/upgrade notes until the actual release so you may run in
-to surprises.
-
-You can compile goatcounter without cgo if you're planning to use PostgreSQL and
-don't use SQLite:
-
-    % CGO_ENABLED=0 go build ./cmd/goatcounter
-
-This will create a statically linked binary by default; no extra flags needed.
-Functionally it doesn't matter too much, but builds will be a bit easier and
-faster as you won't need a C compiler.
-
 ### Development/testing
 You can start a test/development server with:
 
     % goatcounter serve -dev
 
 The `-dev` flag makes some small things a bit more convenient for development:
-the application will automatically restart on recompiles, templates and static
-files will be read directly from the filesystem, and a few other minor changes.
+templates and static files will be read directly from the filesystem.
 
 See [.github/CONTRIBUTING.md](/.github/CONTRIBUTING.md) for more details on how
 to run a development server, write patches, etc.

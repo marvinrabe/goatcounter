@@ -1,4 +1,10 @@
 :root {
+    /* System font stacks; no webfonts to download. */
+    --font-sans:         ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+                         Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+    --font-mono:         ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+                         'Courier New', monospace;
+
     --text:              #252525;
     --bg:                #fff;
     --header-border:     #252525;                          /* Border below some headers */
@@ -40,8 +46,8 @@
     --hchart-bar:        #ebb7ef;
     --hchart-bar-hover:  #f9cffc;
 
-    --nav-bg:            #f8f8d9;                          /* Navigation at dashboard, settings, and footer */
-    --nav-border:        #dede89;
+    --nav-bg:            #fdf8cd;                          /* Navigation at dashboard, settings, and footer */
+    --nav-border:        #ecdd7c;
     --footer-shadow:     #cdc8a4;
     --filter-kw-text:    #af5f00;                          /* Keyword in filter input (at:start, etc.) */
 

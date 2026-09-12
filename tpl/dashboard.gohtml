@@ -1,25 +1,8 @@
 {{- template "_backend_top.gohtml" . -}}
 
 <div id="print-header">
-	GoatCounter report for {{tformat .Period.Start "" .User}} to {{tformat .Period.End "" .User}}
+	GoatCounter report for {{tformat $.Context .Period.Start ""}} to {{tformat $.Context .Period.End ""}}
 </div>
-
-{{if .User.ID}}
-	{{if not .User.EmailVerified}}
-		<div class="flash flash-i">
-			{{.T "p/verify-email|Please verify your email by clicking the link sent to %(email). %[%sup (Why?)]" (map
-				"email" .User.Email
-				"sup"   (tag "a" `class="sup" href="https://www.goatcounter.com/help/faq#verify-email" target="_blank"`)
-			)}}<br>
-
-			{{.T "p/change-email|Change the email address in the %[settings]." (tag "a" (printf `href="%s/user"` .Base))}}
-
-			<form method="post" action="{{.Base}}/user/resend-verify">
-				<input type="hidden" name="csrf" value="{{.User.CSRFToken}}">
-				<button class="link">{{.T "button/resend-email|Resend email"}}</button>.
-			</form>
-		</div>
-	{{end}}
 
 	{{if not .Site.ReceivedData}}
 		<div class="flash flash-i">
@@ -31,17 +14,15 @@
 
 				<p>Check if your adblocker is blocking GoatCounter if you don’t see any pageviews (%(domain) and/or gc.zgo.at domain).</p>
 
-				<p>This message will disappear once we receive data; see %[%link_docs Site code] in the top menu for further documentation and ready-made integrations.</p>`
+				<p>This message will disappear once we receive data.</p>`
 				(map
 				"bold"      (tag "strong" "")
 				"pre"       (tag "pre" "")
 				"domain"    (.Site.Domain .Context)
-				"link_docs" (tag "a" (printf `href="%s/help"` .Base))
 				"js_code"   (printf "<script data-goatcounter=\"%s/count\"\n        async src=\"//%s/count.js\"></script>" (.Site.URL .Context) .CountDomain)
 			)}}
 		</div>
 	{{end}}
-{{end}} {{/* .User.ID */}}
 
 {{/* Hide in CSS as the JavaScript uses a number of the elements to render the charts. */}}
 {{if and (not .User.ID) (.HideUI)}}
@@ -56,40 +37,24 @@
 	{{/* The first button gets used on the enter key, AFAICT there is no way to change that. */}}
 	<button type="submit" tabindex="-1" class="hide-btn" aria-label="{{.T "button/submit|Submit"}}"></button>
 	{{if .ShowRefs}}<input type="hidden" name="showrefs" value="{{.ShowRefs}}">{{end}}
-	<input type="hidden" id="hl-period" name="hl-period" value="{{.View.Period}}" disabled>
-	<input type="hidden" id="hl-group" name="group" value="{{.View.Group}}" disabled>
-
-	{{if .User.ID}}
-		<div id="dash-saved-views">
-			<span title="{{.T "help/configure-dashboard|Configure dashboard"}}">⚙&#xfe0f;</span>
-			<div>
-				<a href="#" class="save-current-view">{{.T "button/save-default-view|Save default view"}}</a><br>
-				<small>{{.T "help/save-default-view|Save the current view (i.e. all the settings in the yellow box) as the default to load when nothing is selected yet."}}</small>
-				<br><br>
-				{{/* TODO: it might be better to load the settings page "inline"
-				here, instead of a settings tab; would also declutter that a bit
-				since we can remove it there. */}}
-				<a href="{{.Base}}/user/dashboard">{{.T "button/cfg-dashboard|Configure dashboard layout"}}</a><br>
-				<small>{{.T "help/cfg-dashboard|Change what to display on the dashboard and in what order."}}</small>
-			</div>
-		</div>
-	{{end}}
+	<input type="hidden" id="hl-period" name="hl-period" value="{{.HLPeriod}}" disabled>
+	<input type="hidden" id="hl-group" name="group" value="{{.Group}}" disabled>
 
 	<div id="dash-main">
 		<div>
 			<span>
-				<input type="text" class="date-input" autocomplete="off" id="period-start" name="period-start"
+				<input type="date" autocomplete="off" id="period-start" name="period-start"
 					min="{{.Site.FirstHitAt.Format "2006-01-02"}}" max="{{time "now" "2006-01-02"}}"
 					title="{{.T "nav-dash/start-date|First day to display"}}"
-					value="{{tformat .Period.Start "" .User}}"
+					value="{{tformat $.Context .Period.Start ""}}"
 				>–{{- "" -}}
-				<input type="text" class="date-input" autocomplete="off" id="period-end" name="period-end"
+				<input type="date" autocomplete="off" id="period-end" name="period-end"
 					min="{{.Site.FirstHitAt.Format "2006-01-02"}}" max="{{time "now" "2006-01-02"}}"
 					title="{{.T "nav-dash/end-date|Last day to display"}}"
-					value="{{tformat .Period.End "" .User}}"
+					value="{{tformat $.Context .Period.End ""}}"
 				>{{- "" -}}
 			</span>
-			<span id="dash-select-period" class="period-{{.View.Period}}">
+			<span id="dash-select-period" class="period-{{.HLPeriod}}">
 				<span>
 					{{.T "nav-dash/last|Last"}} {{/* z18n: as in: "Last [day] [week] [month] ...*/}}
 					<button class="link" name="period" value="day">{{.T "nav-dash/day|day"}}</button> ·
@@ -104,10 +69,10 @@
 
 		<div style="text-align: right">
 			<div id="filter-outer">
-				<div id="filter-wrap" class="input{{if .View.Filter}} value{{end}}">
+				<div id="filter-wrap" class="input{{if .Filter}} value{{end}}">
 					<div id="filter-styled" aria-hidden="true"></div>
 					<input
-						type="text" autocomplete="off" name="filter" value="{{.View.Filter}}" id="filter-paths"
+						type="text" autocomplete="off" name="filter" value="{{.Filter}}" id="filter-paths"
 						placeholder="{{.T "nav-dash/filter|Filter paths"}}"
 						class="unstyled">
 				</div>
@@ -127,7 +92,7 @@
 			</div>
 			{{/* .T "nav-dash/by-day|View by day" */}}
 
-			<span id="dash-select-group" class="group-{{.View.Group}}">
+			<span id="dash-select-group" class="group-{{.Group}}">
 				{{.T `nav-dash/view-by|View by:`}}
                {{$dot := ""}}
                {{if .AllowGroups.Hourly}}
@@ -145,7 +110,7 @@
                {{if .AllowGroups.Monthly}}
                    {{$dot}}<button class="link" name="group" value="month">{{.T "nav-dash/month|month"}}</button>
                {{end}}
-               <input type="hidden" name="group" value="{{.View.Group}}">
+               <input type="hidden" name="group" value="{{.Group}}">
 			</span>
 		</div>
 	</div>
@@ -173,7 +138,6 @@
 </form>
 <span class="hide js-total">{{.Total}}</span>
 <span class="hide js-total-utc">{{.TotalUTC}}</span>
-<span class="hide" id="js-connect-id">{{.ConnectID}}</span>
 
 {{template "_dashboard_widgets.gohtml" .}}
 

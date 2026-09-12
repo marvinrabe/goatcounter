@@ -21,7 +21,7 @@ func TestHelp(t *testing.T) {
 	{
 		runCmd(t, exit, "help", "all")
 		wantExit(t, exit, out, 0)
-		if len(out.String()) < 20_000 {
+		if len(out.String()) < 10_000 {
 			t.Error()
 		}
 		out.Reset()

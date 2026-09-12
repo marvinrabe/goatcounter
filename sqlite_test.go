@@ -1,6 +1,6 @@
 //go:build cgo
 
-package goatcounter
+package goatcounter_test
 
 import (
 	"context"

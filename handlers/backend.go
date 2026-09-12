@@ -6,18 +6,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/marvinrabe/goatcounter/internal/log"
 	"github.com/sethvargo/go-limiter"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/pkg/log"
 	"zgo.at/guru"
 	"zgo.at/zdb"
 	"zgo.at/zhttp"
 	"zgo.at/zhttp/mware"
-	"zgo.at/zstd/zfs"
 )
 
-func NewBackend(db zdb.DB, acmeh http.HandlerFunc, dev, saas bool,
-	domainStatic string, basePath string, dashTimeout, apiMax int, ratelimits Ratelimits,
+func NewBackend(db zdb.DB, dev bool,
+	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits,
 ) chi.Router {
 
 	root := chi.NewRouter()
@@ -27,15 +25,9 @@ func NewBackend(db zdb.DB, acmeh http.HandlerFunc, dev, saas bool,
 		root.Mount(basePath, r)
 	}
 
-	backend{dashTimeout}.Mount(r, db, dev, saas, domainStatic, dashTimeout, apiMax, ratelimits)
+	backend{dashTimeout}.Mount(r, db, dev, domainStatic, ratelimits)
 
-	if acmeh != nil {
-		r.Get("/.well-known/acme-challenge/{key}", acmeh)
-	}
-
-	if !saas {
-		NewStatic(r, dev, saas, basePath)
-	}
+	NewStatic(r, dev, basePath)
 
 	return root
 }
@@ -44,16 +36,12 @@ type backend struct {
 	dashTimeout int
 }
 
-func (h backend) Mount(r chi.Router, db zdb.DB, dev, saas bool, domainStatic string, dashTimeout, apiMax int, ratelimits Ratelimits) {
-	if dev {
-		r.Use(mware.Delay(0))
-	}
-
+func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, ratelimits Ratelimits) {
 	r.Use(
 		mware.RealIP(),
 		mware.WrapWriter(),
-		mware.Unpanic("zgo.at/goatcounter/v2/handlers.add"),
-		addctx(db, dev, saas, true, dashTimeout),
+		mware.Unpanic("github.com/marvinrabe/goatcounter/handlers.add"),
+		addctx(db, true, h.dashTimeout),
 		addcsp(domainStatic),
 		middleware.RedirectSlashes,
 		mware.NoStore(),
@@ -64,21 +52,8 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev, saas bool, domainStatic str
 			opt.Host = true
 			opt.TimeFmt = time.DateTime
 		}
-		r.Use(mware.RequestLog(opt, nil, "/count", "/api/v0/count", "/loader", "/robots.txt"))
+		r.Use(mware.RequestLog(opt, nil, "/count", "/robots.txt"))
 	}
-
-	fsys, err := zfs.EmbedOrDir(goatcounter.Templates, "", dev)
-	if err != nil {
-		panic(err)
-	}
-	static, err := zfs.EmbedOrDir(goatcounter.Static, "public", dev)
-	if err != nil {
-		panic(err)
-	}
-
-	website{fsys, false}.MountShared(r)
-	newAPI(apiMax).mount(r, db, ratelimits)
-	vcounter{static}.mount(r)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		zhttp.ErrPage(w, r, guru.New(404, T(r.Context(), "error/not-found|Not Found")))
@@ -96,16 +71,25 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev, saas bool, domainStatic str
 		rr.Post("/jserr", zhttp.HandlerJSErr())
 		rr.Post("/csp", zhttp.HandlerCSP())
 
+		// Requests from localhost and -dev aren't rate limited in practice, but
+		// still go through a store so the X-Rate-Limit headers are set. The
+		// store is created once here rather than inside the callback below:
+		// memorystore.New starts a purge goroutine that only stops on Close(),
+		// so building one per request leaks a goroutine and its ticker.
+		//
+		// Note RealIP has already stripped the port by this point, so the
+		// localhost check below matches a same-host reverse proxy that doesn't
+		// set a forwarding header, not just local testing.
+		unlimitedTokens := uint64(1 << 14)
+		if dev {
+			unlimitedTokens = 1 << 30
+		}
+		unlimited := mustNewMem(unlimitedTokens, 1)
+
 		// 4 pageviews/second should be more than enough.
 		rate := rr.With(Ratelimit(true, func(r *http.Request) ([]limiter.Store, string) {
-			if dev {
-				return []limiter.Store{mustNewMem(1<<30, 1)}, ""
-			}
-			// From httpbuf
-			// TODO: in some setups this may always be true, e.g. when proxy
-			// through nginx without settings this properly. Need to check.
-			if r.RemoteAddr == "127.0.0.1" {
-				return []limiter.Store{mustNewMem(1<<14, 1)}, ""
+			if dev || r.RemoteAddr == "127.0.0.1" {
+				return []limiter.Store{unlimited}, ""
 			}
 			return []limiter.Store{ratelimits.Count}, ""
 		}))
@@ -113,29 +97,13 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev, saas bool, domainStatic str
 		rate.Post("/count", zhttp.Wrap(h.count)) // to support navigator.sendBeacon (JS)
 	}
 
-	{
-		{
-			af := r.With(keyAuth, loggedIn, addz18n())
-			bosmang{}.mount(af, db)
-		}
-
-		a := r.With(mware.Headers(http.Header{
-			"Strict-Transport-Security": []string{"max-age=63072000"}, // 2 years
-			"X-Content-Type-Options":    []string{"nosniff"},
-			"X-Frame-Options":           []string{}, // Clear default from zhttp
-		}), keyAuth, addz18n())
-		user{}.mount(a, ratelimits)
-		{
-			ap := a.With(loggedInOrPublic, addz18n())
-			ap.Get("/", zhttp.Wrap(h.dashboard))
-			ap.Get("/loader", zhttp.Wrap(h.loader))
-			ap.Get("/load-widget", zhttp.Wrap(h.loadWidget))
-		}
-		{
-			af := a.With(loggedIn, addz18n())
-			settings{}.mount(af, ratelimits)
-
-			Newi18n().mount(af)
-		}
-	}
+	a := r.With(mware.Headers(http.Header{
+		"Strict-Transport-Security": []string{"max-age=63072000"}, // 2 years
+		"X-Content-Type-Options":    []string{"nosniff"},
+		"X-Frame-Options":           []string{}, // Clear default from zhttp
+	}))
+	a.With(loggedInOrPublic).Get("/", zhttp.Wrap(h.dashboard))
+	af := a.With(loggedIn)
+	af.Get("/load-widget", zhttp.Wrap(h.loadWidget))
+	settings{}.mount(af, ratelimits)
 }

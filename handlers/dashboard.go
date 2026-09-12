@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"math"
 	"net/http"
@@ -11,15 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lib/pq"
-	"github.com/lib/pq/pqerror"
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/log"
+	"github.com/marvinrabe/goatcounter/internal/widgets"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/pkg/log"
-	"zgo.at/goatcounter/v2/pkg/metrics"
-	"zgo.at/goatcounter/v2/widgets"
 	"zgo.at/guru"
-	"zgo.at/z18n"
 	"zgo.at/zhttp"
 	"zgo.at/zstd/zint"
 	"zgo.at/zstd/zstrconv"
@@ -29,19 +26,14 @@ import (
 	"zgo.at/zvalidate"
 )
 
+// The dashboard period when nothing is given in the query string.
+const defaultPeriod = "week"
+
 func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	var (
 		site       = Site(r.Context())
-		user       = User(r.Context())
 		publicView = site.Settings.IsPublic() && User(r.Context()).ID == 0
 	)
-
-	k := r.Host
-	if publicView {
-		k += "-public"
-	}
-	m := metrics.Start(k)
-	defer m.Done()
 
 	// Cache much more aggressively for public displays. Don't care so much if
 	// it's outdated by an hour.
@@ -52,16 +44,21 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 
 	q := r.URL.Query()
 
-	// Load view, but override this from query.
-	view, _ := user.Settings.Views.Get("default")
-	view.Period = strings.TrimSuffix(view.Period, "-cur")
+	// The dashboard view is whatever is in the query string; there is nothing
+	// saved or configurable.
+	period := strings.TrimSuffix(q.Get("hl-period"), "-cur")
+	if period == "" {
+		period = defaultPeriod
+	}
+	filter := q.Get("filter")
 
-	rng, err := getPeriod(w, r, site, user)
+	rng, err := getPeriod(w, r, site)
 	if err != nil {
 		zhttp.FlashError(w, r, err.Error())
 	}
 	if rng.Start.IsZero() || rng.End.IsZero() {
-		rng = timeRange(r.Context(), view.Period, user.Settings.Timezone.Loc(), bool(user.Settings.SundayStartsWeek))
+		period = defaultPeriod
+		rng = timeRange(r.Context(), period, goatcounter.Config(r.Context()).Timezone.Loc(), false)
 		if err != nil {
 			return err
 		}
@@ -71,19 +68,14 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		// saved view doesn't show a longer range (with different "view by"
 		// options) than submitting the dashboard form it renders.
 		if c := site.FirstHitAt.Add(-24 * time.Hour * 7); rng.Start.Before(c) {
-			y, m, d := c.In(user.Settings.Timezone.Loc()).Date()
-			rng.Start = time.Date(y, m, d, 0, 0, 0, 0, user.Settings.Timezone.Loc()).UTC()
+			y, m, d := c.In(goatcounter.Config(r.Context()).Timezone.Loc()).Date()
+			rng.Start = time.Date(y, m, d, 0, 0, 0, 0, goatcounter.Config(r.Context()).Timezone.Loc()).UTC()
 		}
-	} else {
-		view.Period = strings.TrimSuffix(q.Get("hl-period"), "-cur")
 	}
 
 	showRefs, _ := zstrconv.ParseInt[goatcounter.PathID](q.Get("showrefs"), 10)
-	if _, ok := q["filter"]; ok {
-		view.Filter = q.Get("filter")
-	}
 	var allowGroups goatcounter.Groups
-	view.Group, allowGroups = getGroup(r, view.Group, rng)
+	group, allowGroups := getGroup(r, 0, rng)
 
 	// Get path IDs to filter first, as they're used by the widgets.
 	var (
@@ -93,15 +85,15 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		}))
 	)
 	go func() {
-		defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "filter", view.Filter, log.AttrHTTP(r)) })
+		defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "filter", filter, log.AttrHTTP(r)) })
 
 		var (
 			f     goatcounter.PathFilter
 			start = ztime.Now(r.Context())
 			err   error
 		)
-		if view.Filter != "" {
-			f, err = goatcounter.PathFilterFromQuery(r.Context(), view.Filter)
+		if filter != "" {
+			f, err = goatcounter.PathFilterFromQuery(r.Context(), filter)
 		}
 		pathFilter <- struct {
 			Filter goatcounter.PathFilter
@@ -111,17 +103,12 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 			"took", time.Since(start).Round(time.Millisecond))
 	}()
 
-	subs, err := site.ListSubs(r.Context())
-	if err != nil {
-		return err
-	}
-
 	cd := goatcounter.Config(r.Context()).DomainCount
 	if cd == "" {
 		cd = Site(r.Context()).SchemelessURL(r.Context())
 	}
 
-	args := widgets.NewArgs(user, rng, view, allowGroups, showRefs)
+	args := widgets.NewArgs(r.Context(), rng, group, allowGroups, showRefs)
 
 	f := <-pathFilter
 	args.PathFilter, err = f.Filter, f.Err
@@ -130,18 +117,8 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Load widgets data from the database.
-	wid := widgets.FromSiteWidgets(r.Context(), user.Settings.Widgets, 0)
-	shared := widgets.SharedData{Args: args, Site: site, User: user}
-
-	for _, w := range wid.Get("totalpages") {
-		wid.GetOne("totalcount").(*widgets.TotalCount).NoEvents = w.Settings()["no-events"].Value.(bool)
-	}
-
-	initial := wid
-	var lazy widgets.List
-	if useWebsocket(r) {
-		initial, lazy = wid.InitialAndLazy()
-	}
+	wid := widgets.NewList(r.Context())
+	shared := widgets.SharedData{Args: args, Site: site, User: User(r.Context())}
 
 	getData := func(w widgets.Widget, start time.Time) {
 		// Create context for every goroutine, so we know which timed out.
@@ -152,7 +129,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		l := log.Module("dashboard")
 		_, err := w.GetData(ctx, args)
 		if err != nil {
-			if pq.As(err, pqerror.QueryCanceled) != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
 				err = guru.New(http.StatusGatewayTimeout, "server timed out loading data")
 			} else {
 				l.Error(ctx, err, log.AttrHTTP(r))
@@ -179,7 +156,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 
 	func() {
 		var wg sync.WaitGroup
-		for _, w := range initial {
+		for _, w := range wid {
 			wg.Go(func() {
 				defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "data widget", w, log.AttrHTTP(r)) })
 				getData(w, ztime.Now(r.Context()))
@@ -204,48 +181,14 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		zsync.Wait(r.Context(), &wg)
 	}()
 
-	// Load the rest in the background and send over websocket.
-	var connectID zint.Uint128
-	if c := q.Get("connectID"); c != "" {
-		var err error
-		connectID, err = zint.ParseUint128(c, 16)
-		if err != nil {
-			return err
-		}
-	} else {
-		connectID = goatcounter.UUID()
-		loader.register(connectID)
-	}
-
-	go func() {
-		defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, log.AttrHTTP(r)) })
-		run := zsync.NewAtMost(2)
-		for _, w := range lazy {
-			func(w widgets.Widget) {
-				run.Run(func() {
-					defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "data widget", w, log.AttrHTTP(r)) })
-					getData(w, ztime.Now(r.Context()))
-					getHTML(w)
-					loader.sendJSON(r, connectID, map[string]any{
-						"id":   w.ID(),
-						"html": w.HTML(),
-					})
-				})
-			}(w)
-		}
-
-		run.Wait()
-		loader.unregister(connectID)
-	}()
-
-	rng = rng.In(user.Settings.Timezone.Loc()).Locale(ztime.RangeLocale{
-		Today:     func() string { return T(r.Context(), "dashboard/today|Today") },
-		Yesterday: func() string { return T(r.Context(), "dashboard/yesterday|Yesterday") },
-		DayAgo:    func(n int) string { return T(r.Context(), "dashboard/day-ago|%(n) days ago", z18n.Plural(n)) },
-		WeekAgo:   func(n int) string { return T(r.Context(), "dashboard/week-ago|%(n) weeks ago", z18n.Plural(n)) },
-		MonthAgo:  func(n int) string { return T(r.Context(), "dashboard/month-ago|%(n) months ago", z18n.Plural(n)) },
+	rng = rng.In(goatcounter.Config(r.Context()).Timezone.Loc()).Locale(ztime.RangeLocale{
+		Today:     func() string { return "Today" },
+		Yesterday: func() string { return "Yesterday" },
+		DayAgo:    func(n int) string { return fmt.Sprintf("%d days ago", n) },
+		WeekAgo:   func(n int) string { return fmt.Sprintf("%d weeks ago", n) },
+		MonthAgo:  func(n int) string { return fmt.Sprintf("%d months ago", n) },
 		Month: func(m time.Month) string {
-			return z18n.Get(r.Context()).MonthName(time.Date(0, m, 0, 0, 0, 0, 0, time.UTC), z18n.TimeFormatFull)
+			return time.Date(0, m, 0, 0, 0, 0, 0, time.UTC).Format("January")
 		},
 	})
 
@@ -269,24 +212,23 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	return zhttp.Template(w, "dashboard.gohtml", struct {
 		Globals
 		CountDomain string
-		SubSites    []string
 		ShowRefs    goatcounter.PathID
 		Period      ztime.Range
 		PathFilter  goatcounter.PathFilter
 		AllowGroups goatcounter.Groups
 		Widgets     widgets.List
-		View        goatcounter.View
+		HLPeriod    string
+		Group       goatcounter.Group
+		Filter      string
 		Total       int
 		TotalUTC    int
-		ConnectID   zint.Uint128
-	}{newGlobals(w, r), cd, subs, showRefs, rng,
-		args.PathFilter, allowGroups, wid, view, shared.Total, shared.TotalUTC,
-		connectID})
+	}{newGlobals(w, r), cd, showRefs, rng,
+		args.PathFilter, allowGroups, wid, period, group, filter,
+		shared.Total, shared.TotalUTC})
 }
 
 func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
-	user := User(r.Context())
-	rng, err := getPeriod(w, r, Site(r.Context()), user)
+	rng, err := getPeriod(w, r, Site(r.Context()))
 	if err != nil {
 		return err
 	}
@@ -316,11 +258,9 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 		},
 	}
 
-	wid := widgets.FromSiteWidget(r.Context(), user.Settings.Widgets[widget])
+	wid := widgets.ByID(r.Context(), widget)
 	if key != "" {
-		s := wid.Settings()
-		s.Set("key", key)
-		wid.SetSettings(s)
+		wid.SetDetail(key)
 	}
 
 	ret := make(map[string]any)
@@ -331,9 +271,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 		args.RowsOnly = true
 		args.Args.Group, args.Args.AllowGroups = getGroup(r, args.Args.Group, rng)
 
-		if key != "" {
-			p.RefsForPath, _ = zstrconv.ParseInt[goatcounter.PathID](key, 10)
-		} else {
+		if key == "" {
 			p.Max, err = strconv.Atoi(r.URL.Query().Get("max"))
 			if err != nil {
 				return guru.Errorf(400, `"max" query parameter wrong: %w`, err)
@@ -407,19 +345,19 @@ func timeRange(ctx context.Context, r string, tz *time.Location, sundayStartsWee
 	return rng.UTC()
 }
 
-func getPeriod(w http.ResponseWriter, r *http.Request, site *goatcounter.Site, user *goatcounter.User) (ztime.Range, error) {
+func getPeriod(w http.ResponseWriter, r *http.Request, site *goatcounter.Site) (ztime.Range, error) {
 	var rng ztime.Range
 
 	if d := r.URL.Query().Get("period-start"); d != "" {
 		var err error
-		rng.Start, err = time.ParseInLocation("2006-01-02", d, user.Settings.Timezone.Loc())
+		rng.Start, err = time.ParseInLocation("2006-01-02", d, goatcounter.Config(r.Context()).Timezone.Loc())
 		if err != nil {
 			return rng, guru.New(400, T(r.Context(), "error/invalid-start-date|Invalid start date: %(date)", d))
 		}
 	}
 	if d := r.URL.Query().Get("period-end"); d != "" {
 		var err error
-		rng.End, err = time.ParseInLocation("2006-01-02 15:04:05", d+" 23:59:59", user.Settings.Timezone.Loc())
+		rng.End, err = time.ParseInLocation("2006-01-02 15:04:05", d+" 23:59:59", goatcounter.Config(r.Context()).Timezone.Loc())
 		if err != nil {
 			return rng, guru.New(400, T(r.Context(), "error/invalid-end-date|Invalid end date: %(date)", d))
 		}
@@ -428,12 +366,12 @@ func getPeriod(w http.ResponseWriter, r *http.Request, site *goatcounter.Site, u
 	// Allow viewing a week before the site was created at the most.
 	c := site.FirstHitAt.Add(-24 * time.Hour * 7)
 	if rng.Start.Before(c) {
-		y, m, d := c.In(user.Settings.Timezone.Loc()).Date()
-		rng.Start = time.Date(y, m, d, 0, 0, 0, 0, user.Settings.Timezone.Loc())
+		y, m, d := c.In(goatcounter.Config(r.Context()).Timezone.Loc()).Date()
+		rng.Start = time.Date(y, m, d, 0, 0, 0, 0, goatcounter.Config(r.Context()).Timezone.Loc())
 	}
 	if rng.End.Before(c) && !rng.End.IsZero() {
-		y, m, d := c.In(user.Settings.Timezone.Loc()).Date()
-		rng.End = time.Date(y, m, d, 0, 0, 0, 0, user.Settings.Timezone.Loc())
+		y, m, d := c.In(goatcounter.Config(r.Context()).Timezone.Loc()).Date()
+		rng.End = time.Date(y, m, d, 0, 0, 0, 0, goatcounter.Config(r.Context()).Timezone.Loc())
 	}
 
 	return rng.From(rng.Start).To(rng.End).UTC(), nil

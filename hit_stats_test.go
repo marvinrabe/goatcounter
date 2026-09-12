@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zjson"
 	"zgo.at/zstd/ztest"
@@ -14,7 +14,7 @@ import (
 )
 
 func TestHitStats(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
 	s := MustGetSite(ctx)
 	s.Settings.CollectRegions = Strings{}
@@ -23,7 +23,7 @@ func TestHitStats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/x", Location: "NL-NB", Size: []float64{1920, 1080, 1}, UserAgentHeader: "Mozilla/5.0 (X11; Linux x86_64; rv:81.0) Gecko/20100101 Firefox/81.0", FirstVisit: true},
 		Hit{Path: "/x", Location: "NL-NB", Size: []float64{1920, 1080, 1}, UserAgentHeader: "Mozilla/5.0 (X11; Linux x86_64; rv:81.0) Gecko/20100101 Firefox/81.0"},
 		Hit{Path: "/y", Location: "ID-BA", Size: []float64{800, 600, 2}, UserAgentHeader: "Mozilla/5.0 (X11; Linux x86_64; Ubuntu; rv:79.0) Gecko/20100101 Firefox/79.0", FirstVisit: true},
@@ -228,7 +228,7 @@ func TestHitStats(t *testing.T) {
 }
 
 func TestListSizes(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
 	// Copy from hit_stats
 	const (
@@ -252,12 +252,12 @@ func TestListSizes(t *testing.T) {
 	}
 
 	for _, w := range widths {
-		gctest.StoreHits(ctx, t, false,
+		testenv.StoreHits(ctx, t, false,
 			Hit{CreatedAt: now, Size: []float64{w.w, 0, 1}},
 			Hit{CreatedAt: now, Size: []float64{w.w, 0, 1}, FirstVisit: true},
 		)
 	}
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{CreatedAt: now, Size: []float64{4000, 0, 1}},
 		Hit{CreatedAt: now, Size: []float64{4000, 0, 1}, FirstVisit: true},
 		Hit{CreatedAt: now, Size: []float64{4200, 0, 1}},
@@ -375,9 +375,9 @@ func TestListSizes(t *testing.T) {
 }
 
 func TestStatsByRef(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/a", Ref: "https://example.com", FirstVisit: true},
 		Hit{Path: "/b", Ref: "https://example.com", FirstVisit: true},
 		Hit{Path: "/a", Ref: "https://example.org", FirstVisit: true})

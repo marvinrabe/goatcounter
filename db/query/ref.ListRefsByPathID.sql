@@ -4,7 +4,7 @@ with x as (
 		coalesce(sum(total), 0) as count
 	from ref_counts
 	where
-		site_id = :site and path_id = :path and hour >= :start and hour <= :end
+		path_id = :path and hour >= :start and hour <= :end
 	group by ref_id
 	order by count desc, ref_id
 	limit :limit offset :offset

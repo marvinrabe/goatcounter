@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/marvinrabe/goatcounter/internal/db2"
+	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2/pkg/db2"
-	"zgo.at/goatcounter/v2/pkg/log"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zbool"
 	"zgo.at/zstd/zreflect"
@@ -19,27 +19,21 @@ type PathID int32
 
 type Path struct {
 	ID    PathID     `db:"path_id,id" json:"id"` // Path ID
-	Site  SiteID     `db:"site_id" json:"-"`
-	Path  string     `db:"path" json:"path"`   // Path name
-	Title string     `db:"title" json:"title"` // Page title
-	Event zbool.Bool `db:"event" json:"event"` // Is this an event?
+	Path  string     `db:"path" json:"path"`     // Path name
+	Title string     `db:"title" json:"title"`   // Page title
+	Event zbool.Bool `db:"event" json:"event"`   // Is this an event?
 }
 
 func (Path) Table() string { return "paths" }
 
 var _ zdb.Defaulter = &Path{}
 
-func (p *Path) Defaults(ctx context.Context) {
-	if p.Site == 0 {
-		p.Site = MustGetSite(ctx).ID
-	}
-}
+func (p *Path) Defaults(ctx context.Context) {}
 
 var _ zdb.Validator = &Path{}
 
 func (p *Path) Validate(ctx context.Context) error {
 	v := NewValidate(ctx)
-	v.Required("site_id", p.Site)
 	v.UTF8("path", p.Path)
 	v.UTF8("title", p.Title)
 	v.Len("path", p.Path, 1, 2048)
@@ -49,22 +43,19 @@ func (p *Path) Validate(ctx context.Context) error {
 
 func (p *Path) ByID(ctx context.Context, id PathID) error {
 	err := zdb.Get(ctx, p,
-		`/* Path.ByID */ select * from paths where path_id=? and site_id=?`,
-		id, MustGetSite(ctx).ID)
+		`/* Path.ByID */ select * from paths where path_id=?`, id)
 	return errors.Wrapf(err, "Path.ByID(%d)", id)
 }
 
 func (p *Path) ByPath(ctx context.Context, path string) error {
 	err := zdb.Get(ctx, p,
-		`/* Path.ByPath */ select * from paths where site_id=? and lower(path) = lower(?)`,
-		MustGetSite(ctx).ID, path)
+		`/* Path.ByPath */ select * from paths where lower(path) = lower(?)`, path)
 	return errors.Wrapf(err, "Path.ByPath(%q)", path)
 }
 
 func (p *Path) GetOrInsert(ctx context.Context) error {
-	site := MustGetSite(ctx)
 	title := p.Title
-	k := strconv.Itoa(int(site.ID)) + p.Path
+	k := p.Path
 	c, ok := cachePaths(ctx).Get(k)
 	if ok {
 		*p = c
@@ -85,8 +76,8 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 
 	err = zdb.Get(ctx, p, `/* Path.GetOrInsert */
 		select * from paths
-		where site_id = $1 and lower(path) = lower($2)
-		limit 1`, site.ID, p.Path)
+		where lower(path) = lower($1)
+		limit 1`, p.Path)
 	if err != nil && !zdb.ErrNoRows(err) {
 		return errors.Errorf("Path.GetOrInsert select: %w", err)
 	}
@@ -176,7 +167,6 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 		pathIDs = append(pathIDs, pp.ID)
 	}
 
-	siteID := MustGetSite(ctx).ID
 	err := zdb.TX(ctx, func(ctx context.Context) error {
 		// Update stats and counts tables
 		for _, tt := range zreflect.Values(Tables, "", "") {
@@ -194,7 +184,7 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 
 			selCTE[l] = fmt.Sprintf("sum(%[1]s) as %[1]s", selCTE[l])
 
-			group = append(group[i+1:len(group)-1], "site_id")
+			group = group[i+1 : len(group)-1]
 
 			err := zdb.Exec(ctx, `load:paths.Merge`, map[string]any{
 				"Table":      t.Table,
@@ -204,7 +194,6 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 				"OnConflict": t.OnConflict(ctx),
 				"Group":      strings.Join(group, ", "),
 				"path_id":    p.ID,
-				"site_id":    siteID,
 				"paths":      db2.Array(ctx, pathIDs),
 				"in":         db2.In(ctx),
 			})
@@ -212,12 +201,11 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 				return err
 			}
 			err = zdb.Exec(ctx, `/* Path.Merge */
-				delete from :tbl where site_id=:site_id and path_id :in (:paths)`,
+				delete from :tbl where path_id :in (:paths)`,
 				map[string]any{
-					"tbl":     zdb.SQL(t.Table),
-					"site_id": siteID,
-					"paths":   db2.Array(ctx, pathIDs),
-					"in":      db2.In(ctx),
+					"tbl":   zdb.SQL(t.Table),
+					"paths": db2.Array(ctx, pathIDs),
+					"in":    db2.In(ctx),
 				})
 			if err != nil {
 				return err
@@ -226,9 +214,8 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 
 		// Update hits and delete old paths.
 		err := zdb.Exec(ctx, `/* Path.Merge */
-			update hits set path_id=:path_id where site_id=:site_id and path_id :in (:paths)`,
+			update hits set path_id=:path_id where path_id :in (:paths)`,
 			map[string]any{
-				"site_id": siteID,
 				"path_id": p.ID,
 				"paths":   db2.Array(ctx, pathIDs),
 				"in":      db2.In(ctx),
@@ -237,11 +224,10 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 			return err
 		}
 		return zdb.Exec(ctx, `/* Path.Merge */
-			delete from paths where site_id=:site_id and path_id :in (:paths)`,
+			delete from paths where path_id :in (:paths)`,
 			map[string]any{
-				"site_id": siteID,
-				"paths":   db2.Array(ctx, pathIDs),
-				"in":      db2.In(ctx),
+				"paths": db2.Array(ctx, pathIDs),
+				"in":    db2.In(ctx),
 			})
 	})
 	return errors.Wrapf(err, "Path.Merge(%d, %v)", p.ID, pathIDs)
@@ -249,10 +235,9 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 
 type Paths []Path
 
-// List all paths for a site.
-func (p *Paths) List(ctx context.Context, siteID SiteID, after PathID, limit int) (bool, error) {
+// List all paths.
+func (p *Paths) List(ctx context.Context, after PathID, limit int) (bool, error) {
 	err := zdb.Select(ctx, p, "load:paths.List", map[string]any{
-		"site":  siteID,
 		"after": after,
 		"limit": limit + 1,
 	})
@@ -267,17 +252,4 @@ func (p *Paths) List(ctx context.Context, siteID SiteID, after PathID, limit int
 		*p = pp
 	}
 	return more, nil
-}
-
-// FindPathsIDs finds path IDs by exact matches on the name.
-func FindPathIDs(ctx context.Context, list []string) ([]PathID, error) {
-	var paths []PathID
-	err := zdb.Select(ctx, &paths, `/* FindPathIDs */
-		select path_id from paths where site_id=:site_id and lower(path) :in (:paths)`,
-		map[string]any{
-			"site_id": MustGetSite(ctx).ID,
-			"paths":   db2.ArrayString(ctx, list),
-			"in":      db2.In(ctx),
-		})
-	return paths, errors.Wrap(err, "FindPathIDs")
 }

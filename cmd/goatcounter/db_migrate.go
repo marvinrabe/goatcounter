@@ -5,10 +5,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/db/migrate/gomig"
-	"zgo.at/goatcounter/v2/pkg/log"
 	"zgo.at/zdb"
 	"zgo.at/zli"
 	"zgo.at/zstd/zfs"
@@ -41,7 +40,7 @@ func cmdDBMigrate(f zli.Flags, dbConnect *string, debug []string, createdb *bool
 	if err != nil {
 		return err
 	}
-	m, err := zdb.NewMigrate(db, fsys, gomig.Migrations)
+	m, err := zdb.NewMigrate(db, fsys, nil)
 	if err != nil {
 		return err
 	}

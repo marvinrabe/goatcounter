@@ -11,27 +11,21 @@ import (
 type CampaignID int32
 
 type Campaign struct {
-	ID     CampaignID `db:"campaign_id,id" json:"campaign_id"`
-	SiteID SiteID     `db:"site_id" json:"site_id"`
-	Name   string     `db:"name" json:"name"`
+	ID   CampaignID `db:"campaign_id,id" json:"campaign_id"`
+	Name string     `db:"name" json:"name"`
 }
 
 func (Campaign) Table() string { return "campaigns" }
 
 var _ zdb.Defaulter = &Campaign{}
 
-func (c *Campaign) Defaults(ctx context.Context) {
-	if c.SiteID == 0 {
-		c.SiteID = MustGetSite(ctx).ID
-	}
-}
+func (c *Campaign) Defaults(ctx context.Context) {}
 
 var _ zdb.Validator = &Campaign{}
 
 func (c *Campaign) Validate(ctx context.Context) error {
 	v := zvalidate.New()
 	v.Required("name", c.Name)
-	v.Required("site_id", c.SiteID)
 	return v.ErrorOrNil()
 }
 
@@ -47,8 +41,7 @@ func (c *Campaign) ByName(ctx context.Context, name string) error {
 		return nil
 	}
 
-	err := zdb.Get(ctx, c, `select * from campaigns where site_id=? and lower(name)=lower(?)`,
-		MustGetSite(ctx).ID, name)
+	err := zdb.Get(ctx, c, `select * from campaigns where lower(name)=lower(?)`, name)
 	if err != nil {
 		return errors.Wrap(err, "Campaign.ByName")
 	}

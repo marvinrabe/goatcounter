@@ -63,7 +63,6 @@ func (l Strings) Value() (driver.Value, error) {
 }
 func (l *Strings) UnmarshalText(v []byte) error { return l.Scan(v) }
 
-// TODO: move to zstd/zstring
 func splitAny(s string, seps ...string) []string {
 	var split []string
 	for {

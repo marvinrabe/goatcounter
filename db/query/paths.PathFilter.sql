@@ -1,6 +1,6 @@
 select path_id from paths
 where
-	site_id = :site
+	1=1
 	{{:invert and not ( 1=1}}
 		{{:only_event    and event=1}}
 		{{:only_pageview and event=0}}

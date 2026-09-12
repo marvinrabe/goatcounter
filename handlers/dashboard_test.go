@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"zgo.at/goatcounter/v2"
+	"github.com/marvinrabe/goatcounter"
 	"zgo.at/zstd/ztime"
 )
 
@@ -18,7 +18,7 @@ func TestDashboard(t *testing.T) {
 			router:   newBackend,
 			auth:     true,
 			wantCode: 200,
-			wantBody: "<strong>No data received</strong>",
+			wantBody: "No data received",
 		},
 	}
 

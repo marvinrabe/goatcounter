@@ -17,8 +17,11 @@ type UserAgent struct {
 }
 
 func (p *UserAgent) GetOrInsert(ctx context.Context) error {
+	// Key on the shortened UA throughout: it's a reversible 1:1 encoding, so
+	// looking up the full UA here never matched what Set() stores below, which
+	// made this cache write-only.
 	shortUA := gadget.ShortenUA(p.UserAgent)
-	c, ok := cacheUA(ctx).Get(p.UserAgent)
+	c, ok := cacheUA(ctx).Get(shortUA)
 	if ok {
 		*p = c
 		cacheUA(ctx).Touch(shortUA)

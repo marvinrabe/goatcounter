@@ -2,13 +2,10 @@ package goatcounter
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"runtime/debug"
 	"time"
 
-	"zgo.at/blackmail"
-	"zgo.at/goatcounter/v2/pkg/geo"
+	"github.com/marvinrabe/goatcounter/internal/geo"
 	"zgo.at/zcache/v2"
 	"zgo.at/zdb"
 	"zgo.at/zhttp/ctxkey"
@@ -16,7 +13,7 @@ import (
 
 // Version of GoatCounter; set at compile-time with:
 //
-//	-ldflags="-X zgo.at/goatcounter/v2.Version=…"
+//	-ldflags="-X github.com/marvinrabe/goatcounter.Version=…"
 var Version = "dev"
 
 func getCommit() (string, time.Time, bool) {
@@ -42,7 +39,7 @@ func getCommit() (string, time.Time, bool) {
 func init() {
 	if Version == "" || Version == "dev" {
 		// Only calculate the version if not explicitly overridden with:
-		//	-ldflags="-X zgo.at/goatcounter/v2.Version=$tag"
+		//	-ldflags="-X github.com/marvinrabe/goatcounter.Version=$tag"
 		// which is done for release builds.
 		if rev, last, dirty := getCommit(); rev != "" {
 			Version = rev[:12] + "_" + last.Format("2006-01-02T15:04:05Z0700")
@@ -54,36 +51,50 @@ func init() {
 }
 
 var (
-	keyCacheSites      = &struct{ n string }{""}
-	keyCacheUA         = &struct{ n string }{""}
-	keyCacheBrowsers   = &struct{ n string }{""}
-	keyCacheSystems    = &struct{ n string }{""}
-	keyCachePaths      = &struct{ n string }{""}
-	keyCacheRefs       = &struct{ n string }{""}
-	keyCacheLoc        = &struct{ n string }{""}
-	keyCacheCampaigns  = &struct{ n string }{""}
-	keyChangedTitles   = &struct{ n string }{""}
-	keyCacheSitesProxy = &struct{ n string }{""}
+	keyCacheSite      = &struct{ n string }{""}
+	keyCacheUA        = &struct{ n string }{""}
+	keyCacheBrowsers  = &struct{ n string }{""}
+	keyCacheSystems   = &struct{ n string }{""}
+	keyCachePaths     = &struct{ n string }{""}
+	keyCacheRefs      = &struct{ n string }{""}
+	keyCacheLoc       = &struct{ n string }{""}
+	keyCacheCampaigns = &struct{ n string }{""}
+	keyChangedTitles  = &struct{ n string }{""}
 
 	keyConfig = &struct{ n string }{""}
+	keyHost   = &struct{ n string }{""}
 )
 
+// The site is a singleton, so the cache only ever holds this one key.
+const cacheSiteKey = "site"
+
 type GlobalConfig struct {
-	Domain         string
-	DomainStatic   string
-	DomainCount    string
-	BasePath       string
-	URLStatic      string
-	Dev            bool
-	GoatcounterCom bool
-	Port           string
-	EmailFrom      string
-	BcryptMinCost  bool
+	Timezone      Timezone
+	Domain        string
+	DomainStatic  string
+	DomainCount   string
+	BasePath      string
+	URLStatic     string
+	Dev           bool
+	Port          string
+	BcryptMinCost bool
 }
 
 // WithSite adds the site to the context.
 func WithSite(ctx context.Context, s *Site) context.Context {
 	return context.WithValue(ctx, ctxkey.Site, s)
+}
+
+// WithHost adds the host this request was served from to the context.
+func WithHost(ctx context.Context, host string) context.Context {
+	return context.WithValue(ctx, keyHost, host)
+}
+
+// Host gets the host this request was served from; empty if not set (e.g. in
+// cron jobs or the CLI).
+func Host(ctx context.Context) string {
+	h, _ := ctx.Value(keyHost).(string)
+	return h
 }
 
 // GetSite gets the current site.
@@ -101,30 +112,6 @@ func MustGetSite(ctx context.Context) *Site {
 	return s
 }
 
-// GetAccount gets this site's "account site" on which the users, etc. are
-// stored.
-func GetAccount(ctx context.Context) (*Site, error) {
-	s := MustGetSite(ctx)
-	if s.Parent == nil {
-		return s, nil
-	}
-
-	var account Site
-	err := account.ByID(ctx, *s.Parent)
-	if err != nil {
-		return nil, fmt.Errorf("GetAccount: %w", err)
-	}
-	return &account, nil
-}
-
-func MustGetAccount(ctx context.Context) *Site {
-	a, err := GetAccount(ctx)
-	if err != nil {
-		panic(err)
-	}
-	return a
-}
-
 // WithUser adds the site to the context.
 func WithUser(ctx context.Context, u *User) context.Context {
 	return context.WithValue(ctx, ctxkey.User, u)
@@ -133,11 +120,8 @@ func WithUser(ctx context.Context, u *User) context.Context {
 // GetUser gets the currently logged in user.
 func GetUser(ctx context.Context) *User {
 	u, _ := ctx.Value(ctxkey.User).(*User)
-	if u == nil || u.ID == 0 {
-		s := GetSite(ctx)
-		if s != nil {
-			return &User{Settings: s.UserDefaults}
-		}
+	if u == nil {
+		return &User{}
 	}
 	return u
 }
@@ -157,20 +141,12 @@ func NewContext(ctx context.Context, db zdb.DB) context.Context {
 	n = geo.With(n, geo.Get(ctx))
 	n = NewCache(n)
 	n = NewConfig(n)
-	m := blackmail.Get(ctx)
-	if m != nil {
-		m = blackmail.NewWriter(os.Stderr)
-	}
-	n = blackmail.With(n, m)
 	return n
 }
 
 func NewCache(ctx context.Context) context.Context {
-	s := zcache.New[SiteID, *Site](24*time.Hour, 1*time.Hour)
-	ctx = context.WithValue(ctx, keyCacheSites, s)
-	ctx = context.WithValue(ctx, keyCacheSitesProxy, zcache.NewProxy[string, SiteID, *Site](s))
-
-	ctx = context.WithValue(ctx, keyCacheUA, zcache.New[string, UserAgent](1*time.Hour, 5*time.Minute))
+	ctx = context.WithValue(ctx, keyCacheSite, zcache.New[string, *Site](24*time.Hour, 1*time.Hour))
+	ctx = context.WithValue(ctx, keyCacheUA, zcache.New[string, UserAgent](30*time.Minute, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCacheBrowsers, zcache.New[string, Browser](1*time.Hour, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCacheSystems, zcache.New[string, System](1*time.Hour, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCachePaths, zcache.New[string, Path](1*time.Hour, 5*time.Minute))
@@ -179,25 +155,6 @@ func NewCache(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, keyCacheCampaigns, zcache.New[string, *Campaign](24*time.Hour, 15*time.Minute))
 	ctx = context.WithValue(ctx, keyChangedTitles, zcache.New[string, []string](48*time.Hour, 1*time.Hour))
 	return ctx
-}
-
-func Caches(ctx context.Context) map[string]interface {
-	ItemsAny() map[any]zcache.Item[any]
-} {
-	return map[string]interface {
-		ItemsAny() map[any]zcache.Item[any]
-	}{
-		"sites":          cacheSites(ctx),
-		"sites-hosts":    cacheSitesHost(ctx),
-		"ua":             cacheUA(ctx),
-		"browsers":       cacheBrowsers(ctx),
-		"systems":        cacheSystems(ctx),
-		"paths":          cachePaths(ctx),
-		"refs":           cacheRefs(ctx),
-		"loc":            cacheLoc(ctx),
-		"campaigns":      cacheCampaigns(ctx),
-		"changed-titles": cacheChangedTitles(ctx),
-	}
 }
 
 func NewConfig(ctx context.Context) context.Context {
@@ -211,11 +168,11 @@ func Config(ctx context.Context) *GlobalConfig {
 	return &GlobalConfig{}
 }
 
-func cacheSites(ctx context.Context) *zcache.Cache[SiteID, *Site] {
-	if c := ctx.Value(keyCacheSites); c != nil {
-		return c.(*zcache.Cache[SiteID, *Site])
+func cacheSite(ctx context.Context) *zcache.Cache[string, *Site] {
+	if c := ctx.Value(keyCacheSite); c != nil {
+		return c.(*zcache.Cache[string, *Site])
 	}
-	return zcache.New[SiteID, *Site](0, 0)
+	return zcache.New[string, *Site](0, 0)
 }
 func cacheUA(ctx context.Context) *zcache.Cache[string, UserAgent] {
 	if c := ctx.Value(keyCacheUA); c != nil {
@@ -264,10 +221,4 @@ func cacheChangedTitles(ctx context.Context) *zcache.Cache[string, []string] {
 		return c.(*zcache.Cache[string, []string])
 	}
 	return zcache.New[string, []string](0, 0)
-}
-func cacheSitesHost(ctx context.Context) *zcache.Proxy[string, SiteID, *Site] {
-	if c := ctx.Value(keyCacheSitesProxy); c != nil {
-		return c.(*zcache.Proxy[string, SiteID, *Site])
-	}
-	return zcache.NewProxy[string, SiteID, *Site](zcache.New[SiteID, *Site](0, 0))
 }

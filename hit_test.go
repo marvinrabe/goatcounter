@@ -4,8 +4,8 @@ import (
 	"net/url"
 	"testing"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 )
 
 func dayStat(days map[int]int) []int {
@@ -59,7 +59,7 @@ func TestHitDefaultsRef(t *testing.T) {
 		{"/?fbclid=PAAaa9RPz6YNKOc1LT4OzcjmuQpMiQl214kJ5YluqNF77eDp8JZQJOazM_GQc", "", nil, nil, "o"},
 	}
 
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestHitDefaultsPath(t *testing.T) {
 		{"/web/assets/images/social-github.svg", "/web/assets/images/social-github.svg"},
 	}
 
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

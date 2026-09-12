@@ -6,7 +6,6 @@ with x as (
 		{{:sqlite! jsonb_object_agg(substr((hour + :offset * interval '1 minute')::text, 0, 14), total) as stats2}}
 	from hit_counts
 	where
-		hit_counts.site_id = :site and
 		{{:exclude not path_id :in (:exclude) and}}
 		:filter and
 		hour >=:start and hour<=:end

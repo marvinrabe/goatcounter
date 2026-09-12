@@ -7,13 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/cron"
-	"zgo.at/goatcounter/v2/gctest"
+	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/cron"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zli"
 )
-
-var pgSQL = false
 
 // Make sure usage doesn't contain tabs, as that will mess up formatting in
 // terminals.
@@ -33,10 +31,10 @@ func startTest(t *testing.T) (
 
 	goatcounter.Memstore.Reset()
 
-	ctx = gctest.DBFile(t)
+	ctx = testenv.DBFile(t)
 
 	exit, in, out = zli.Test(t)
-	return exit, in, out, ctx, os.Getenv("GCTEST_CONNECT")
+	return exit, in, out, ctx, os.Getenv("TESTENV_CONNECT")
 }
 
 func runCmdStop(t *testing.T, exit *zli.TestExit, ready chan<- struct{}, stop chan struct{}, cmd string, args ...string) {

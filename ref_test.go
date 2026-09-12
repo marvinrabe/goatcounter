@@ -4,17 +4,17 @@ import (
 	"testing"
 	"time"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zstd/zjson"
 	"zgo.at/zstd/ztest"
 	"zgo.at/zstd/ztime"
 )
 
 func TestListRefsByPathID(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/x", Ref: "http://example.com", FirstVisit: true},
 		Hit{Path: "/x", Ref: "http://example.com", FirstVisit: true},
 		Hit{Path: "/x", Ref: "http://example.org", FirstVisit: true},
@@ -45,9 +45,9 @@ func TestListRefsByPathID(t *testing.T) {
 }
 
 func TestListTopRefs(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
-	gctest.StoreHits(ctx, t, false,
+	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/x", Ref: "http://example.com", FirstVisit: true},
 		Hit{Path: "/x", Ref: "http://example.com"},
 		Hit{Path: "/x", Ref: "http://example.org"},

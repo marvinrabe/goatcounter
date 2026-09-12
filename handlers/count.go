@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/marvinrabe/goatcounter"
 	"github.com/monoculum/formam/v3"
-	"golang.org/x/text/language"
-	"zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/pkg/metrics"
 	"zgo.at/isbot"
 	"zgo.at/zhttp"
 	"zgo.at/zstd/ztime"
@@ -20,18 +18,14 @@ var gif = []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x1, 0x0, 0x1, 0x0, 0x80,
 	0x1, 0x0, 0x3b}
 
 func (h backend) count(w http.ResponseWriter, r *http.Request) error {
-	m := metrics.Start("/count")
-	defer m.Done()
-
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "image/gif")
 	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 
 	// Note this works in both HTTP/1.1 and HTTP/2, as the Go HTTP/2 server
 	// picks up on this and sends the GOAWAY frame.
-	// TODO: it would be better to set a short idle timeout, but this isn't
-	// really something that can be configured per-handler at the moment.
-	// https://github.com/golang/go/issues/16100
+	// A short idle timeout would be better, but that can't be configured
+	// per-handler: https://github.com/golang/go/issues/16100
 	w.Header().Set("Connection", "close")
 
 	bot := isbot.Bot(r)
@@ -50,7 +44,6 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	hit := goatcounter.Hit{
-		Site:            site.ID,
 		UserAgentHeader: r.UserAgent(),
 		CreatedAt:       ztime.Now(r.Context()),
 		RemoteAddr:      r.RemoteAddr,
@@ -59,16 +52,8 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 		var l goatcounter.Location
 		hit.Location = l.LookupIP(r.Context(), r.RemoteAddr)
 	}
-
 	if site.Settings.Collect.Has(goatcounter.CollectLanguage) {
-		tags, _, _ := language.ParseAcceptLanguage(r.Header.Get("Accept-Language"))
-		if len(tags) > 0 {
-			base, c := tags[0].Base()
-			if c == language.Exact || c == language.High {
-				l := base.ISO3()
-				hit.Language = &l
-			}
-		}
+		hit.Language = goatcounter.AcceptLanguage(r.Header.Get("Accept-Language"))
 	}
 
 	err := formam.NewDecoder(&formam.DecoderOptions{

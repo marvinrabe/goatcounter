@@ -5,14 +5,8 @@
 body       { overflow-y: scroll; }
 
 .page      { padding: 1em; }
-footer     { padding: 1em; text-align: center; display: flex; justify-content: space-between;
-             background-color: var(--nav-bg); box-shadow: 0 0 4px var(--footer-shadow); }
-footer a   { font-weight: bold; color: var(--text); margin: 0 .5em; }
 
 @media (max-width: 54em) {
-    footer      { text-align: left; justify-content: space-around; }
-    footer a    { display: block; padding: .5em 0; }
-    footer span { display: none; }
 }
 
 /* Don't make various explanatory texts too wide. */
@@ -38,10 +32,9 @@ label.inline          { display:inline; }
 
 nav                    { display: flex; justify-content: space-between; padding-right: .5em; }
 nav #usermenu          { text-align: right; min-width: 20.5em; }
-nav #signin            { white-space: nowrap; margin-left: 1em; }
-nav #back              { white-space: nowrap; margin-right: 1em; }
-nav .sites-list        { position: absolute; visibility: hidden; }
-nav .sites-list-select { display: none; padding: 0; background-color: var(--bg); }
+nav #usermenu a       { margin-left: 1em; }
+nav #signin           { white-space: nowrap; margin-left: 1em; }
+nav #back             { white-space: nowrap; }
 @media (max-width: 87rem) {
     nav { padding-left: .5em; }
 }
@@ -61,7 +54,6 @@ form *[disabled] { color:var(--pageviews-text); cursor:not-allowed;}
 span.red  { color: var(--form-error-text); }
 input.red { border: 1px solid var(--input-error-border) !important; }
 
-/* TODO: replace with .side-by-side? */
 @media (min-width: 55rem) {
     .form-wrap form          { display: flex; flex-wrap: wrap; }
     .form-wrap form fieldset { width: 48%; }
@@ -211,18 +203,6 @@ tr.target .chart-left { display: block; }
 #dash-form        { display: block; padding-bottom: .4em; margin: -1em; margin-bottom: 1em; }
 #dash-form span   { margin-left: 0; } /* Reset from hello-css */
 
-#dash-saved-views       { position: absolute; top: 0em; right: -1em; z-index: 5; max-width: 30em; text-align: right; }
-#dash-saved-views >span { font-size: 20px; padding: .2em; cursor: pointer;
-                          user-select: none; -webkit-user-select: none; color: var(--link-text); transition: opacity .2s; }
-#dash-saved-views >div  { display: none; margin-right: .5em; padding: .5em; text-align: left;
-                          background-color: var(--tooltip-bg); color: var(--tooltip-text);
-                          border: 1px solid var(--tooltip-border); box-shadow: 0 0 2px var(--tooltip-shadow); }
-#dash-saved-views >span:hover { opacity: .5; }
-
-/* Tweak icon for narrow screens; fixes #725 */
-@media (max-width: 89rem)   { #dash-saved-views { right:-.5rem; top:-.2rem; } }
-@media (max-width: 87.5rem) { #dash-saved-views { right:0; top:-.6rem; } }
-
 @media (max-width: 36.5rem) {
     #dash-move span           { display: block; }
     #dash-move div:last-child { display: flex; flex-direction: column-reverse; text-align: right; align-items: end; }
@@ -230,10 +210,8 @@ tr.target .chart-left { display: block; }
 
 #dash-main { display: flex; justify-content: space-between; padding: .5em 1em;
              background-color: var(--nav-bg); border-bottom: 1px solid var(--nav-border); border-radius: 2px; }
-#dash-main input[type="text"]     { padding: .3em; }
 #dash-main input[type="checkbox"] { vertical-align: middle; }
-#dash-main .date-input            { width:9em; text-align:center; }
-#dash-main label { text-align: right; margin-right: .4em; }
+#dash-main label                  { text-align: right; margin-right: .4em; }
 
 #dash-select-period           { display: block; padding-left: .3em; }
 #dash-select-period span+span { margin-left: .5em; }
@@ -245,12 +223,12 @@ tr.target .chart-left { display: block; }
 #filter-outer              { position:relative; }
 #filter-wrap               { position:relative; padding:0; display:flex; width:18.5em;
                              overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
-#filter-wrap.value         { outline:3px solid var(--text); }
+#filter-wrap.value         { border-color:var(--text); box-shadow:0 0 0 1px var(--text); }
 #filter-wrap.focus         { outline:1px solid var(--input-focus); box-shadow:0 0 .2em var(--input-focus); }
 #filter-styled             { position:absolute; display:inline-flex; overflow:hidden; user-select:none; -webkit-user-select:none;
-                             padding:.4em; white-space:pre; word-break:break-word; color:var(--text); }
+                             padding:.6em; line-height:100%; white-space:pre; word-break:break-word; color:var(--text); }
 #filter-outer em           { font-style:normal; color:var(--filter-kw-text); }
-#filter-paths              { min-width:100%; resize:none; z-index:1; flex-shrink:0; margin-left:auto;
+#filter-paths              { min-width:100%; resize:none; z-index:1; flex-shrink:0; margin-left:auto; padding:.6em;
                              background:transparent; color:transparent; caret-color:var(--text); border:0; }
 #filter-paths:focus        { outline:none; box-shadow:none; }
 #filter-paths::placeholder { color:color-mix(in srgb, var(--text) 54%, transparent); }
@@ -299,9 +277,6 @@ tr.target .chart-left { display: block; }
 
 /* Widget settings button for every widget. */
 .widget-header          { position: relative; margin-left: -1em; padding-left: 1em; }
-.widget-header:hover .configure-widget { display: block; }
-.configure-widget       { position: absolute; font-size: 14px; left: 0; top: 0; display: none; color: inherit; }
-.configure-widget:hover { color: inherit; opacity: .7; text-decoration: none; }
 #page-dashboard .widget-settings { position: absolute; z-index: 2; padding: .5em;
     background-color: var(--tooltip-bg); color: var(--tooltip-text);
     border: 1px solid var(--tooltip-border); box-shadow: 0 0 2px var(--tooltip-shadow); }
@@ -309,7 +284,7 @@ tr.target .chart-left { display: block; }
 /*** Tooltip
  ************/
 #tooltip { position: absolute; left: 0; top: 0; padding: .2em .5em; font-size: 14px; z-index: 100;
-           font-family: sans-serif; color: var(--tooltip-text); background-color: var(--tooltip-bg); box-shadow: 0 0 2px var(--tooltip-shadow); }
+           color: var(--tooltip-text); background-color: var(--tooltip-bg); box-shadow: 0 0 2px var(--tooltip-shadow); }
 #tooltip .views { color: var(--pageviews-text); } /* Grey out "pageviews" in tooltip. */
 
 
@@ -391,7 +366,6 @@ noscript p { margin: .5em; }
   50%  { content: ".."; }
   100% { content: "..."; }
 }
-/* TODO: See if we can have it sit in the margin */
 .loading        { color: var(--loading-text); }
 .loading:hover  { color: var(--loading-text); text-decoration: none; }
 .loading::after { content: ""; animation: loading 500ms linear infinite; }
@@ -422,8 +396,6 @@ input:user-invalid { outline: 1px solid #f00 !important; box-shadow: 0 0 .2em #f
     nav,
     #dash-main,
     #dash-move,
-    #dash-saved-views,
-    footer,
     .load-more    { display:none !important; }
     html, .page   { background:transparent; }
     .page         { max-width:unset; box-shadow:unset; margin:0; }

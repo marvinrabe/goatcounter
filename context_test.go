@@ -8,7 +8,7 @@ import (
 func TestContext(t *testing.T) {
 	ctx := context.Background()
 	{
-		c := cacheSites(ctx)
+		c := cacheSite(ctx)
 		if c == nil {
 			t.Error("c is nil")
 		}
@@ -21,8 +21,8 @@ func TestContext(t *testing.T) {
 
 	ctx = NewCache(ctx)
 	{
-		c1 := cacheSites(ctx)
-		c2 := cacheSites(ctx)
+		c1 := cacheSite(ctx)
+		c2 := cacheSite(ctx)
 		if c1 != c2 {
 			t.Errorf("%v %v", c1, c2)
 		}

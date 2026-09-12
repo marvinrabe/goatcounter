@@ -3,8 +3,7 @@
 
 	// Set up the entire dashboard page.
 	var page_dashboard = function() {
-		;[dashboard_widgets, hdr_select_period, hdr_datepicker, hdr_filter, hdr_views, hdr_sites,
-			translate_locations, dashboard_loader, configure_widgets,
+		;[dashboard_widgets, hdr_select_period, hdr_datepicker, hdr_filter,
 		].forEach((f) => f.call())
 	}
 	window.page_dashboard = page_dashboard  // Directly setting window loses the name attr 🤷
@@ -14,114 +13,34 @@
 		;[init_charts, paginate_pages, load_refs, hchart_detail, ref_pages, bind_scale].forEach((f) => f.call())
 	}
 
-	// Open websocket for the dashboard loader.
-	var dashboard_loader = function() {
-		if (!window.USE_WEBSOCKET)
-			return
-		if (window.WEBSOCKET && window.WEBSOCKET.readyState <= 1)
-			return
+	// Direct element children of elem, which is what jQuery's ">div" did.
+	var child_divs = (elem) => Array.from(elem.children).filter((c) => c.tagName === 'DIV')
 
-		try {
-			window.WEBSOCKET = new WebSocket(
-				(location.protocol === 'https:' ? 'wss://' : 'ws://') +
-				`${document.location.host}${BASE_PATH}/loader?id=${$('#js-connect-id').text()}`)
-		} catch(err) {
-			push_query({'no-websocket': 1})
-			return window.location.reload()
-		}
-
-		// Reload without websockets if that didn't work. We can't just use
-		// onerror, because both Firefox and Chrome may take up to a minute to
-		// call this error.
-		//
-		// The backend will outright disable Websockets if this happened three
-		// times in a row.
-		if (!window.GOATCOUNTER_COM) {
-			window.WEBSOCKET.onerror = () => { push_query({'no-websocket': 1}); window.location.reload() }
-			window.WEBSOCKET.onopen  = () => { window.WEBSOCKET.onerror = null }
-			setTimeout(() => {
-				if (window.WEBSOCKET.readyState === 0)
-					window.WEBSOCKET.onerror()
-			}, 1000)
-		}
-
-		window.WEBSOCKET.onclose = () => { window.WEBSOCKET = null }
-		window.WEBSOCKET.onmessage = (e) => {
-			let msg = JSON.parse(e.data),
-				wid = $(`#dash-widgets div[data-widget=${msg.id}]`)
-			wid.html(msg.html)
-			wid.removeClass('widget-loading').addClass('widget-loaded')
-			draw_all_charts()
-
-			if (wid.hasClass('pages-list'))
-				dashboard_widgets()
-		}
-	}
-
-	// Setup the configure widgets buttons.
-	var configure_widgets = function() {
-		$('#dash-widgets').on('click', '.configure-widget', function(e) {
-			e.preventDefault()
-
-			let pop,
-				btn    = $(this),
-				pos    = btn.offset(),
-				wid    = btn.closest('[data-widget]').attr('data-widget'),
-				url    = BASE_PATH + '/user/dashboard/' + wid,
-				remove = function() {
-					pop.remove()
-					$(document.body).off('.unpop')
-				},
-				save = function(e) {
-					e.preventDefault()
-					remove()
-					jQuery.ajax({
-						url:  url,
-						type: 'post',
-						data: `${pop.serialize()}&csrf=${encodeURIComponent(CSRF)}`,
-						success: function(data) {
-							reload_dashboard()
-							// TODO: fix reload_widget(); has some odd behaviour.
-							//reload_widget(wid, {}, null)
-						}
-					})
-				}
-
-			jQuery.ajax({
-				url:     url,
-				success: function(data) {
-					pop = $(data).css({left: pos.left + 'px', top: (pos.top + 10) + 'px'}).on('submit', save)
-					$(document.body).append(pop).on('click.unpop', function(e) {
-						if ($(e.target).closest('.widget-settings').length)
-							return
-						remove()
-					})
-				},
-			})
-		})
-	}
+	// Escape HTML special characters.
+	var escape_html = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c])
 
 	// Get the Y-axis scale.
-	var get_original_scale = function() { return parseInt($('.count-list-pages').attr('data-max'), 0) }
-	var get_current_scale  = function() { return parseInt($('.count-list-pages').attr('data-scale'), 0) }
+	var get_original_scale = function() { return parseInt($1('.count-list-pages')?.getAttribute('data-max'), 10) }
+	var get_current_scale  = function() { return parseInt($1('.count-list-pages')?.getAttribute('data-scale'), 10) }
+
+	// Get the total number of pageviews.
+	var get_total = () => $1('.js-total-utc')?.textContent || ''
 
 	// Reload a single widget.
 	var reload_widget = function(wid, data, done) {
 		data = data || {}
 		data['widget'] = wid
-		data['group']  = $('#hl-group').val()
+		data['group']  = $1('#hl-group').value
 		data['max']    = get_original_scale()
-		data['total']  = $('.js-total-utc').text()
+		data['total']  = get_total()
 
-		jQuery.ajax({
-			url:  BASE_PATH + '/load-widget',
-			type: 'get',
+		ajax(BASE_PATH + '/load-widget', {
 			data: append_period(data),
 			success: function(data) {
 				if (done)
 					done()
 				else {
-					$(`[data-widget="${wid}"]`).html(data.html)
+					$$(`[data-widget="${wid}"]`).forEach((e) => { e.innerHTML = data.html })
 					dashboard_widgets()
 					highlight_filter()
 				}
@@ -131,18 +50,16 @@
 
 	// Reload all widgets on the dashboard.
 	let reload_dashboard = (done) => {
-		jQuery.ajax({
-			url:     `${BASE_PATH}/`,
-			data:    append_period({
-				group:     $('#hl-group').val(),
+		ajax(`${BASE_PATH}/`, {
+			data: append_period({
+				group:     $1('#hl-group').value,
 				max:       get_original_scale(),
 				reload:    't',
-				connectID: $('#js-connect-id').text(),
 			}),
 			success: function(data) {
-				$('#dash-timerange').html(data.timerange)
-				$(data.widgets).find('.widget-loaded').each((_, elem) => {
-					$(`[data-widget="${elem.dataset.widget}"]`).replaceWith(elem)
+				$1('#dash-timerange').innerHTML = data.timerange
+				$$('.widget-loaded', parse_html(data.widgets)).forEach((elem) => {
+					$1(`[data-widget="${elem.dataset.widget}"]`)?.replaceWith(elem)
 				})
 
 				dashboard_widgets()
@@ -157,24 +74,25 @@
 	// Append period-start and period-end values to the data object.
 	var append_period = function(data) {
 		data = data || {}
-		data['period-start'] = $('#period-start').val()
-		data['period-end']   = $('#period-end').val()
-		data['filter']       = $('#filter-paths').val()
+		data['period-start'] = $1('#period-start').value
+		data['period-end']   = $1('#period-end').value
+		data['filter']       = $1('#filter-paths').value
 		return data
 	}
 
 	// Set the start and end period and submit the form.
 	var set_period = function(start, end) {
-		$('#period-start').val(format_date_ymd(start))
-		$('#period-end').val(format_date_ymd(end))
-		$('#dash-form').trigger('submit')
+		$1('#period-start').value = format_date_ymd(start)
+		$1('#period-end').value   = format_date_ymd(end)
+		$1('#dash-form').requestSubmit()
 	}
 
 	let filter_kw = /(\b(?:at:start|at:end|is:event|is:pageview|in:path|in:title)|\B:not)\b/g
 
 	// Highlight a filter pattern in the path and title.
 	let highlight_filter = () => {
-		let s = $('#filter-paths').val().replace(filter_kw, '').trim()
+		let val = $1('#filter-paths').value,
+			s   = val.replace(filter_kw, '').trim()
 		if (s === '')
 			return
 
@@ -182,7 +100,7 @@
 			end     = '',
 			inPath  = false,
 			inTitle = false,
-			kw      = $('#filter-paths').val().match(filter_kw) || []
+			kw      = val.match(filter_kw) || []
 		for (let k of kw) {
 			if (k === ':not')
 				return
@@ -203,20 +121,22 @@
 		if (inTitle)
 			where.push('.page-title:not(.no-title)')
 
-		$('.pages-list .count-list-pages > tbody.pages').find(where.join(',')).each(function(_, elem) {
-			if ($(elem).find('b').length)  // Don't apply twice after pagination
-				return
-			elem.innerHTML = elem.innerHTML.replace(new RegExp(start + quote_re(s) + end, 'gi'), '<b>$&</b>')
+		$$('.pages-list .count-list-pages > tbody.pages').forEach((tbody) => {
+			$$(where.join(','), tbody).forEach((elem) => {
+				if ($1('b', elem))  // Don't apply twice after pagination
+					return
+				elem.innerHTML = elem.innerHTML.replace(new RegExp(start + quote_re(s) + end, 'gi'), '<b>$&</b>')
+			})
 		})
 	}
 
 	// Fill in start/end periods from buttons.
 	var hdr_select_period = function() {
-		$('#dash-select-group').on('click', 'button', function(e) {
-			$('#hl-period').attr('disabled', false)
+		on('#dash-select-group', 'click', 'button', function(e) {
+			$1('#hl-period').removeAttribute('disabled')
 		})
 
-		$('#dash-select-period').on('click', 'button', function(e) {
+		on('#dash-select-period', 'click', 'button', function(e) {
 			e.preventDefault()
 
 			var start = new Date(), end = new Date()
@@ -239,17 +159,18 @@
 				case 'year':      start.setFullYear(start.getFullYear() - 1); break;
 			}
 
-			$('#hl-period').val(this.value).attr('disabled', false)
-			$('#hl-group').attr('disabled', false)
+			let p = $1('#hl-period')
+			p.value = this.value
+			p.removeAttribute('disabled')
+			$1('#hl-group').removeAttribute('disabled')
 			set_period(start, end)
 		})
 
-		$('#dash-move').on('click', 'button', function(e) {
+		on('#dash-move', 'click', 'button', function(e) {
 			e.preventDefault()
-			var start = get_date($('#period-start').val()),
-			    end   = get_date($('#period-end').val())
+			var start = get_date($1('#period-start').value),
+			    end   = get_date($1('#period-end').value)
 
-			// TODO: make something nicer than alert()s.
 			if (this.value.substr(-2) === '-f' && end.getTime() > (new Date()).getTime())
 				return alert(T('error/date-future'))
 
@@ -271,222 +192,130 @@
 			if (SITE_FIRST_HIT_AT > end.getTime())
 				return alert(T('error/date-past'))
 
-			$('#dash-select-period').attr('class', '')
+			$1('#dash-select-period').className = ''
 			set_period(start, end);
 		})
 	}
 
 	// Setup datepicker fields.
 	var hdr_datepicker = function() {
-		$('#dash-form').on('submit', function(e) {
+		on('#dash-form', 'submit', function(e) {
 			// Remove the "off" checkbox placeholders.
-			$('#dash-form :checked').each((_, c) => $(`input[name="${c.name}"][value="off"]`).prop('disabled', true))
+			$$('#dash-form :checked').forEach((c) => {
+				$$(`input[name="${c.name}"][value="off"]`).forEach((i) => { i.disabled = true })
+			})
 
-			if (get_date($('#period-start').val()) <= get_date($('#period-end').val()))
+			if (get_date($1('#period-start').value) <= get_date($1('#period-end').value))
 				return
 
 			e.preventDefault()
-			if (!$('#period-end').hasClass('red'))
-				$('#period-end').addClass('red').after(' <span class="red">' + T('error/date-mismatch') + '</span>')
+			let end = $1('#period-end')
+			if (!end.classList.contains('red')) {
+				end.classList.add('red')
+				end.insertAdjacentHTML('afterend', ' <span class="red">' + T('error/date-mismatch') + '</span>')
+			}
 		})
 
-		// Change to type="date" on mobile as that gives a better experience.
-		//
-		// Not done on any desktop OS as styling these fields with basic stuff
-		// (like setting a cross-browser consistent height) is really hard and
-		// fraught with all sort of idiocy. They also don't really look all that
-		// great and the UX is frankly bad.
-		//
-		// Also do this if Pikaday is undefined; this should never happen, but
-		// I've seen some errors for this.
-		if (!USER_SETTINGS.datepicker || is_mobile() || !window.Pikaday) {
-			return $('#period-start, #period-end').
-				attr('type', 'date').
-				css('width', 'auto').  // Make sure there's room for UI chrome.
-				on('change', () => { $('#dash-form').trigger('submit') })
-		}
-
-		var opts = {
-			toString: format_date_ymd,
-			parse:    get_date,
-			firstDay: USER_SETTINGS.sunday_starts_week ? 0 : 1,
-			minDate:  new Date(SITE_FIRST_HIT_AT),
-			i18n: {
-				ariaLabel:     T('datepicker/keyboard'),
-				previousMonth: T('datepicker/month-prev'),
-				nextMonth:     T('datepicker/month-next'),
-				weekdays:      days,
-				weekdaysShort: daysShort,
-				months:        months,
-			},
-		}
-		$('#period-start, #period-end').attr('type', 'text')
-		new Pikaday($('#period-start')[0], opts)
-		new Pikaday($('#period-end')[0], opts)
+		on('#period-start, #period-end', 'change', () => { $1('#dash-form').requestSubmit() })
 	}
 
 	// Reload the dashboard when typing in the filter input, so the user won't
 	// have to press "enter".
 	let hdr_filter = () => {
-		let styled = $('#filter-styled'),
-			input  = $('#filter-paths'),
+		let styled = $1('#filter-styled'),
+			input  = $1('#filter-paths'),
 			hl     = (v) => {
-				styled.html(input.val().replace(filter_kw, '<em>$1</em>').replace(/ /g, '&nbsp;'))
-				input.css('width', $('#filter-paths').outerWidth() + 'px')
+				styled.innerHTML = escape_html(input.value).replace(filter_kw, '<em>$1</em>').replace(/ /g, '&nbsp;')
+				input.style.width = input.offsetWidth + 'px'
 			}
 		hl()
 		highlight_filter()
 
 		let showMore = () => {
-			let t = $('#filter-help-more'),
-				d = $('#filter-help div')
-			if (d.is(':visible'))
-				t.text(T('nav-dash/filter-more-help'))
-			else
-				t.text(T('nav-fash/filter-less-help'))
-			d.toggle()
+			let t = $1('#filter-help-more'),
+				d = $1('#filter-help div')
+			if (is_visible(d)) {
+				t.textContent = T('nav-dash/filter-more-help')
+				d.style.display = 'none'
+			}
+			else {
+				t.textContent = T('nav-fash/filter-less-help')
+				d.style.display = 'block'
+			}
 		}
 
-		$('#filter-help-more').on('click', (e) => {
+		on('#filter-help-more', 'click', (e) => {
 			e.preventDefault()
-			input.trigger('focus')
+			input.focus()
 			showMore()
 
 			let v = localStorage.getItem('filter-detailed-help') === 'true'
 			localStorage.setItem('filter-detailed-help', !v)
 		})
 
-		input.on('keydown', (e) => {
+		on(input, 'keydown', (e) => {
 			if (e.keyCode === 13)  // Don't submit form on enter.
 				e.preventDefault()
 		})
 
 		var hide
-		input.on('focus', (e) => {
+		on(input, 'focus', (e) => {
 			clearTimeout(hide)
-			$('#filter-wrap').addClass('focus')
-			if (localStorage.getItem('filter-detailed-help') === 'true' && $('#filter-help div').css('display') !== 'block')
+			$1('#filter-wrap').classList.add('focus')
+			if (localStorage.getItem('filter-detailed-help') === 'true' && $1('#filter-help div').style.display !== 'block')
 				showMore()
-			$('#filter-help').show()
+			$1('#filter-help').style.display = 'block'
 		})
-		input.on('blur', (e) => {
+		on(input, 'blur', (e) => {
 			// Add brief timeout on the hide so that clicking "more" won't
 			// trigger the blur, as the blur is triggered before the click.
-			// TODO: there's got to be a better way to do this?
 			clearTimeout(hide)
 			hide = setTimeout(() => {
-				$('#filter-wrap').removeClass('focus')
-				$('#filter-help').hide()
+				$1('#filter-wrap').classList.remove('focus')
+				$1('#filter-help').style.display = 'none'
 			}, 200)
 		})
 
 		let t
-		$('#filter-paths').on('input', (e) => {
+		on(input, 'input', (e) => {
 			clearTimeout(t)
 			hl()
 
 			t = setTimeout(() => {
-				let filter = $(e.target).val()
+				let filter = e.target.value
 				push_query({filter: filter, showrefs: null})
-				$('#filter-wrap').toggleClass('value', filter !== '')
+				$1('#filter-wrap').classList.toggle('value', filter !== '')
 
-				let loading = $('<span class="loading"></span>')
-				$(e.target).after(loading)
+				let loading = document.createElement('span')
+				loading.className = 'loading'
+				e.target.insertAdjacentElement('afterend', loading)
 
-				// TODO: back button doesn't quite work with this.
+				// Known limitation: push_query() only rewrites the URL, so going
+				// back doesn't restore the previous filter (no popstate handler).
 				reload_dashboard(() => loading.remove())
 			}, 300)
 		})
 	}
 
 	// Save current view.
-	var hdr_views = function() {
-		$('#dash-saved-views >span').on('click', function(e) {
-			e.preventDefault()
-
-			var d = $('#dash-saved-views >div')
-			d.css('display', d.css('display') === 'block' ? 'none' : 'block')
-
-			var close = () => { d.css('display', 'none'); $('body').off('.saved-views') }
-			$('body').on('keydown.saved-views', (e) => { if (e.keyCode === 27) close() })
-			$('body').on('click.saved-views',   (e) => { if (!$(e.target).closest('#dash-saved-views').length) close() })
-		})
-
-		$('.save-current-view').on('click', function(e) {
-			e.preventDefault()
-			var p = $('#dash-select-period').attr('class').substr(7)
-			if (p === '')
-				// Round because the dates are at local midnight, and with a DST
-				// transition in the range a "day" isn't always 24 hours.
-				p = Math.round((get_date($('#period-end').val()) - get_date($('#period-start').val())) / 86400000)
-
-			var done = paginate_button($(this), () => {
-				jQuery.ajax({
-					url:    BASE_PATH + '/user/view',
-					method: 'POST',
-					data: {
-						csrf:      CSRF,
-						name:      'default',
-						filter:    $('#filter-paths').val(),
-						group:     $('#hl-group').val(),
-						period:    p,
-					},
-					success: () => {
-						done()
-						var s = $('<em> ' + T('notify/saved') + '</em>')
-						$(this).after(s)
-						setTimeout(() => s.remove(), 2000)
-					},
-				})
-			})
-		})
-	}
-
-	// Set up the "site switcher".
-	var hdr_sites = function() {
-		var list       = $('.sites-list'),
-			select     = $('.sites-list-select'),
-			list_width = list.width()
-
-		select.on('change', function() { window.location = this.value })
-
-		// The sites-list has 'visibility: hidden' on initial load, so we can
-		// get the rendered width; only need to do this once as it won't change.
-		$(window).on('resize', function() {
-			var show_dropdown = list_width > $('nav.center').width() - $('#usermenu').width() -
-			                    $('.sites-header').width() - (15 * window.devicePixelRatio)
-
-			select.css('display', show_dropdown ? 'inline-block' : 'none')
-			if (show_dropdown)
-				list.css('display', 'none')
-			else
-				list.css({display: 'inline', visibility: 'visible'})
-		}).trigger('resize')
-
-		// Load as absolute initially, so an overflowing list won't cause the
-		// page to wobble on load.
-		list.css('position', 'static')
-	}
-
 	// Load pages for reference in Totals
 	var ref_pages = function() {
-		$('.count-list').on('click', '.pages-by-ref', function(e) {
+		on('.count-list', 'click', '.pages-by-ref', function(e) {
 			e.preventDefault()
-			var btn = $(this),
-				p   = btn.parent()
+			var btn = this,
+				p   = btn.parentNode
 
-			if (p.find('.list-ref-pages').length > 0) {
-				p.find('.list-ref-pages').remove()
+			if ($1('.list-ref-pages', p)) {
+				$$('.list-ref-pages', p).forEach((e) => e.remove())
 				return
 			}
 
-			$('.list-ref-pages').remove()
+			$$('.list-ref-pages').forEach((e) => e.remove())
 			var done = paginate_button(btn, () => {
-				jQuery.ajax({
-					url: BASE_PATH + '/pages-by-ref',
-					data: append_period({name: btn.text()}),
+				ajax(BASE_PATH + '/pages-by-ref', {
+					data: append_period({name: btn.textContent}),
 					success: function(data) {
-						p.append(data.html)
+						p.insertAdjacentHTML('beforeend', data.html)
 						done()
 					}
 				})
@@ -496,27 +325,16 @@
 
 	// Keep an array of charts so we can stop them on resize, otherwise the
 	// resize and mouse event will be bound twice.
-	//
-	// TODO: this is rather ugly; charty.js should handle this really. Actually,
-	// what we really want is that calling charty() will just stop/unbind any
-	// previous charts; but removeEventListener will only accept a function
-	// reference. Should implement some simply jQuery-like namespaces:
-	//
-	//   canvas.on('mousemouse.charty', ...)
-	//
-	// So we can then do:
-	//
-	//   canvas.off('.charty', ...)
 	var charts = []
 
 	// Bind the Y-axis scale actions.
 	var bind_scale = function() {
-		$('.count-list').on('click', '.rescale', function(e) {
+		on('.count-list', 'click', '.rescale', function(e) {
 			e.preventDefault()
 
-			var scale = $(this).closest('.chart').attr('data-max')
-			$('.pages-list .scale').html(format_int(scale))
-			$('.pages-list .count-list-pages').attr('data-scale', scale)
+			var scale = this.closest('.chart').getAttribute('data-max')
+			$$('.pages-list .scale').forEach((e) => { e.innerHTML = format_int(scale) })
+			$$('.pages-list .count-list-pages').forEach((e) => e.setAttribute('data-scale', scale))
 
 			charts.forEach((c) => {
 				c.ctx().canvas.dataset.done = ''
@@ -528,7 +346,7 @@
 	}
 
 	var redraw_all_charts = function() {
-		$('#tooltip').remove()
+		$1('#tooltip')?.remove()
 		charts.forEach((c) => {
 			c.ctx().canvas.dataset.done = ''
 			c.stop()
@@ -537,20 +355,29 @@
 		draw_all_charts()
 	}
 
+	// Only bind the global redraw listeners once, since this runs again after
+	// every widget reload.
+	var charts_bound = false
+
 	var init_charts = function() {
-		$(window).on('resize', redraw_all_charts)
+		draw_all_charts()
+
+		if (charts_bound)
+			return
+		charts_bound = true
+
+		window.addEventListener('resize', redraw_all_charts)
 		window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw_all_charts)
 
 		// force-dark manually added or removed.
 		new MutationObserver(function(muts, observer) {
 			muts.forEach((m) => m.type === 'attributes' && m.attributeName === 'class' && redraw_all_charts())
-		}).observe($('html')[0], {attributes: true})
-
+		}).observe(document.documentElement, {attributes: true})
 	}
 
 	// Draw all charts.
 	var draw_all_charts = function() {
-		$('.chart-line, .chart-bar').each(function(i, chart) {
+		$$('.chart-line, .chart-bar').forEach(function(chart) {
 			// Use setTimeout to force the browser to actually render this ASAP;
 			// without it, the charts will all be displayed at the same time,
 			// rather than one-by-one as they're generated.
@@ -558,15 +385,13 @@
 			// It's not super-slow to make them, but it's just a split second
 			// where the chart is blank, and it's better with this, especially
 			// on long timeviews and/or with many pages displayed at once.
-			//
-			// TODO: possibly move this to charty.js?
 			setTimeout(() => draw_chart(chart), 0)
 		})
 	}
 
 	// Draw this chart
 	var draw_chart = function(c) {
-		let canvas = $(c).find('canvas')[0]
+		let canvas = $1('canvas', c)
 		if (!canvas || canvas.dataset.done === 't')
 			return
 		canvas.dataset.done = 't'
@@ -582,10 +407,10 @@
 			daily   = c.dataset.group === 'day',
 			weekly  = c.dataset.group === 'week',
 			monthly = c.dataset.group === 'month',
-			isBar   = $(c).is('.chart-bar'),
-			isEvent = $(c).closest('tr').hasClass('event'),
-			isPages = $(c).closest('.count-list-pages').length > 0,
-			ndays   = (get_date($('#period-end').val()) - get_date($('#period-start').val())) / (86400*1000)
+			isBar   = c.classList.contains('chart-bar'),
+			isEvent = !!c.closest('tr')?.classList.contains('event'),
+			isPages = !!c.closest('.count-list-pages'),
+			ndays   = (get_date($1('#period-end').value) - get_date($1('#period-start').value)) / (86400*1000)
 
 		if (isPages && scale)
 			max = scale
@@ -617,8 +442,9 @@
 		charts.push(chart)
 
 		// Show tooltip and highlight position on mouse hover.
-		var tip   = $('<div id="tooltip"></div>'),
+		var tip = document.createElement('div'),
 			reset = {x: -1, y: -1, f: () => {}}
+		tip.id = 'tooltip'
 		chart.mouse(function(i, x, y, w, h, offset, ev) {
 			if (ev == 'leave') {
 				tip.remove()
@@ -634,7 +460,7 @@
 				views  = day.hourly[i%24],
 				title  = ''
 			if (hourly)
-				title = `${format_date(day.day, true)} ${un24((i % 24) + ':00')} – ${un24((i % 24) + ':59')}`
+				title = `${format_date(day.day, true)} ${(i % 24)}:00 – ${(i % 24)}:59`
 			else if (daily) {
 				[visits, views] = [day.daily, day.daily]
 				title = `${format_date(day.day, true)}`
@@ -650,7 +476,7 @@
 				title = `${months[d.getMonth() % 12]} ${d.getFullYear() + Math.floor(d.getMonth() / 12)}`
 			}
 
-			if (!USER_SETTINGS.fewer_numbers) {
+			if (!FEWER_NUMBERS) {
 				if (isEvent) {
 					title += '; ' + T('dashboard/tooltip-event', {
 						unique: format_int(visits),
@@ -665,14 +491,14 @@
 			}
 
 			tip.remove()
-			tip.html(title)
-			$('body').append(tip)
-			tip.css({
-				left: (offset.left + x) + 'px',
-				top:  (offset.top - tip.height() - 10) + 'px',
-			})
-			if (tip.height() > 30)
-				tip.css('left', 0).css('left', x + offset.left - tip.width() - 8)
+			tip.innerHTML = title
+			document.body.appendChild(tip)
+			tip.style.left = (offset.left + x) + 'px'
+			tip.style.top  = (offset.top - tip.offsetHeight - 10) + 'px'
+			if (tip.offsetHeight > 30) {
+				tip.style.left = '0'
+				tip.style.left = (x + offset.left - tip.offsetWidth - 8) + 'px'
+			}
 
 			reset.f()
 			reset = chart.draw(x, 0, w, h, function() {
@@ -698,100 +524,54 @@
 		})
 	}
 
-	// Translate country and language names; we do this in JavaScript with Intl,
-	// which works fairly well and keeps the backend/database a lot simpler.
-	let translate_locations = function() {
-		if (!window.Intl || !window.Intl.DisplayNames)
-			return
-
-		USER_SETTINGS.widgets.forEach((w, i) => {
-			if (w.n !== 'locations' && w.n !== 'languages')
-				return
-			if (w.s && w.s.key) // Skip "Locations" for a specific region.
-				return
-
-			let names = new Intl.DisplayNames([USER_SETTINGS.language], {
-				type: (w.n === 'locations' ? 'region' : 'language'),
-			})
-			let set = function(chart) {
-				chart.find('>rows >div[data-key]').each((_, e) => {
-					if (e.dataset.key.substr(0, 1) === '(') // Skip "(unknown)"
-						return
-					let n = names.of(e.dataset.key)
-					if (n)
-						$(e).find('.col-name .bar-c .cutoff').text(n)
-				})
-			}
-
-			let chart = $(`.hchart[data-widget=${i}]`)
-			set(chart)
-
-			let j = 0
-			let t = setInterval(() => {
-				j += 1
-				if (j > 10)
-					clearInterval(t)
-				let r = chart.find('.rows')[0]
-				if (!r)
-					return
-
-				clearInterval(t)
-				set(chart)
-				let obs = new MutationObserver((mut) => {
-					if (mut[0].addedNodes.length === 0 || mut[0].addedNodes[0].classList.contains('detail'))
-						return
-					obs.disconnect()  // Not strictly needed, but just in case to prevent infinite looping.
-					set(chart)
-					obs.observe(chart.find('.rows')[0], {childList: true})
-				})
-				obs.observe(r, {childList: true})
-			}, 100)
-		})
-	}
-
 	// Paginate the main path overview.
 	var paginate_pages = function() {
-		let sz = $('.pages-list tbody >tr').length
-		$('.pages-list >.load-btns .load-less').on('click', function(e) {
+		let sz = $$('.pages-list tbody >tr').length
+		on('.pages-list >.load-btns .load-less', 'click', function(e) {
 			e.preventDefault()
-			$(`.pages-list tbody >tr:gt(${sz - 1})`).remove()
-			$(this).css('display', 'none')
-			$(this).prev('.load-more').css('display', 'inline')
+			$$('.pages-list tbody >tr').slice(sz).forEach((r) => r.remove())
+			this.style.display = 'none'
+			let more = this.previousElementSibling
+			if (more?.classList.contains('load-more'))
+				more.style.display = 'inline'
 		})
 
-		$('.pages-list >.load-btns .load-more').on('click', function(e) {
+		on('.pages-list >.load-btns .load-more', 'click', function(e) {
 			e.preventDefault()
 
-			let btn   = $(this),
-				less  = $(this).next('.load-less'),
-				pages = $(this).closest('.pages-list')
+			let btn   = this,
+				next  = btn.nextElementSibling,
+				less  = next?.classList.contains('load-less') ? next : null,
+				pages = btn.closest('.pages-list')
 			let done = paginate_button(btn, () => {
-				jQuery.ajax({
-					url:  `${BASE_PATH}/load-widget`,
+				ajax(`${BASE_PATH}/load-widget`, {
 					data: append_period({
-						widget:    pages.attr('data-widget'),
-						group:     $('#hl-group').val(),
-						exclude:   pages.find('.count-list-pages >tbody >tr').toArray().map((e) => e.dataset.id).join(','),
+						widget:    pages.getAttribute('data-widget'),
+						group:     $1('#hl-group').value,
+						exclude:   $$('.count-list-pages >tbody >tr', pages).map((e) => e.dataset.id).join(','),
 						max:       get_original_scale(),
 					}),
 					success: function(data) {
-						less.css('display', 'inline')
-						pages.find('.count-list-pages >tbody.pages').append(data.html)
+						if (less)
+							less.style.display = 'inline'
+						$1('.count-list-pages >tbody.pages', pages).insertAdjacentHTML('beforeend', data.html)
 
 						// Update scale in case it's higher than the previous maximum value.
 						if (data.max > get_original_scale()) {
-							$('.count-list-pages').attr('data-max', data.max)
-							$('.count-list-pages').attr('data-scale', data.max)
-							$('.count-list-pages .scale').text(data.max)
+							$$('.count-list-pages').forEach((e) => {
+								e.setAttribute('data-max', data.max)
+								e.setAttribute('data-scale', data.max)
+							})
+							$$('.count-list-pages .scale').forEach((e) => { e.textContent = data.max })
 						}
 
 						draw_all_charts()
 
 						highlight_filter()
-						btn.css('display', data.more ? 'inline-block' : 'none')
+						btn.style.display = data.more ? 'inline-block' : 'none'
 
-						pages.find('.total-display').each((_, t) => {
-							$(t).text(format_int(parseInt($(t).text().replace(/[^0-9]/, ''), 10) + data.total_display))
+						$$('.total-display', pages).forEach((t) => {
+							t.textContent = format_int(parseInt(t.textContent.replace(/[^0-9]/, ''), 10) + data.total_display)
 						})
 
 						done()
@@ -803,33 +583,40 @@
 
 	// Load references as an AJAX request.
 	var load_refs = function() {
-		$('.count-list-pages').on('click', '.hchart .load-less', function(e) {
+		on('.count-list-pages', 'click', '.hchart .load-less', function(e) {
 			e.preventDefault()
-			let rows = $(this).closest('.hchart').find('.rows'),
-				sz   = rows.data('pagesize') || 10
-			rows.find(`>div:gt(${sz - 1})`).remove()
-			$(this).css('display', 'none')
-			$(this).prev('.load-more').css('display', 'inline')
+			let rows = $1('.rows', this.closest('.hchart')),
+				sz   = rows._pagesize || 10
+			child_divs(rows).slice(sz).forEach((r) => r.remove())
+			this.style.display = 'none'
+			let more = this.previousElementSibling
+			if (more?.classList.contains('load-more'))
+				more.style.display = 'inline'
 		})
 
-		$('.count-list-pages').on('click', '.load-refs, .hchart .load-more', function(e) {
+		on('.count-list-pages', 'click', '.load-refs, .hchart .load-more', function(e) {
 			e.preventDefault()
 
 			let params = split_query(location.search),
-				btn    = $(this),
-				less   = btn.next('.load-less'),
+				btn    = this,
+				next   = btn.nextElementSibling,
+				less   = next?.classList.contains('load-less') ? next : null,
 				row    = btn.closest('tr'),
-				rows   = row.find('.refs .rows'),
-				widget = row.closest('.pages-list').attr('data-widget'),
-				path   = row.attr('data-id'),
-				init   = btn .is('.load-refs'),
+				rows   = $1('.refs .rows', row),
+				widget = row.closest('.pages-list').getAttribute('data-widget'),
+				path   = row.getAttribute('data-id'),
+				init   = btn.classList.contains('load-refs'),
 				close  = function() {
-					var t = $(`tr[data-id=${params['showrefs']}]`)
-					t.removeClass('target')
-					t.closest('tr').find('.refs').html('')
+					var t = $1(`tr[data-id="${(params['showrefs'] || '').replace(/(["\\])/g, '\\$1')}"]`)
+					if (!t)
+						return
+					t.classList.remove('target')
+					let refs = $1('.refs', t.closest('tr'))
+					if (refs)
+						refs.innerHTML = ''
 				}
-			if (!rows.data('pagesize'))
-				rows.data('pagesize', rows.children().length)
+			if (rows && !rows._pagesize)
+				rows._pagesize = rows.children.length
 
 			// Clicked on row that's already open, so close and stop. Don't
 			// close anything yet if we're going to load another path, since
@@ -840,28 +627,28 @@
 			}
 
 			push_query({showrefs: path})
-			let done = paginate_button(btn , () => {
-				jQuery.ajax({
-					url:   BASE_PATH + '/load-widget',
+			let done = paginate_button(btn, () => {
+				ajax(BASE_PATH + '/load-widget', {
 					data: append_period({
 						widget: widget,
 						key:    path,
-						total:  row.attr('data-count'),
-						offset: row.find('.refs .rows>div').length,
+						total:  row.getAttribute('data-count'),
+						offset: $$('.refs .rows>div', row).length,
 					}),
 					success: function(data) {
-						less.css('display', 'inline')
-						row.addClass('target')
+						if (less)
+							less.style.display = 'inline'
+						row.classList.add('target')
 
 						if (init) {
 							if (params['showrefs'])
 								close()
-							row.find('.refs').html(data.html)
+							$1('.refs', row).innerHTML = data.html
 						}
 						else {
-							rows.append($(data.html).find('>div'))
+							parse_rows(data.html).forEach((d) => rows.appendChild(d))
 							if (!data.more)
-								btn.css('display', 'none')
+								btn.style.display = 'none'
 						}
 						done()
 					},
@@ -872,42 +659,43 @@
 
 	// Paginate and show details for the horizontal charts.
 	var hchart_detail = function() {
-		let get_total = () => $('.js-total-utc').text()
-
 		// Paginate the horizontal charts.
-		$('.hcharts').on('click', '.load-less', function(e) {
+		on('.hcharts', 'click', '.load-less', function(e) {
 			e.preventDefault()
-			let rows = $(this).closest('.hchart').find('.rows'),
-				sz   = rows.data('pagesize') || 6
-			rows.find(`>div:gt(${sz - 1})`).remove()
-			$(this).css('display', 'none')
-			$(this).prev('.load-more').css('display', 'inline')
+			let rows = $1('.rows', this.closest('.hchart')),
+				sz   = rows._pagesize || 6
+			child_divs(rows).slice(sz).forEach((r) => r.remove())
+			this.style.display = 'none'
+			let more = this.previousElementSibling
+			if (more?.classList.contains('load-more'))
+				more.style.display = 'inline'
 		})
 
-		$('.hcharts').on('click', '.load-more', function(e) {
+		on('.hcharts', 'click', '.load-more', function(e) {
 			e.preventDefault();
 
-			let btn   = $(this),
-				less  = btn.next('.load-less'),
+			let btn   = this,
+				next  = btn.nextElementSibling,
+				less  = next?.classList.contains('load-less') ? next : null,
 				chart = btn.closest('.hchart'),
-				key   = chart.attr('data-key'),
-				rows  = chart.find('>.rows')
-			if (!rows.data('pagesize'))
-				rows.data('pagesize', rows.children().length)
-			let done = paginate_button($(this), () => {
-				jQuery.ajax({
-					url:  `${BASE_PATH}/load-widget`,
+				key   = chart.getAttribute('data-key'),
+				rows  = Array.from(chart.children).find((c) => c.classList.contains('rows'))
+			if (rows && !rows._pagesize)
+				rows._pagesize = rows.children.length
+			let done = paginate_button(btn, () => {
+				ajax(`${BASE_PATH}/load-widget`, {
 					data: append_period({
-						widget: chart.attr('data-widget'),
+						widget: chart.getAttribute('data-widget'),
 						total:  get_total(),
 						key:    key,
-						offset: rows.find('>div:not(.hchart)').length,
+						offset: child_divs(rows).filter((d) => !d.classList.contains('hchart')).length,
 					}),
 					success: function(data) {
-						less.css('display', 'inline')
-						rows.append($(data.html).find('>div'))
+						if (less)
+							less.style.display = 'inline'
+						parse_rows(data.html).forEach((d) => rows.appendChild(d))
 						if (!data.more)
-							btn.css('display', 'none')
+							btn.style.display = 'none'
 						done()
 					},
 				})
@@ -915,31 +703,35 @@
 		})
 
 		// Load detail.
-		$('.hchart').on('click', '.load-detail', function(e) {
+		on('.hchart', 'click', '.load-detail', function(e) {
 			e.preventDefault()
 
-			var btn    = $(this),
+			var btn    = this,
 				row    = btn.closest('div[data-key]'),
 				chart  = row.closest('.hchart'),
-				widget = chart.attr('data-widget'),
-				key    = row.attr('data-key')
-			if (row.next().is('.detail'))
-				return row.next().remove()
+				widget = chart.getAttribute('data-widget'),
+				key    = row.getAttribute('data-key')
+			if (row.nextElementSibling?.classList.contains('detail'))
+				return row.nextElementSibling.remove()
 
-			var l = btn.find('.bar-c')
-			l.addClass('loading')
+			var l = $1('.bar-c', btn)
+			l?.classList.add('loading')
 			var done = paginate_button(l, () => {
-				jQuery.ajax({
-					url:     BASE_PATH + '/load-widget',
-					data:    append_period({
+				ajax(BASE_PATH + '/load-widget', {
+					data: append_period({
 						widget: widget,
 						key:    key,
 						total:  get_total(),
 						//offset: rows.find('>div').length,
 					}),
 					success: function(data) {
-						chart.find('.detail').remove()
-						row.after($(`<div class="hchart detail" data-widget="${widget}" data-key="${key}"></div>`).html(data.html))
+						$$('.detail', chart).forEach((d) => d.remove())
+						let detail = document.createElement('div')
+						detail.className = 'hchart detail'
+						detail.setAttribute('data-widget', widget)
+						detail.setAttribute('data-key', key)
+						detail.innerHTML = data.html
+						row.insertAdjacentElement('afterend', detail)
 						done()
 					},
 				})
@@ -981,10 +773,7 @@
 		}
 		history.pushState(null, '', join_query(current))
 	}
-
-	// Check if this is a mobile browser. Probably not 100% reliable.
-	var is_mobile = () => navigator.userAgent.match(/Mobile/i) || (window.innerWidth <= 800 && window.innerHeight <= 600)
-
+	
 	// Quote special regexp characters. https://locutus.io/php/pcre/preg_quote/
 	var quote_re = (s) => s.replace(new RegExp('[.\\\\+*?\\[\\^\\]$(){}=!<>|:\\-]', 'g'), '\\$&')
 })();

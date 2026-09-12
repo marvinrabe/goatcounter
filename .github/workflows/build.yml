@@ -6,19 +6,8 @@ on:
 jobs:
   build:
     runs-on: 'ubuntu-latest'
-    # TODO: only run if tests passed.
-    #
-    # This doesn't work, as jobs is "For reusable workflows only, contains
-    # outputs of jobs from the reusable workflow" and is not available here.
-    #if:      ${{ jobs.test.result == 'success' }}
-    #
-    # Hmm, this also doesn't work: The workflow is not valid.
-    # .github/workflows/build.yml (Line: 7, Col: 3): The workflow must contain
-    # at least one job with no dependencies.
-    #
-    # Guess it all needs to be put in the same workflow?
-    #needs: 'test'
-
+    # Note: this runs independently of the test workflow; "needs: test" only
+    # works between jobs in the same workflow.
     steps:
       - uses: 'actions/checkout@v6'
       - uses: 'docker/setup-buildx-action@v4'
@@ -36,11 +25,9 @@ jobs:
         with:
           context:    '.'
           file:       './Dockerfile'
-          # TODO: this is quite slow (~10 min, instead of ~1 min). Look at
-          # running on GitHub actions arm64 to make it faster:
-          # https://docs.docker.com/build/ci/github-actions/multi-platform/#distribute-build-across-multiple-runners
-          #
-          # Seems quite complex though, so this is okay for now.
+          # Cross-building arm64 under QEMU takes ~10 min instead of ~1 min;
+          # splitting it over a native arm64 runner would be faster, but is a lot
+          # more machinery: https://docs.docker.com/build/ci/github-actions/multi-platform/#distribute-build-across-multiple-runners
           platforms:  'linux/amd64,linux/arm64'
           tags:       ${{ steps.meta.outputs.tags }}
           labels:     ${{ steps.meta.outputs.labels }}

@@ -6,7 +6,6 @@
 	<div class="hchart widget-{{if $.Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
 		<div class="widget-header">
 			<h2>{{t .Context "header/toprefs|Top referrers"}}</h2>
-			<a href="#" class="logged-in configure-widget" aria-label="{{t $.Context "button/cfg-dashboard|Configure"}}">⚙&#xfe0f;</a>
 		</div>
 
 		{{template "_dashboard_warn_collect.gohtml" (map "IsCollected" .IsCollected "Context" .Context "Base" .Base)}}

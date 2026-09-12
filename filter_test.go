@@ -1,6 +1,10 @@
-package goatcounter
+package goatcounter_test
 
-import "testing"
+import (
+	"testing"
+
+	. "github.com/marvinrabe/goatcounter"
+)
 
 func TestFilterMatch(t *testing.T) {
 	tests := []struct {

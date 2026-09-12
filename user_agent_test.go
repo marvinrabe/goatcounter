@@ -5,15 +5,15 @@ import (
 	"strings"
 	"testing"
 
-	. "zgo.at/goatcounter/v2"
-	"zgo.at/goatcounter/v2/gctest"
+	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/isbot"
 	"zgo.at/zdb"
 	"zgo.at/zstd/ztest"
 )
 
 func TestUserAgentGetOrInsert(t *testing.T) {
-	ctx := gctest.DB(t)
+	ctx := testenv.DB(t)
 
 	test := func(gotUA, wantUA UserAgent, want string) {
 		t.Helper()
@@ -25,7 +25,7 @@ func TestUserAgentGetOrInsert(t *testing.T) {
 		want = strings.ReplaceAll(strings.TrimSpace(strings.ReplaceAll(want, "\t", "")), "@", " ")
 		out := zdb.DumpString(ctx, `select browsers.name || ' ' || browsers.version as browser from browsers;`) +
 			zdb.DumpString(ctx, `select systems.name  || ' ' || systems.version  as system  from systems;`)
-		out = strings.ReplaceAll(out, " \n", "\n") // TODO: fix in zdb
+		out = strings.ReplaceAll(out, " \n", "\n") // zdb.DumpString pads columns with trailing spaces.
 		if d := ztest.Diff(out, want); d != "" {
 			t.Error(d)
 		}
