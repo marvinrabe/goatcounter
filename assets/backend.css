@@ -161,8 +161,6 @@ button.card-tab { cursor: pointer; }
 .dashboard-card .hchart .load-more,
 .dashboard-card .pages-list > .load-btns { display: block; width: max-content; margin: .1em 0 0; }
 .dashboard-card .load-less { margin-left: .75rem; }
-.pages-overview .rows > div { border: 0; background: transparent; }
-.pages-overview .go { flex-basis: 100%; margin-left: 5rem; }
 @media (max-width: 45rem) {
 	.dashboard-grid { display: block; }
 	.dashboard-grid > .dashboard-card { margin-bottom: 1em; }
