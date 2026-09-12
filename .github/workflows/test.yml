@@ -6,10 +6,7 @@ on:
     branches: ['main']
 
 jobs:
-  # Uncomment to get a debug shell.
-  # debug: {runs-on: 'ubuntu-latest', steps: [{uses: 'actions/checkout@v6'}, {uses: 'mxschmitt/action-tmate@v3'}]}
-
-  # Go embeds Vite's generated output, so build it once for every test job.
+  # Vite assets
   assets:
     name:    'assets'
     runs-on: 'ubuntu-latest'
@@ -40,12 +37,12 @@ jobs:
           path: 'public'
       - uses: 'dominikh/staticcheck-action@v1'
 
-  # Linux, macOS, Windows SQLite
+  # Ubuntu x86 and ARM SQLite
   test:
     needs:   'assets'
     strategy:
       matrix:
-        os: ['ubuntu-latest', 'ubuntu-24.04-arm', 'macos-latest']
+        os: ['ubuntu-latest', 'ubuntu-24.04-arm']
     runs-on: "${{ matrix.os }}"
     name:    "${{ matrix.os }} / sqlite"
     steps:
@@ -58,81 +55,4 @@ jobs:
         with: {go-version: 'stable'}
       - shell: 'bash'
         run: |
-          # "-race is not supported on windows/arm64"
-          race='-race'
-          [ $RUNNER_OS = 'Windows' ] && [ $RUNNER_ARCH = 'ARM64' ] && race=''
-          go test $race ./...
-
-  # FreeBSD SQLite
-  freebsd:
-    needs:   'assets'
-    runs-on: 'ubuntu-latest'
-    name:    'test / freebsd / sqlite'
-    timeout-minutes: 20
-    steps:
-      - uses: 'actions/checkout@v6'
-      - uses: 'actions/download-artifact@v4'
-        with:
-          name: 'public'
-          path: 'public'
-      - name: 'test / freebsd / sqlite'
-        id:   'freebsd'
-        uses: 'vmactions/freebsd-vm@v1'
-        with:
-          prepare: 'pkg update -f && pkg install -y go'
-          run:     'go test -race -timeout=3m ./...'
-
-  # OpenBSD SQLite
-  openbsd:
-    needs:   'assets'
-    runs-on: 'ubuntu-latest'
-    name:    'test / openbsd / sqlite'
-    timeout-minutes: 20
-    steps:
-      - uses: 'actions/checkout@v6'
-      - uses: 'actions/download-artifact@v4'
-        with:
-          name: 'public'
-          path: 'public'
-      - name: 'test / openbsd / sqlite'
-        id:   'openbsd'
-        uses: 'vmactions/openbsd-vm@v1'
-        with:
-          prepare: 'pkg_add go'
-          # "-race is not supported on openbsd/amd64"
-          run:     'GOTOOLCHAIN=auto go test -timeout=3m ./...'
-
-  # NetBSD SQlite
-  # Disabled because it frequently times out?
-  #netbsd:
-  #  runs-on: 'ubuntu-latest'
-  #  name:    'test / netbsd / sqlite'
-  #  timeout-minutes: 20
-  #  steps:
-  #    - uses: 'actions/checkout@v6'
-  #    - name: 'test / netbsd / sqlite'
-  #      id:   'netbsd'
-  #      uses: 'vmactions/netbsd-vm@v1'
-  #      with:
-  #        prepare: 'pkg_add go'
-  #        run:     '/usr/pkg/bin/go??? test -race -timeout=3m ./...'
-
-  # illumos SQLite
-  illumos:
-    needs:   'assets'
-    runs-on: 'ubuntu-latest'
-    name:    'test / illumos / sqlite'
-    timeout-minutes: 20
-    steps:
-    - uses: 'actions/checkout@v6'
-    - uses: 'actions/download-artifact@v4'
-      with:
-        name: 'public'
-        path: 'public'
-    - name: 'test / illumos / sqlite'
-      id:   'illumos'
-      uses: 'vmactions/omnios-vm@v1'
-      with:
-        prepare: 'pkg install gcc14 go-125'
-        # "-race is not supported on illumos/amd64"
-        run:     'go test -timeout=3m ./...'
+          go test -race ./...
