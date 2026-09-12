@@ -20,85 +20,6 @@ import (
 // Started is set when the server is started.
 var Started time.Time
 
-var (
-	// basicAuth authenticates the request with HTTP basic auth; the username
-	// is ignored and the password is checked against all users' bcrypt
-	// hashes.
-	basicAuth = func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-
-			// Parse the form for POST bodies; the old auth middleware did
-			// this as part of the CSRF check, and handlers rely on r.Form.
-			if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-				r.ParseMultipartForm(32 << 20)
-			} else {
-				r.ParseForm()
-			}
-
-			_, pass, ok := r.BasicAuth()
-			if ok {
-				var users goatcounter.Users
-				err := users.List(ctx)
-				if err == nil {
-					for _, u := range users {
-						ok, err := u.CorrectPassword(pass)
-						if err != nil {
-							log.Error(ctx, err)
-							continue
-						}
-						if ok {
-							next.ServeHTTP(w, r.WithContext(goatcounter.WithUser(ctx, &u)))
-							return
-						}
-					}
-				} else if !zdb.ErrNoRows(err) {
-					log.Error(ctx, err)
-				}
-			}
-
-			w.Header().Set("WWW-Authenticate", `Basic realm="GoatCounter"`)
-			zhttp.ErrPage(w, r, guru.New(401, "Authentication required"))
-		})
-	}
-
-	loggedIn = basicAuth
-
-	loggedInOrPublic = func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			s := Site(r.Context())
-			if s.Settings.IsPublic() {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if a := r.URL.Query().Get("access-token"); s.Settings.CanView(a) {
-				// Set cookie for auth and redirect. This prevents accidental
-				// leaking of the secret by copy/pasting the URL, screenshots, etc.
-				http.SetCookie(w, &http.Cookie{
-					Name:     "access-token",
-					Value:    a,
-					Path:     "/",
-					HttpOnly: true,
-					Secure:   zhttp.IsSecure(r),
-					SameSite: http.SameSiteLaxMode,
-				})
-				hide := ""
-				if r.URL.Query().Get("hideui") != "" {
-					hide += "?hideui=1"
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-			if c, err := r.Cookie("access-token"); err == nil && s.Settings.CanView(c.Value) {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			basicAuth(next).ServeHTTP(w, r)
-		})
-	}
-)
-
 type statusWriter interface{ Status() int }
 
 func addctx(db zdb.DB, loadSite bool, dashTimeout int) func(http.Handler) http.Handler {
@@ -106,9 +27,10 @@ func addctx(db zdb.DB, loadSite bool, dashTimeout int) func(http.Handler) http.H
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			path := strings.TrimPrefix(r.URL.Path, goatcounter.Config(ctx).BasePath)
 
 			// Intercept /status here so it works everywhere.
-			if r.URL.Path == "/status" {
+			if path == "/status" {
 				if _, err := zdb.Info(r.Context()); err != nil {
 					http.Error(w, "database unreachable", http.StatusServiceUnavailable)
 					return
@@ -122,8 +44,10 @@ func addctx(db zdb.DB, loadSite bool, dashTimeout int) func(http.Handler) http.H
 
 			// Add timeout.
 			t := 3
-			if r.URL.Path == "/" {
+			if path == "/" {
 				t = dashTimeout + 1
+			} else if path == "/api" {
+				t = dashTimeout
 			} else if strings.HasPrefix(r.URL.Path, "/counter/") {
 				t = dashTimeout
 			}
@@ -139,10 +63,21 @@ func addctx(db zdb.DB, loadSite bool, dashTimeout int) func(http.Handler) http.H
 				}
 			}()
 
-			// There's only ever one site; load it (creating it on first run).
+			// Select the configured site. An omitted value selects the first site
+			// for normal pages; /count requires an explicit site when more than
+			// one is configured.
 			ctx = goatcounter.WithHost(ctx, r.Host)
 			if loadSite {
-				var s goatcounter.Site
+				cfg := goatcounter.Config(ctx)
+				name := r.URL.Query().Get("site")
+				if name == "" && (path != "/count" || len(cfg.Sites) == 1) {
+					name = cfg.Sites[0].LinkDomain
+				}
+				s, ok := cfg.Site(name)
+				if !ok {
+					zhttp.ErrPage(w, r, guru.New(400, "Unknown or missing site"))
+					return
+				}
 				if err := s.Load(ctx); err != nil {
 					zhttp.ErrPage(w, r, err)
 					return

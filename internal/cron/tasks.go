@@ -13,23 +13,6 @@ import (
 	"zgo.at/zstd/ztime"
 )
 
-func dataRetention(ctx context.Context) error {
-	var site goatcounter.Site
-	err := site.Load(ctx)
-	if err != nil {
-		return err
-	}
-	if site.Settings.DataRetention <= 0 {
-		return nil
-	}
-
-	err = site.DeleteOlderThan(ctx, site.Settings.DataRetention)
-	if err != nil {
-		log.Module("cron").Error(ctx, err)
-	}
-	return nil
-}
-
 func oldBot(ctx context.Context) error {
 	ival := goatcounter.Interval(ctx, 30)
 	err := zdb.Exec(ctx, `delete from bots where created_at < `+ival)

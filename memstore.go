@@ -183,11 +183,11 @@ func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 	m.hits = make([]Hit, 0, 16)
 	m.hitMu.Unlock()
 
-	bot, err := zdb.NewBulkInsert(ctx, "bots", []string{"path", "bot", "user_agent", "created_at"})
+	bot, err := zdb.NewBulkInsert(ctx, "bots", []string{"site", "path", "bot", "user_agent", "created_at"})
 	if err != nil {
 		return nil, err
 	}
-	ins, err := zdb.NewBulkInsert(ctx, "hits", []string{"path_id", "ref_id", "browser_id", "system_id",
+	ins, err := zdb.NewBulkInsert(ctx, "hits", []string{"site", "path_id", "ref_id", "browser_id", "system_id",
 		"width", "location", "language", "created_at", "session", "first_visit", "campaign"})
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 	newHits := make([]Hit, 0, len(hits))
 	for _, h := range hits {
 		if h.Bot > 0 {
-			bot.Values(h.Path, h.Bot, h.UserAgentHeader, h.CreatedAt)
+			bot.Values(h.Site, h.Path, h.Bot, h.UserAgentHeader, h.CreatedAt)
 			continue
 		}
 		if m.processHit(ctx, &h) {
@@ -209,7 +209,7 @@ func (m *ms) Persist(ctx context.Context) ([]Hit, error) {
 				if len(h.Size) > 0 {
 					w = &h.Size[0]
 				}
-				ins.Values(h.PathID, h.RefID, h.BrowserID, h.SystemID, w, h.Location, h.Language,
+				ins.Values(h.Site, h.PathID, h.RefID, h.BrowserID, h.SystemID, w, h.Location, h.Language,
 					h.CreatedAt.Round(time.Second), h.Session, h.FirstVisit, h.CampaignID)
 			}
 		}
@@ -228,6 +228,9 @@ func (m *ms) processHit(ctx context.Context, h *Hit) bool {
 	if h.noProcess {
 		return true
 	}
+	if h.Site == "" {
+		h.Site = Config(ctx).Sites[0].Key
+	}
 
 	// Ignore spammers.
 	h.RefURL, _ = url.Parse(h.Ref)
@@ -238,13 +241,17 @@ func (m *ms) processHit(ctx context.Context, h *Hit) bool {
 		}
 	}
 
-	var site Site
-	err := site.Load(ctx)
-	if err != nil {
+	site, ok := Config(ctx).Site(h.Site)
+	if !ok {
+		memlog.Error(ctx, "unknown site", "site", h.Site, "hit", h)
+		return false
+	}
+	if err := site.Load(ctx); err != nil {
 		memlog.Error(ctx, err, "hit", h)
 		return false
 	}
 	ctx = WithSite(ctx, &site)
+	var err error
 	if !site.Settings.Collect.Has(CollectHits) {
 		h.NoStore = true
 	}
@@ -349,9 +356,9 @@ func (m *ms) SessionID() zint.Uint128 {
 }
 
 func (m *ms) session(ctx context.Context, pathID PathID, userSessionID, ua, remoteAddr string) (zint.Uint128, zbool.Bool) {
-	sk := sessionKey(userSessionID)
+	sk := sessionKey(MustGetSite(ctx).Key + ":" + userSessionID)
 	if userSessionID == "" {
-		sk = sessionKey(ua + "-" + remoteAddr)
+		sk = sessionKey(MustGetSite(ctx).Key + ":" + ua + "-" + remoteAddr)
 	}
 
 	m.sessionMu.Lock()

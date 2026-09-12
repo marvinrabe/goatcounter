@@ -39,8 +39,7 @@ func (w *Locations) GetData(ctx context.Context, a Args) (more bool, err error) 
 		err = w.Stats.ListLocation(ctx, w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
 	} else {
 		err = w.Stats.ListLocations(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
-		w.MostlyUnknown = goatcounter.GetUser(ctx).ID > 0 &&
-			len(w.Stats.Stats) > 0 && w.Stats.Stats[0].ID == "" &&
+		w.MostlyUnknown = len(w.Stats.Stats) > 0 && w.Stats.Stats[0].ID == "" &&
 			ztime.StartOf(a.Rng.End, ztime.Day).Equal(ztime.StartOf(ztime.Now(ctx), ztime.Day))
 	}
 	w.loaded = true

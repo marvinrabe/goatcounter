@@ -1,30 +1,11 @@
 -- GoatCounter database schema (SQLite).
 --
--- This is a single-site installation: there is exactly one row in "site", and
--- none of the data tables are scoped to a site.
-
-create table site (
-	link_domain    varchar        not null default ''      check(link_domain = '' or (length(link_domain) >= 4 and length(link_domain) <= 255)),
-	settings       varchar        not null default '{}',
-	received_data  integer        not null default 0,
-	created_at     timestamp      not null                 {{check_timestamp "created_at"}},
-	updated_at     timestamp                               {{check_timestamp "updated_at"}},
-	first_hit_at   timestamp      not null                 {{check_timestamp "first_hit_at"}}
-);
-
-create table users (
-	user_id    {{auto_increment}},
-
-	email      varchar        not null,
-	password   {{blob}}       default null,
-
-	created_at timestamp      not null,
-	updated_at timestamp
-);
-create unique index "users#email" on users(lower(email));
+-- Sites are configured through GOATCOUNTER_SITES; there is intentionally no
+-- sites table. The configured site name is stored as `site` on data rows.
 
 create table hits (
 	hit_id         {{auto_increment true}},
+	site           varchar        not null,
 	path_id        integer        not null,
 	ref_id         integer        not null default 1,
 
@@ -40,25 +21,25 @@ create table hits (
 
 	created_at     timestamp      not null                 {{check_timestamp "created_at"}}
 );
-create index "hits#created_at" on hits(created_at desc);
+create index "hits#site#created_at" on hits(site, created_at desc);
 
 create table bots (
+	site           varchar        not null,
 	path           text           not null,
 	bot            integer        not null,
 	user_agent     text           not null,
 	created_at     timestamp      not null                 {{check_timestamp "created_at"}}
 );
-create index "bots#created_at" on bots(created_at desc);
+create index "bots#site#created_at" on bots(site, created_at desc);
 
 create table paths (
 	path_id        {{auto_increment}},
+	site           varchar        not null,
 
 	path           varchar        not null,
-	title          varchar        not null default '',
 	event          integer        default 0
 );
-create unique index "paths#path"  on paths(lower(path));
-create        index "paths#title" on paths(lower(title));
+create unique index "paths#site#path"  on paths(site, lower(path));
 
 create table campaigns (
 	campaign_id    {{auto_increment}},
@@ -90,87 +71,95 @@ insert into refs (ref, ref_scheme) values ('', 'o');
 create unique index "refs#ref#ref_scheme" on refs(lower(ref), ref_scheme);
 
 create table hit_counts (
+	site           varchar        not null,
 	path_id        integer        not null,
 
 	hour           timestamp      not null                 {{check_timestamp "hour"}},
 	total          integer        not null,
 
-	constraint "hit_counts#path_id#hour" unique(path_id, hour) on conflict replace
+	constraint "hit_counts#site#path_id#hour" unique(site, path_id, hour) on conflict replace
 );
-create index "hit_counts#hour" on hit_counts(hour);
+create index "hit_counts#site#hour" on hit_counts(site, hour);
 
 create table ref_counts (
+	site           varchar        not null,
 	path_id        integer        not null,
 
 	ref_id         integer        not null,
 	hour           timestamp      not null                 {{check_timestamp "hour"}},
 	total          integer        not null,
 
-	constraint "ref_counts#path_id#ref_id#hour" unique(path_id, ref_id, hour) on conflict replace
+	constraint "ref_counts#site#path_id#ref_id#hour" unique(site, path_id, ref_id, hour) on conflict replace
 );
-create index "ref_counts#hour" on ref_counts(hour);
+create index "ref_counts#site#hour" on ref_counts(site, hour);
 
 create table browser_stats (
+	site           varchar        not null,
 	path_id        integer        not null,
 	browser_id     integer        not null,
 
 	day            date           not null                 {{check_date "day"}},
 	count          integer        not null,
 
-	constraint "browser_stats#path_id#day#browser_id" unique(path_id, day, browser_id) on conflict replace
+	constraint "browser_stats#site#path_id#day#browser_id" unique(site, path_id, day, browser_id) on conflict replace
 );
-create index "browser_stats#day"        on browser_stats(day);
+create index "browser_stats#site#day"   on browser_stats(site, day);
 create index "browser_stats#browser_id" on browser_stats(browser_id);
 
 create table system_stats (
+	site           varchar        not null,
 	path_id        integer        not null,
 	system_id      integer        not null,
 
 	day            date           not null                 {{check_date "day"}},
 	count          integer        not null,
 
-	constraint "system_stats#path_id#day#system_id" unique(path_id, day, system_id) on conflict replace
+	constraint "system_stats#site#path_id#day#system_id" unique(site, path_id, day, system_id) on conflict replace
 );
-create index "system_stats#day"       on system_stats(day);
+create index "system_stats#site#day"  on system_stats(site, day);
 create index "system_stats#system_id" on system_stats(system_id);
 
 create table location_stats (
+	site           varchar        not null,
 	path_id        integer        not null,
 
 	day            date           not null                 {{check_date "day"}},
 	location       varchar        not null,
 	count          integer        not null,
 
-	constraint "location_stats#path_id#day#location" unique(path_id, day, location) on conflict replace
+	constraint "location_stats#site#path_id#day#location" unique(site, path_id, day, location) on conflict replace
 );
-create index "location_stats#day"      on location_stats(day);
+create index "location_stats#site#day" on location_stats(site, day);
 create index "location_stats#location" on location_stats(location);
 
 create table language_stats (
+	site           varchar        not null,
 	path_id        integer        not null,
 
 	day            date           not null                 {{check_date "day"}},
 	language       varchar        not null,
 	count          integer        not null,
 
-	constraint "language_stats#path_id#day#language" unique(path_id, day, language) on conflict replace
+	constraint "language_stats#site#path_id#day#language" unique(site, path_id, day, language) on conflict replace
 );
-create index "language_stats#day"      on language_stats(day);
+create index "language_stats#site#day" on language_stats(site, day);
 create index "language_stats#language" on language_stats(language);
 
 create table size_stats (
+	site           varchar        not null,
 	path_id        integer        not null,
 
 	day            date           not null                 {{check_date "day"}},
 	width          integer        not null,
 	count          integer        not null,
 
-	constraint "size_stats#path_id#day#width" unique(path_id, day, width) on conflict replace
+	constraint "size_stats#site#path_id#day#width" unique(site, path_id, day, width) on conflict replace
 );
-create index "size_stats#day"   on size_stats(day);
+create index "size_stats#site#day" on size_stats(site, day);
 create index "size_stats#width" on size_stats(width);
 
 create table campaign_stats (
+	site           varchar        not null,
 	path_id        integer        not null,
 
 	day            date           not null,
@@ -178,9 +167,9 @@ create table campaign_stats (
 	ref            varchar        not null,
 	count          integer        not null,
 
-	constraint "campaign_stats#path_id#campaign_id#ref#day" unique(path_id, campaign_id, ref, day) on conflict replace
+	constraint "campaign_stats#site#path_id#campaign_id#ref#day" unique(site, path_id, campaign_id, ref, day) on conflict replace
 );
-create index "campaign_stats#day"         on campaign_stats(day);
+create index "campaign_stats#site#day"    on campaign_stats(site, day);
 create index "campaign_stats#campaign_id" on campaign_stats(campaign_id);
 
 create table locations (
@@ -230,6 +219,8 @@ delete from version;
 insert into version values
 	('2026-09-11-1-single-site'),
 	('2026-09-11-2-no-user-settings'),
-	('2026-09-12-1-languages');
+	('2026-09-12-1-languages'),
+	('2026-09-12-2-env-sites'),
+	('2026-09-12-3-env-auth');
 
 -- vim:ft=sql:tw=0

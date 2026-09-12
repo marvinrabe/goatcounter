@@ -1,12 +1,6 @@
 #!/bin/sh
 #
-# Fill the database with generated pageviews and create a user to log in with,
-# so there's something to look at on the dashboard while developing.
-#
-# By default it works on the "goatcounter" service from compose.yaml in this
-# directory (http://localhost:8080); the service is stopped while the data is
-# written and started again afterwards. Use -f to work on a SQLite file
-# directly instead, e.g. when running "goatcounter serve" outside of Docker.
+# Fill a running GoatCounter instance with generated pageviews through /api.
 #
 # All statistics are derived from the "hits" table, exactly as cron/*_stat.go
 # does it, so the dashboard sees the same thing it would after collecting this
@@ -17,24 +11,16 @@
 
 set -eu
 
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-
 days=45
-email=admin@example.com
-password=password
 seed=1
 visits=45
-dbfile=
-bin=
 yes=0
-
-service=goatcounter
-service_db=/home/goatcounter/goatcounter-data/db.sqlite3
+api_url=${GOATCOUNTER_SAMPLE_API_URL:-http://localhost:8080/api}
+api_token=${GOATCOUNTER_API_TOKEN:-sample-api-token}
 
 usage() {
 	cat <<EOF
-Usage: ${0##*/} [-d days] [-n visits] [-s seed] [-e email] [-p password]
-                      [-f db-file] [-b binary] [-y]
+Usage: ${0##*/} [-d days] [-n visits] [-s seed] [-u api-url] [-t token] [-y]
 
   -d  Days of history to generate; default $days.
   -n  Rough number of visits per day; default $visits. The actual number varies
@@ -42,26 +28,19 @@ Usage: ${0##*/} [-d days] [-n visits] [-s seed] [-e email] [-p password]
       some days get a spike.
   -s  Seed for the random generator; the same seed gives the same data.
       Default $seed.
-  -e  Email address of the sample user; default $email.
-  -p  Password of the sample user, at least 8 characters; default $password.
-      Any username works when logging in, only the password is checked.
-  -f  Write to this SQLite file instead of the docker compose service; the
-      server should not be running while this script writes to it.
-  -b  goatcounter binary to run the database commands with; only used with -f.
-      Defaults to ./goatcounter, or "go run ./cmd/goatcounter" if that's absent.
+  -u  API endpoint; default $api_url.
+  -t  API bearer token; default GOATCOUNTER_API_TOKEN or $api_token.
   -y  Don't ask for confirmation.
 EOF
 }
 
-while getopts d:n:s:e:p:f:b:yh opt; do
+while getopts d:n:s:u:t:yh opt; do
 	case $opt in
 		d) days=$OPTARG   ;;
 		n) visits=$OPTARG ;;
 		s) seed=$OPTARG   ;;
-		e) email=$OPTARG  ;;
-		p) password=$OPTARG ;;
-		f) dbfile=$OPTARG ;;
-		b) bin=$OPTARG    ;;
+		u) api_url=$OPTARG ;;
+		t) api_token=$OPTARG ;;
 		y) yes=1          ;;
 		h) usage; exit 0  ;;
 		*) usage >&2; exit 1 ;;
@@ -76,25 +55,8 @@ done
 [ "$days" -gt 0 ] && [ "$visits" -gt 0 ] || {
 	echo "${0##*/}: -d and -n must be at least 1" >&2; exit 1; }
 
-# Run a goatcounter command against the database.
-gc() {
-	if [ -z "$dbfile" ]; then
-		docker compose -f "$dir/compose.yaml" run --rm -T "$service" \
-			"$@" -db "sqlite+$service_db" -createdb
-	elif [ -n "$bin" ]; then
-		"$bin" "$@" -db "sqlite+$dbfile" -createdb
-	else
-		(cd "$dir" && go run ./cmd/goatcounter "$@" -db "sqlite+$dbfile" -createdb)
-	fi
-}
-
-if [ -n "$dbfile" ]; then
-	target=$dbfile
-	[ -n "$bin" ] || [ ! -x "$dir/goatcounter" ] || bin=$dir/goatcounter
-else
-	target="docker compose service \"$service\""
-	command -v docker >/dev/null || { echo "${0##*/}: docker not found; use -f to write to a SQLite file" >&2; exit 1; }
-fi
+target=$api_url
+command -v curl >/dev/null || { echo "${0##*/}: curl not found" >&2; exit 1; }
 
 if [ "$yes" -eq 0 ]; then
 	printf 'Replace all pageviews and statistics in %s with %s days of generated data? [y/N] ' "$target" "$days"
@@ -109,35 +71,9 @@ fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-# Stop the server: it caches the site (including the date of the first
-# pageview, which limits how far back the dashboard looks) and it's the only
-# writer the database should have while we replace its contents.
-started=
-if [ -z "$dbfile" ] && [ -n "$(docker compose -f "$dir/compose.yaml" ps -q --status running "$service")" ]; then
-	started=yes
-	echo '==> Stopping the server'
-	docker compose -f "$dir/compose.yaml" stop "$service" >/dev/null
-fi
-
-echo "==> Creating the user $email"
-if out=$(gc db create user -email "$email" -password "$password" 2>&1); then
-	:
-else
-	case $out in
-		*'already used by another user'*)
-			echo '    User already exists; setting the password'
-			gc db update user -find "$email" -password "$password" >/dev/null
-			;;
-		*) printf '%s\n' "$out" >&2; exit 1 ;;
-	esac
-fi
-
 cat >"$tmp/gen.awk" <<'AWK'
-# Generate SQL with sample pageviews. Dates are left to SQLite ("now" minus a
-# number of days and seconds), so this doesn't need date(1), which differs
-# between BSD and GNU.
-
-function q(s) { gsub(/'/, "''", s); return "'" s "'" }
+# Generate JSON objects accepted by the import_raw API action.
+function jsonq(s) { gsub(/\\/, "\\\\", s); gsub(/\"/, "\\\"", s); return "\"" s "\"" }
 
 function cumulate(w, n, cum,   i) {
 	cum[1] = w[1]
@@ -162,52 +98,46 @@ function session(   i, s) {
 	return s
 }
 
-function row(pi, ri, ci, di, wi, li, gi, first, sess, day, sec,   v) {
-	v = sprintf("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,X'%s'," \
-		"datetime('now','start of day','-%d days','+%d seconds'))",
-		q(path[pi]), q(ref[ri]), q(scheme[ri]),
-		ci ? q(campaign[ci]) : "null",
-		q(browser[di]), q(browser_version[di]), q(osname[di]), q(osversion[di]),
-		q(location[li]), q(language[gi]), wi, first, sess, day, sec)
-
-	batch = (nbatch++ == 0) ? v : batch "," v
-	if (nbatch >= 100)
-		flush()
-	pageviews++
-}
-
-function flush() {
-	if (nbatch > 0)
-		print "insert into sample_hits values " batch ";"
-	nbatch = 0
-	batch = ""
+function row(pi, ri, ci, di, wi, li, gi, first, sess, day, sec,   stamp, prefix) {
+	stamp = base - day * 86400 + sec
+	if (stamp > now)
+		return
+	prefix = pageviews++ ? "," : ""
+	printf "%s{\"site\":%s,\"path\":%s,\"event\":%s,", prefix, jsonq(site[si]), jsonq(path[pi]), event[pi] ? "true" : "false"
+	printf "\"ref\":%s,\"ref_scheme\":%s,\"campaign\":%s,", jsonq(ref[ri]), jsonq(scheme[ri]), ci ? jsonq(campaign[ci]) : "\"\""
+	printf "\"browser\":%s,\"browser_version\":%s,\"system\":%s,\"system_version\":%s,", jsonq(browser[di]), jsonq(browser_version[di]), jsonq(osname[di]), jsonq(osversion[di])
+	printf "\"location\":%s,\"language\":%s,\"width\":%d,\"first_visit\":%s,", jsonq(location[li]), jsonq(language[gi]), wi, first ? "true" : "false"
+	printf "\"session\":%s,\"created_at_unix\":%d}", jsonq(sess), stamp
 }
 
 BEGIN {
 	srand(seed)
+	base = now - (hour * 3600 + minute * 60 + second)
+	site[1] = "example.com"
+	site[2] = "foobar.net"
 
-	# path|title|event|weight as a landing page.
+	# path|event|weight as a landing page.
 	npath = split(\
-		"/|Home|0|22;"                                                  \
-		"/blog|Blog|0|10;"                                              \
-		"/blog/hello-world|Hello, world!|0|14;"                         \
-		"/blog/self-hosting-goatcounter|Self-hosting GoatCounter|0|16;" \
-		"/blog/why-sqlite|Why SQLite is enough|0|11;"                   \
-		"/blog/privacy-first-analytics|Privacy-first analytics|0|9;"    \
-		"/docs|Documentation|0|6;"                                      \
-		"/docs/installation|Installation|0|7;"                          \
-		"/docs/configuration|Configuration|0|5;"                        \
-		"/about|About|0|4;"                                             \
-		"/contact|Contact|0|3;"                                         \
-		"download-brochure|Download brochure|1|0;"                      \
-		"signup-click|Signup button|1|0;"                               \
-		"newsletter-subscribe|Newsletter subscribe|1|0",                \
+		"/|0|22;"                                      \
+		"/blog|0|10;"                                  \
+		"/blog/hello-world|0|14;"                      \
+		"/blog/self-hosting-goatcounter|0|16;"         \
+		"/blog/why-sqlite|0|11;"                       \
+		"/blog/privacy-first-analytics|0|9;"            \
+		"/docs|0|6;"                                   \
+		"/docs/installation|0|7;"                      \
+		"/docs/configuration|0|5;"                     \
+		"/about|0|4;"                                  \
+		"/contact|0|3;"                                \
+		"download-brochure|1|0;"                       \
+		"signup-click|1|0;"                            \
+		"newsletter-subscribe|1|0",                    \
 		p, ";")
 	for (i = 1; i <= npath; i++) {
 		split(p[i], f, "|")
-		path[i]  = f[1]; title[i] = f[2]
-		event[i] = f[3] + 0
-		pw[i]    = f[4] + 0
+		path[i]  = f[1]
+		event[i] = f[2] + 0
+		pw[i]    = f[3] + 0
 		if (event[i])
 			events[++nevent] = i
 		else
@@ -323,46 +253,7 @@ BEGIN {
 		vw[i] = v[i] + 0
 	cumulate(vw, npages_in_visit, vcum)
 
-	print "begin;"
-
-	print "delete from hits;"
-	print "delete from bots;"
-	print "delete from hit_counts;"
-	print "delete from ref_counts;"
-	print "delete from browser_stats;"
-	print "delete from system_stats;"
-	print "delete from location_stats;"
-	print "delete from language_stats;"
-	print "delete from size_stats;"
-	print "delete from campaign_stats;"
-
-	for (i = 1; i <= npath; i++)
-		printf "insert or ignore into paths (path, title, event) values (%s, %s, %d);\n",
-			q(path[i]), q(title[i]), event[i]
-	for (i = 1; i <= nref; i++)
-		printf "insert or ignore into refs (ref, ref_scheme) values (%s, %s);\n",
-			q(ref[i]), q(scheme[i])
-	for (i = 1; i <= ncampaign; i++)
-		printf "insert into campaigns (name) select %s where not exists " \
-			"(select 1 from campaigns where name = %s);\n", q(campaign[i]), q(campaign[i])
-	for (i = 1; i <= ncampaign; i++)
-		printf "insert or ignore into refs (ref, ref_scheme) values (%s, 'c');\n", q(campaign_ref[i])
-	for (i = 1; i <= ndevice; i++) {
-		printf "insert or ignore into browsers (name, version) values (%s, %s);\n",
-			q(browser[i]), q(browser_version[i])
-		printf "insert or ignore into systems (name, version) values (%s, %s);\n",
-			q(osname[i]), q(osversion[i])
-	}
-	for (i = 1; i <= nlocation; i++)
-		printf "insert or ignore into locations (country, region, country_name, region_name) " \
-			"values (%s, %s, %s, %s);\n",
-			q(country[i]), q(region[i]), q(country_name[i]), q(region_name[i])
-
-	print "create temp table sample_hits (path text, ref text, ref_scheme text," \
-		" campaign text, browser text, browser_version text, system text," \
-		" system_version text, location text, language text, width int, first_visit int," \
-		" session blob, created_at text);"
-
+	for (si = 1; si <= 2; si++) {
 	for (day = days - 1; day >= 0; day--) {
 		# 1 (Monday) through 7 (Sunday).
 		dow = (today_dow - 1 - day) % 7
@@ -425,119 +316,33 @@ BEGIN {
 			visit_count++
 		}
 	}
-	flush()
-
-	print "insert into hits (path_id, ref_id, session, first_visit, browser_id," \
-		" system_id, campaign, width, location, language, created_at)"
-	print "select p.path_id, r.ref_id, s.session, s.first_visit, b.browser_id," \
-		" y.system_id, c.campaign_id, s.width, s.location," \
-		" nullif(s.language, ''), s.created_at"
-	print "from sample_hits s"
-	print "join paths p on lower(p.path) = lower(s.path)"
-	print "join refs r on lower(r.ref) = lower(s.ref) and r.ref_scheme = s.ref_scheme"
-	print "join browsers b on b.name = s.browser and b.version = s.browser_version"
-	print "join systems y on y.name = s.system and y.version = s.system_version"
-	print "left join campaigns c on c.name = s.campaign;"
-	print "drop table sample_hits;"
-
-	# Today is generated as a full day; drop what hasn't happened yet.
-	print "delete from hits where created_at > strftime('%Y-%m-%d %H:%M:%S', 'now');"
-
-	# The statistics count visits, not pageviews: a pageview is counted only
-	# the first time a visit sees that path. See cron/*_stat.go.
-	print "insert into hit_counts (path_id, hour, total)"
-	print "select path_id, strftime('%Y-%m-%d %H:00:00', created_at), count(*)"
-	print "from hits where first_visit = 1 group by 1, 2;"
-
-	print "insert into ref_counts (path_id, ref_id, hour, total)"
-	print "select path_id, ref_id, strftime('%Y-%m-%d %H:00:00', created_at), count(*)"
-	print "from hits where first_visit = 1 group by 1, 2, 3;"
-
-	print "insert into browser_stats (path_id, browser_id, day, count)"
-	print "select path_id, browser_id, date(created_at), count(*)"
-	print "from hits where first_visit = 1 and browser_id > 0 group by 1, 2, 3;"
-
-	print "insert into system_stats (path_id, system_id, day, count)"
-	print "select path_id, system_id, date(created_at), count(*)"
-	print "from hits where first_visit = 1 and system_id > 0 group by 1, 2, 3;"
-
-	print "insert into location_stats (path_id, day, location, count)"
-	print "select path_id, date(created_at), location, count(*)"
-	print "from hits where first_visit = 1 group by 1, 2, 3;"
-
-	print "insert into language_stats (path_id, day, language, count)"
-	print "select path_id, date(created_at), coalesce(language, ''), count(*)"
-	print "from hits where first_visit = 1 group by 1, 2, 3;"
-
-	print "insert into size_stats (path_id, day, width, count)"
-	print "select path_id, date(created_at), coalesce(width, 0), count(*)"
-	print "from hits where first_visit = 1 group by 1, 2, 3;"
-
-	print "insert into campaign_stats (path_id, day, campaign_id, ref, count)"
-	print "select h.path_id, date(h.created_at), h.campaign, r.ref, count(*)"
-	print "from hits h join refs r on r.ref_id = h.ref_id"
-	print "where h.first_visit = 1 and h.campaign is not null group by 1, 2, 3, 4;"
-
-	# The site row is normally created on the first request; create it here so
-	# the dashboard doesn't limit the range to a week before it was created.
-	print "insert into site (link_domain, settings, received_data, created_at, first_hit_at)"
-	print "select '', '{}', 0, datetime('now'), datetime('now')"
-	print "where not exists (select 1 from site);"
-	print "update site set received_data = 1," \
-		" first_hit_at = (select datetime(min(created_at), '-12 hours') from hits),"
-	# Collecting languages is off by default, but the data above has them, so
-	# switch it on to keep the dashboard consistent. 190 is the default set of
-	# flags, 64 is CollectLanguage; see settings.go.
-	print " settings = json_set(settings, '$.collect'," \
-		" coalesce(json_extract(settings, '$.collect'), 190) | 64);"
-
-	print "commit;"
-
-	printf "    %d visits, %d pageviews over %d days\n", visit_count, pageviews, days > "/dev/stderr"
+	}
+	printf "\n    %d visits, %d pageviews over %d days\n", visit_count, pageviews, days > "/dev/stderr"
 }
 
 # Campaign traffic: the referrer is the campaign source, with the "c" scheme.
-function campaign_row(pi, ci, di, wi, li, gi, first, sess, day, sec,   v) {
-	v = sprintf("(%s,%s,'c',%s,%s,%s,%s,%s,%s,%s,%d,%d,X'%s'," \
-		"datetime('now','start of day','-%d days','+%d seconds'))",
-		q(path[pi]), q(campaign_ref[ci]), q(campaign[ci]),
-		q(browser[di]), q(browser_version[di]), q(osname[di]), q(osversion[di]),
-		q(location[li]), q(language[gi]), wi, first, sess, day, sec)
-
-	batch = (nbatch++ == 0) ? v : batch "," v
-	if (nbatch >= 100)
-		flush()
-	pageviews++
+function campaign_row(pi, ci, di, wi, li, gi, first, sess, day, sec,   oldref, oldscheme) {
+	oldref = ref[0]; oldscheme = scheme[0]
+	ref[0] = campaign_ref[ci]; scheme[0] = "c"
+	row(pi, 0, ci, di, wi, li, gi, first, sess, day, sec)
+	ref[0] = oldref; scheme[0] = oldscheme
 }
 AWK
 
 echo "==> Generating $days days of pageviews"
-awk -v days="$days" -v visits="$visits" -v seed="$seed" -v today_dow="$(date +%u)" \
-	-f "$tmp/gen.awk" >"$tmp/sample.sql"
+{
+	printf '{"action":"import_raw","arguments":{"replace":true,"hits":['
+	TZ=UTC awk -v days="$days" -v visits="$visits" -v seed="$seed" -v today_dow="$(date +%u)" \
+		-v now="$(date +%s)" -v hour="$(date -u +%H)" -v minute="$(date -u +%M)" -v second="$(date -u +%S)" \
+		-f "$tmp/gen.awk"
+	printf ']}}\n'
+} >"$tmp/sample.json"
 
-echo '==> Writing to the database'
-gc db query -format=exec <"$tmp/sample.sql"
-gc db query -format=table "select
-	(select count(*) from hits)                         as pageviews,
-	(select sum(total) from hit_counts)                 as visits,
-	(select count(distinct date(created_at)) from hits) as days,
-	(select date(min(created_at)) from hits)            as first,
-	(select date(max(created_at)) from hits)            as last"
+echo '==> Importing through the bearer-protected API'
+curl --fail-with-body --silent --show-error \
+	-H "Authorization: Bearer $api_token" \
+	-H 'Content-Type: application/json' \
+	--data-binary "@$tmp/sample.json" \
+	"$api_url"
 
-if [ -n "$started" ]; then
-	echo '==> Starting the server'
-	docker compose -f "$dir/compose.yaml" up -d >/dev/null
-fi
-
-if [ -n "$dbfile" ]; then
-	cat <<EOF
-
-Done. Log in with any username and the password "$password".
-EOF
-else
-	cat <<EOF
-
-Done. Log in at http://localhost:8080/ with any username and the password
-"$password".
-EOF
-fi
+echo "Done. Dashboard: ${api_url%/api}/"

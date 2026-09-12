@@ -178,12 +178,12 @@ func TestHitListsList(t *testing.T) {
 		// Directly insert because it's much faster.
 		var (
 			ctx        = testenv.DB(t)
-			bPaths, _  = zdb.NewBulkInsert(ctx, "paths", []string{"path"})
-			bCounts, _ = zdb.NewBulkInsert(ctx, "hit_counts", []string{"path_id", "hour", "total"})
+			bPaths, _  = zdb.NewBulkInsert(ctx, "paths", []string{"site", "path"})
+			bCounts, _ = zdb.NewBulkInsert(ctx, "hit_counts", []string{"site", "path_id", "hour", "total"})
 		)
 		for i := range 70_000 {
-			bPaths.Values(fmt.Sprintf("/x-%d", i+1))
-			bCounts.Values(i+1, "2019-08-11 01:00:00", 10)
+			bPaths.Values("example.com", fmt.Sprintf("/x-%d", i+1))
+			bCounts.Values("example.com", i+1, "2019-08-11 01:00:00", 10)
 		}
 		err := bPaths.Finish()
 		if err != nil {
@@ -278,8 +278,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 2,
 					"weekly": 2
-				}],
-				"title":   ""
+				}]
 			}
 			`, `
 			{
@@ -294,8 +293,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 1,
 					"weekly": 1
-				}],
-				"title":   ""
+				}]
 			}
 			`, `
 			{
@@ -310,8 +308,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 1,
 					"weekly": 1
-				}],
-				"title":   ""
+				}]
 			}
 			`, `
 			{
@@ -326,8 +323,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 2,
 					"weekly": 2
-				}],
-				"title":   ""
+				}]
 			}
 			`,
 		}
@@ -362,8 +358,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 2,
 					"weekly": 2
-				}],
-				"title":   ""
+				}]
 			}
 			`, `
 			{
@@ -378,8 +373,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 1,
 					"weekly": 1
-				}],
-				"title":   ""
+				}]
 			}
 			`, `
 			{
@@ -394,8 +388,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 1,
 					"weekly": 1
-				}],
-				"title":   ""
+				}]
 			}
 			`, `
 			{
@@ -410,8 +403,7 @@ func TestHitListTotals(t *testing.T) {
 					"hourly": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 					"monthly": 2,
 					"weekly": 2
-				}],
-				"title":   ""
+				}]
 			}
 			`,
 		}
@@ -461,8 +453,7 @@ func TestHitListsPathCount(t *testing.T) {
 			"max":           0,
 			"path":          "/",
 			"path_id":       0,
-			"stats":         null,
-			"title":         ""
+			"stats":         null
 		}`
 		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
 			t.Error(d)
@@ -484,8 +475,7 @@ func TestHitListsPathCount(t *testing.T) {
 			"max":           0,
 			"path":          "/",
 			"path_id":       0,
-			"stats":         null,
-			"title":         ""
+			"stats":         null
 		}`
 		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
 			t.Error(d)
@@ -522,8 +512,7 @@ func TestHitListSiteTotalUnique(t *testing.T) {
 			"max":           0,
 			"path":          "",
 			"path_id":       0,
-			"stats":         null,
-			"title":         ""
+			"stats":         null
 		}`
 		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
 			t.Error(d)
@@ -545,8 +534,7 @@ func TestHitListSiteTotalUnique(t *testing.T) {
 			"max":           0,
 			"path":          "",
 			"path_id":       0,
-			"stats":         null,
-			"title":         ""
+			"stats":         null
 		}`
 		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
 			t.Error(d)
@@ -554,7 +542,7 @@ func TestHitListSiteTotalUnique(t *testing.T) {
 	}
 }
 
-// func (h *HitLists) ListPathsLike(ctx context.Context, search string, matchTitle, matchCase bool) error {
+// func (h *HitLists) ListPathsLike(ctx context.Context, search string, matchCase bool) error {
 func TestHitListsListPathsLike(t *testing.T) {
 	str := func(h HitLists) string {
 		var b strings.Builder
@@ -578,36 +566,35 @@ func TestHitListsListPathsLike(t *testing.T) {
 	)
 
 	tests := []struct {
-		search        string
-		title, casing bool
-		want          string
+		search, want string
+		casing       bool
 	}{
 		// Exact matches
-		{``, false, false, ``},
-		{`/`, false, false, `/`},
+		{``, ``, false},
+		{`/`, `/`, false},
 
 		// Wildcards
-		{`/h%`, false, false, `/hello, /hello\, /hey_there`},
-		{`/heythere%`, false, false, ``},
-		{`/hey_there`, false, false, `/hey_there`},
-		{`/he__there`, false, false, `/hey_there`},
+		{`/h%`, `/hello, /hello\, /hey_there`, false},
+		{`/heythere%`, ``, false},
+		{`/hey_there`, `/hey_there`, false},
+		{`/he__there`, `/hey_there`, false},
 
 		// Allow escaping _ and % with \
-		{`/hey\_there`, false, false, `/hey_there`},
-		{`/%%%`, false, false, `/, /hello, /hello\, /hey_there, /per%cent, /back\slash`},
-		{`/%\%%`, false, false, `/per%cent`},
+		{`/hey\_there`, `/hey_there`, false},
+		{`/%%%`, `/, /hello, /hello\, /hey_there, /per%cent, /back\slash`, false},
+		{`/%\%%`, `/per%cent`, false},
 
 		// Backslash that doesn't escape
-		{`/back\slash`, false, false, ``},
-		{`/back\\slash`, false, false, `/back\slash`},
-		{`/hello\`, false, false, ``},
-		{`/hello\\`, false, false, `/hello\`},
+		{`/back\slash`, ``, false},
+		{`/back\\slash`, `/back\slash`, false},
+		{`/hello\`, ``, false},
+		{`/hello\\`, `/hello\`, false},
 	}
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
 			var list HitLists
-			err := list.ListPathsLike(ctx, tt.search, tt.title, tt.casing)
+			err := list.ListPathsLike(ctx, tt.search, tt.casing)
 			if err != nil {
 				t.Fatal(err)
 			}

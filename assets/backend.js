@@ -1,4 +1,3 @@
-import './charty.js'
 import './dashboard.js'
 import {$$, $1, T, ajax, on} from './helper.js'
 
@@ -14,8 +13,8 @@ import {$$, $1, T, ajax, on} from './helper.js'
 		window.SITE_FIRST_HIT_AT = s.getAttribute('data-first-hit-at') * 1000
 		window.DEV               = s.getAttribute('data-dev') === 'true'
 
-		;[report_errors, bind_tooltip, bind_confirm, onetime].forEach((f) => f.call())
-		;[window.page_dashboard, page_settings_main]
+		;[report_errors, bind_site_selector, onetime].forEach((f) => f.call())
+		;[window.page_dashboard]
 			.forEach((f) => document.body.id.match(new RegExp('^' + f.name.replace(/_/g, '-'))) && f.call())
 	})
 
@@ -72,47 +71,11 @@ import {$$, $1, T, ajax, on} from './helper.js'
 		})
 	}
 
-	// Show confirmation on everything with data-confirm.
-	var bind_confirm = function() {
-		on(document.body, 'click submit', '[data-confirm]', function(e) {
-			if (e.type === 'click' && this.tagName === 'FORM')
-				return
-			if (!confirm(this.getAttribute('data-confirm')))
-				e.preventDefault()
-		})
-	}
-
-	// Show custom tooltip on everything with a title attribute.
-	var bind_tooltip = function() {
-		var tip = document.createElement('div')
-		tip.id = 'tooltip'
-
-		var display = function(e, t) {
-			if (t.classList.contains('rlink') && t.offsetWidth >= t.scrollWidth)
-				return
-
-			tip.remove()
-			tip.innerHTML = t.getAttribute('data-title')
-			tip.style.left = e.pageX + 'px'
-			tip.style.top  = (e.pageY + 20) + 'px'
-			t.addEventListener('mouseleave', () => { tip.remove() }, {once: true})
-			document.body.appendChild(tip)
-			if (tip.offsetHeight > 30) {  // Move to left if there isn't enough space.
-				tip.style.left = '0'
-				tip.style.left = (e.pageX - tip.offsetWidth - 8) + 'px'
-			}
-		}
-
-		on(document.body, 'mouseenter', '[data-title]', function(e) {
-			display(e, this)
-		})
-
-		on(document.body, 'mouseenter', '[title]', function(e) {
-			var title = this.getAttribute('title')
-
-			this.setAttribute('data-title', title)
-			this.removeAttribute('title')
-			display(e, this)
+	var bind_site_selector = function() {
+		on('#site-selector', 'change', function() {
+			let url = new URL(location.href)
+			url.searchParams.set('site', this.value)
+			location.href = url.toString()
 		})
 	}
 
@@ -130,30 +93,6 @@ import {$$, $1, T, ajax, on} from './helper.js'
 				localStorage.setItem(n, '1')
 			})
 		})
-	}
-
-	var page_settings_main = function() {
-		// Generate random token.
-		on('#rnd-secret', 'click', function(e) {
-			e.preventDefault()
-			let secret = $1('#settings-secret')
-			secret.value = Array.from(window.crypto.getRandomValues(new Uint8Array(20)), (c) => c.toString(36)).join('')
-			secret.dispatchEvent(new Event('change'))
-		})
-
-		// Show secret token.
-		on('#settings-public', 'change', function(e) {
-			$1('#secret').style.display = this.value === 'secret' ? 'block' : 'none'
-			if ($1('#settings-secret').value === '')
-				$1('#rnd-secret').click()
-		})
-		$1('#settings-public')?.dispatchEvent(new Event('change'))
-
-		// Update redirect link.
-		on('#settings-secret', 'change', function(e) {
-			$1('#secret-url').value = `${location.protocol}//${location.host}${BASE_PATH}?access-token=${this.value}`
-		})
-		$1('#settings-secret')?.dispatchEvent(new Event('change'))
 	}
 
 })();

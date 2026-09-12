@@ -43,13 +43,13 @@ type (
 	// SharedData gets passed to every widget.
 	SharedData struct {
 		Site *goatcounter.Site
-		User *goatcounter.User
 		Args Args
 
 		RowsOnly    bool
 		Total       int
 		TotalUTC    int
 		TotalEvents int
+		Metrics     goatcounter.DashboardMetrics
 	}
 )
 
@@ -141,7 +141,7 @@ func (l List) Get(name string) List {
 
 // How many rows every widget shows before you need to press "show more".
 const (
-	pageSize    = 10 // Paths overview.
+	pageSize    = 6  // Paths overview.
 	refPageSize = 10 // Referrers for one path.
 	hchartSize  = 6  // Browsers, systems, locations, …
 )
@@ -152,9 +152,9 @@ func NewWidget(ctx context.Context, name string, id int) Widget {
 		return &TotalCount{}
 
 	case "pages":
-		return &Pages{id: id, Limit: pageSize, LimitRefs: refPageSize, Style: "line"}
+		return &Pages{id: id, Limit: pageSize, LimitRefs: refPageSize}
 	case "totalpages":
-		return &TotalPages{id: id, Style: "line"}
+		return &TotalPages{id: id}
 	case "toprefs":
 		return &TopRefs{id: id, Limit: hchartSize}
 	case "campaigns":

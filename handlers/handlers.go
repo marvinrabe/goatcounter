@@ -89,14 +89,13 @@ func (r *Ratelimits) Set(name string, tokens int, secs int64) {
 
 // Site calls goatcounter.MustGetSite; it's just shorter :-)
 func Site(ctx context.Context) *goatcounter.Site { return goatcounter.MustGetSite(ctx) }
-func User(ctx context.Context) *goatcounter.User { return goatcounter.MustGetUser(ctx) }
 
 var T = i18n.T
 
 type Globals struct {
 	Context         context.Context
-	User            *goatcounter.User
 	Site            *goatcounter.Site
+	Sites           []goatcounter.Site
 	Path            string
 	Base            string
 	Flash           *zhttp.FlashMessage
@@ -144,8 +143,8 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 	}
 	g := Globals{
 		Context: ctx,
-		User:    goatcounter.GetUser(ctx),
 		Site:    goatcounter.GetSite(ctx),
+		Sites:   goatcounter.Config(ctx).Sites,
 		Path:    path,
 		Base:    base,
 		Flash:   zhttp.ReadFlash(w, r),
@@ -160,24 +159,19 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 		TZOffsetDisplay: goatcounter.Config(ctx).Timezone.OffsetDisplay(),
 		HideUI:          r.URL.Query().Get("hideui") != "",
 		JSTranslations: map[string]string{
-			"error/date-future":           T(ctx, "error/date-future|That would be in the future"),
-			"error/date-past":             T(ctx, "error/date-past|That would be before the site’s creation"),
-			"error/date-mismatch":         T(ctx, "error/date-mismatch|end date is before start date"),
-			"error/load-url":              T(ctx, "error/load-url|Could not load %(url): %(error)", i18n.P{"url": "%(url)", "error": "%(error)"}),
-			"notify/saved":                T(ctx, "notify/saved|Saved!"),
-			"dashboard/tooltip-event":     T(ctx, "dashboard/tooltip-event|%(unique) clicks; %(clicks) total clicks", i18n.P{"unique": "%(unique)", "clicks": "%(clicks)"}),
-			"dashboard/totals/num-visits": T(ctx, "dashboard/totals/num-visits|%(num-visits) visits", i18n.P{"num-visits": "%(num-visits)"}),
-			"datepicker/keyboard":         T(ctx, "datepicker/keyboard|Use the arrow keys to pick a date"),
-			"datepicker/month-prev":       T(ctx, "datepicker/month-prev|Previous month"),
-			"datepicker/month-next":       T(ctx, "datepicker/month-next|Next month"),
-			"nav-dash/filter-more-help":   T(ctx, "nav-dash/filter-more-help|More help"),
-			"nav-fash/filter-less-help":   T(ctx, "nav-fash/filter-less-help|Less help"),
+			"error/date-future":         T(ctx, "error/date-future|That would be in the future"),
+			"error/date-past":           T(ctx, "error/date-past|That would be before the site’s creation"),
+			"error/date-mismatch":       T(ctx, "error/date-mismatch|end date is before start date"),
+			"error/load-url":            T(ctx, "error/load-url|Could not load %(url): %(error)", i18n.P{"url": "%(url)", "error": "%(error)"}),
+			"notify/saved":              T(ctx, "notify/saved|Saved!"),
+			"datepicker/keyboard":       T(ctx, "datepicker/keyboard|Use the arrow keys to pick a date"),
+			"datepicker/month-prev":     T(ctx, "datepicker/month-prev|Previous month"),
+			"datepicker/month-next":     T(ctx, "datepicker/month-next|Next month"),
+			"nav-dash/filter-more-help": T(ctx, "nav-dash/filter-more-help|More help"),
+			"nav-fash/filter-less-help": T(ctx, "nav-fash/filter-less-help|Less help"),
 		},
 	}
 	g.assetPaths, g.assetErr = goatcounter.AssetPaths(ctx)
-	if g.User == nil {
-		g.User = &goatcounter.User{}
-	}
 	if goatcounter.Config(r.Context()).DomainStatic == "" {
 		s := goatcounter.GetSite(r.Context())
 		if s != nil {

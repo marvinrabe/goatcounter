@@ -1,18 +1,11 @@
 # Simple compose for testing. SQLite only, no TLS (put a reverse proxy in
 # front for that).
 #
-# The site is created automatically on first run; create a user for basic auth
+# Sites are configured with GOATCOUNTER_SITES. The dashboard is public by
+# default; README.md documents Basic authentication and OIDC. Track pageviews
 # with:
 #
-#     docker compose run --rm goatcounter db create user \
-#         -db=sqlite+/home/goatcounter/goatcounter-data/db.sqlite3 -createdb \
-#         -email=admin@example.com \
-#         -password=password
-#
-# Dashboard: http://localhost:8080 — log in with any username and the password
-# above. Track pageviews with:
-#
-#     <script data-goatcounter="http://localhost:8080/count"
+#     <script data-site="example.com"
 #             async src="//localhost:8080/count.js"></script>
 
 services:
@@ -24,6 +17,12 @@ services:
       - 'goatcounter-data:/home/goatcounter/goatcounter-data'
     environment:
       GOATCOUNTER_LISTEN: ':8080'
+      # Comma-separated site names. Each name is stored as the stable key with
+      # collected data, so entries can be reordered, added, or removed.
+      GOATCOUNTER_SITES: 'example.com,foobar.net'
+      # Enables /api for JSON and MCP clients. Remove or empty this value to
+      # disable the endpoint; dashboard authentication never grants API access.
+      GOATCOUNTER_API_TOKEN: 'sample-api-token'
       # Timezone the dashboard is displayed in; applies to the whole
       # installation. Defaults to UTC.
       TZ: 'UTC'

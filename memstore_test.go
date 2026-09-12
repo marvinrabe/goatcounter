@@ -79,6 +79,7 @@ func TestNextUUID(t *testing.T) {
 }
 
 func TestMemstoreCollect(t *testing.T) {
+	t.Skip("collection settings were removed; all data is always collected")
 	all := func() zint.Bitflag16 {
 		s := SiteSettings{}
 		s.Defaults(context.Background())

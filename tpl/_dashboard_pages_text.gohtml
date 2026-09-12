@@ -1,6 +1,6 @@
 <div class="pages-list pages-list-text {{if .Group.Daily}}pages-list-daily{{end}} widget-{{if $.Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
 	<div class="widget-header">
-		<h2>{{t .Context "dashboard/pages/header|Pages"}}
+		<h2><span>{{t .Context "dashboard/pages/header|Pages"}}</span>
 			<small>{{t .Context `dashboard/pages/num-visits|%(num-visits) out of %(total-visits) visits shown`
 				(map
 					"num-visits"   (tag "span" `class="total-display"` (nformat .TotalDisplay))
@@ -9,16 +9,9 @@
 		</h2>
 	</div>
 
-	<table class="count-list count-list-pages count-list-text" data-max="{{.Max}}">
-		<thead><tr>
-			<th class="col-idx"></th>
-			<th class="col-n">{{t .Context "dashboard/pages/visits|Visits"}}</th>
-			<th class="col-diff">{{t .Context "dashboard/pages/change|Change"}}</th>
-			<th class="col-p">{{t .Context "dashboard/pages/path|Path"}}</th>
-			<th class="col-t">{{t .Context "dashboard/pages/title|Title"}}</th>
-		</tr></thead>
-		<tbody class="pages">{{template "_dashboard_pages_text_rows.gohtml" .}}</tbody>
-	</table>
+	<div class="hchart count-list-pages pages-overview" data-widget="{{.ID}}" data-max="{{.Max}}">
+		{{horizontal_chart_pages .Context .Pages .Total .ShowRefs .Refs .ID false}}
+	</div>
 	<div class="load-btns">
 		<a href="#" class="load-more" {{if not .MorePages}}style="display: none"{{end}}>{{t .Context "link/show-more|Show more"}}</a>
 		{{if .MorePages}}<a href="#" class="load-less">{{t .Context "link/show-less|(show less)"}}</a>{{end}}

@@ -28,7 +28,7 @@ func TestBackendCountLanguage(t *testing.T) {
 		header  string
 		want    string
 	}{
-		{"not collected", false, "nl-BE,nl;q=0.9", ""},
+		{"always collected", false, "nl-BE,nl;q=0.9", "nld"},
 		{"collected", true, "nl-BE,nl;q=0.9", "nld"},
 		{"no header", true, "", ""},
 		{"unknown language", true, "xx", ""},
@@ -127,7 +127,6 @@ func TestBackendCount(t *testing.T) {
 
 		{"full", url.Values{"p": {"/foo.html"}, "t": {"XX"}, "r": {"https://example.com?p=x"}, "s": {"40,50,1"}}, nil, 200, goatcounter.Hit{
 			Path:      "/foo.html",
-			Title:     "XX",
 			Ref:       "example.com",
 			RefScheme: "h",
 			Width:     new(int16(40)),
@@ -230,6 +229,7 @@ func TestBackendCount(t *testing.T) {
 				}
 				have := zdb.DumpString(ctx, `select * from bots`, zdb.DumpVertical)
 				want := ztest.NormalizeIndent(fmt.Sprintf(`
+					site        example.com
 					path        %s
 					bot         %d
 					user_agent  %s

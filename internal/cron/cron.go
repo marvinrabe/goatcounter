@@ -25,7 +25,6 @@ func (t Task) ID() string {
 }
 
 var Tasks = []Task{
-	{"vacuum pageviews (data retention)", dataRetention, 24 * time.Hour},
 	{"vacuum pageviews (old bot)", oldBot, 24 * time.Hour},
 	{"cycle sessions", sessions, 1 * time.Minute},
 	{"persist hits", persistAndStat, time.Duration(persistInterval.Load())},
@@ -115,8 +114,6 @@ func Stop() error {
 	return nil
 }
 
-func TaskDataRetention() error  { return bgrun.RunTask("cron:dataRetention") }
 func TaskSessions() error       { return bgrun.RunTask("cron:sessions") }
 func TaskPersistAndStat() error { return bgrun.RunTask("cron:persistAndStat") }
-func WaitDataRetention()        { bgrun.Wait("cron:dataRetention") }
 func WaitSessions()             { bgrun.Wait("cron:sessions") }

@@ -1,19 +1,17 @@
 with x as (
-	select path_id, path, title from paths
-	where (
+	select path_id, path from paths
+	where site = :site and (
 		{{if .match_case}}
 			path like :search escape '\'
-			{{if .match_title}}or title like :search escape '\'{{end}}
 		{{else}}
 			lower(path) like lower(:search) escape '\'
-			{{if .match_title}}or lower(title) like lower(:search) escape '\'{{end}}
 		{{end}}
 	)
 )
 select
-	path_id, path, title,
+	path_id, path,
 	sum(total) as count
 from hit_counts
 join x using(path_id)
-group by path_id, path, title
+group by path_id, path
 order by count desc, path_id

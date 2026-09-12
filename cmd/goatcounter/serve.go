@@ -39,9 +39,8 @@ import (
 const usageServe = `
 Start a HTTP server for this GoatCounter installation.
 
-GoatCounter tracks a single site and serves it on whichever domain you point at
-it; the site is created automatically on first run. Create a user to log in
-with using "goatcounter db create user -email you@example.com".
+GoatCounter tracks the sites listed in GOATCOUNTER_SITES. Dashboard access is
+configured with GOATCOUNTER_AUTH.
 
 Static files and templates are compiled in the binary and aren't needed to run
 GoatCounter. But they're loaded from the filesystem if GoatCounter is started
@@ -57,6 +56,10 @@ Environment:
     GOATCOUNTER_LISTEN=:80
     GOATCOUNTER_STORE_EVERY=60
     GOATCOUNTER_AUTOMIGRATE=
+    GOATCOUNTER_SITES=example.com,foobar.net
+    GOATCOUNTER_API_TOKEN=a-long-random-secret
+    GOATCOUNTER_AUTH=basic
+    GOATCOUNTER_BASIC_AUTH=admin:a-long-random-password
 
   Additional environment variables:
 
@@ -137,6 +140,24 @@ Flags:
                Higher values will give better performance, but it will take a
                bit longer for pageviews to show. The default is 10 seconds.
 
+  -sites       Comma-separated site names accepted by the collector and shown
+               in the dashboard selector. The site name itself is stored
+               with every data row. Default: example.com.
+
+  -api-token   Bearer token for the JSON API and MCP endpoint at /api. The API
+               is disabled when this is empty (the default).
+
+  -auth        Dashboard authentication: public, basic, or oidc. Default:
+               public.
+
+  -basic-auth  Comma-separated username:password entries for -auth=basic.
+
+  -oidc-issuer, -oidc-client-id, -oidc-client-secret, -oidc-redirect-url,
+  -oidc-session-secret, -oidc-scopes
+               OIDC provider and client settings for -auth=oidc. The redirect
+               URL must end in /auth/callback. The session secret must contain
+               at least 32 bytes.
+
   -dev         Start in "dev mode".
 
   -json        Output logs as JSON instead of aligned text.
@@ -159,6 +180,16 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		geodbFlag    = f.String("", "geodb")
 		ratelimit    = f.String("", "ratelimit")
 		storeEvery   = f.Int(10, "store-every")
+		sitesFlag    = f.String("example.com", "sites")
+		apiToken     = f.String("", "api-token")
+		authMode     = f.String("public", "auth")
+		basicAuth    = f.String("", "basic-auth")
+		oidcIssuer   = f.String("", "oidc-issuer")
+		oidcClientID = f.String("", "oidc-client-id")
+		oidcSecret   = f.String("", "oidc-client-secret")
+		oidcRedirect = f.String("", "oidc-redirect-url")
+		oidcSession  = f.String("", "oidc-session-secret")
+		oidcScopes   = f.String("", "oidc-scopes")
 		json         = f.Bool(false, "json")
 	)
 	if err := f.Parse(zli.FromEnv("GOATCOUNTER")); err != nil {
@@ -207,9 +238,25 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		return err
 	}
 
-	cron.Start(context.WithoutCancel(ctx))
-
 	c := goatcounter.Config(ctx)
+	seenSites := make(map[string]bool)
+	for _, name := range strings.Split(sitesFlag.String(), ",") {
+		name = strings.TrimSpace(strings.TrimRight(name, "/"))
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seenSites[key] {
+			return fmt.Errorf("duplicate site in -sites: %s", name)
+		}
+		seenSites[key] = true
+		s := goatcounter.Site{Key: name, LinkDomain: name}
+		s.Defaults(ctx)
+		c.Sites = append(c.Sites, s)
+	}
+	if len(c.Sites) == 0 {
+		return fmt.Errorf("-sites must contain at least one site")
+	}
 	c.Timezone, err = goatcounter.LoadTimezone()
 	if err != nil {
 		return err
@@ -225,11 +272,50 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		c.Port = fmt.Sprintf(":%d", port.Int())
 	}
 
+	cron.Start(context.WithoutCancel(ctx))
+
 	timeout := 60
+	auth := handlers.Auth{Mode: handlers.AuthMode(authMode.String())}
+	switch auth.Mode {
+	case handlers.AuthPublic:
+	case handlers.AuthBasic:
+		auth.BasicUsers, err = handlers.ParseBasicUsers(basicAuth.String())
+		if err != nil {
+			return err
+		}
+	case handlers.AuthOIDC:
+		for name, value := range map[string]string{
+			"-oidc-issuer": oidcIssuer.String(), "-oidc-client-id": oidcClientID.String(),
+			"-oidc-client-secret": oidcSecret.String(), "-oidc-redirect-url": oidcRedirect.String(),
+			"-oidc-session-secret": oidcSession.String(),
+		} {
+			if value == "" {
+				return fmt.Errorf("%s is required with -auth=oidc", name)
+			}
+		}
+		if len(oidcSession.String()) < 32 {
+			return fmt.Errorf("-oidc-session-secret must contain at least 32 bytes")
+		}
+		if err := handlers.ValidateOIDCRedirectURL(oidcRedirect.String()); err != nil {
+			return fmt.Errorf("-oidc-redirect-url: %w", err)
+		}
+		oidcCtx, cancelOIDC := context.WithTimeout(ctx, 15*time.Second)
+		auth.OIDC, err = handlers.NewOIDCAuth(oidcCtx, handlers.OIDCConfig{
+			Issuer: oidcIssuer.String(), ClientID: oidcClientID.String(), ClientSecret: oidcSecret.String(),
+			RedirectURL: oidcRedirect.String(), SessionSecret: oidcSession.String(), BasePath: basePath.String(),
+			Scopes: strings.Split(oidcScopes.String(), ","),
+		})
+		cancelOIDC()
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("-auth must be public, basic, or oidc")
+	}
 
 	// Set up HTTP handler and servers.
 	hosts := map[string]http.Handler{
-		"*": handlers.NewBackend(db, dev.Bool(), c.DomainStatic, c.BasePath, timeout, ratelimits),
+		"*": handlers.NewBackend(db, dev.Bool(), c.DomainStatic, c.BasePath, timeout, ratelimits, apiToken.String(), auth),
 	}
 	if domainStatic.String() != "" {
 		// May not be needed, but just in case the DomainStatic isn't an external CDN.
@@ -256,27 +342,6 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 
 	log.Module("startup").Info(ctx, "GoatCounter ready",
 		startupAttr(geodb, listen.String(), dev.Bool(), "timezone", c.Timezone.String())...)
-
-	var users goatcounter.Users
-	if err := users.List(context.WithoutCancel(ctx)); err != nil {
-		return err
-	}
-	if len(users) == 0 {
-		dbFlag := ""
-		if dbConnect.String() != defaultDB() {
-			dbFlag = `-db="` + strings.ReplaceAll(dbConnect.String(), `"`, `\"`) + `" `
-		}
-		// Adjust command for Docker or Podman
-		cmd := "goatcounter"
-		if _, err := os.Stat("/.dockerenv"); err == nil && os.Getenv("HOSTNAME") != "" {
-			cmd = "docker exec -it " + os.Getenv("HOSTNAME") + " goatcounter"
-		}
-		if _, err := os.Stat("/run/.containerenv"); err == nil && os.Getenv("HOSTNAME") != "" {
-			cmd = "podman exec -it " + os.Getenv("HOSTNAME") + " goatcounter"
-		}
-		log.Warnf(ctx, "No users yet; create one with:\n"+
-			"    %s db %screate user -email=..", cmd, dbFlag)
-	}
 
 	ready <- struct{}{}
 

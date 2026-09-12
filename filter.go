@@ -95,11 +95,11 @@ func (f Filter) Append(ctx context.Context, id PathID) error {
 	return errors.Wrap(err, "Filter.Append")
 }
 
-func (f Filter) Match(path, title string, event bool) bool {
+func (f Filter) Match(path string, event bool) bool {
 	like, kw := findFilter(f.Query,
-		"at:start", "at:end", "is:event", "is:pageview", "in:path", "in:title", ":not")
+		"at:start", "at:end", "is:event", "is:pageview", "in:path", ":not")
 	like = strings.ToLower(regexp.QuoteMeta(like))
-	var matchPath, matchTitle, not bool
+	var not bool
 	for _, f := range kw {
 		switch f {
 		case "at:start":
@@ -114,29 +114,16 @@ func (f Filter) Match(path, title string, event bool) bool {
 			if event {
 				return false
 			}
-		case "in:path":
-			matchPath = true
-		case "in:title":
-			matchTitle = true
 		case ":not":
 			not = true
 		}
-	}
-	if !matchPath && !matchTitle {
-		matchPath, matchTitle = true, true
 	}
 
 	re, err := regexp.Compile(like)
 	if err != nil {
 		return false
 	}
-	var match bool
-	if matchPath {
-		match = re.MatchString(path)
-	}
-	if matchTitle && !match {
-		match = re.MatchString(title)
-	}
+	match := re.MatchString(path)
 	if not {
 		match = !match
 	}
@@ -157,23 +144,27 @@ type PathFilter struct {
 }
 
 func (p PathFilter) SQL(ctx context.Context) (zdb.SQL, map[string]any) {
+	siteSQL := "path_id in (select path_id from paths where site = :site)"
+	withSite := func(sql zdb.SQL, params map[string]any) (zdb.SQL, map[string]any) {
+		if params == nil {
+			params = make(map[string]any)
+		}
+		params["site"] = MustGetSite(ctx).Key
+		return zdb.SQL(siteSQL + " and (" + string(sql) + ")"), params
+	}
 	if p.filterID != 0 {
 		if p.invert {
-			return "path_id not in (select path_id from filter_paths where filter_id = :filter_id)",
-				map[string]any{"filter_id": p.filterID}
+			return withSite("path_id not in (select path_id from filter_paths where filter_id = :filter_id)", map[string]any{"filter_id": p.filterID})
 		}
-		return "path_id in (select path_id from filter_paths where filter_id = :filter_id)",
-			map[string]any{"filter_id": p.filterID}
+		return withSite("path_id in (select path_id from filter_paths where filter_id = :filter_id)", map[string]any{"filter_id": p.filterID})
 	}
 	if len(p.ids) == 0 {
-		return "1=1", nil
+		return withSite("1=1", nil)
 	}
 	if p.invert {
-		return db2.NotIn(ctx, "path_id") + " (:paths)",
-			map[string]any{"paths": db2.Array(ctx, p.ids)}
+		return withSite(db2.NotIn(ctx, "path_id")+" (:paths)", map[string]any{"paths": db2.Array(ctx, p.ids)})
 	}
-	return "path_id " + db2.In(ctx) + " (:paths)",
-		map[string]any{"paths": db2.Array(ctx, p.ids)}
+	return withSite("path_id "+db2.In(ctx)+" (:paths)", map[string]any{"paths": db2.Array(ctx, p.ids)})
 }
 
 func PathFilterFromIDs(ids []PathID) PathFilter {
@@ -182,10 +173,10 @@ func PathFilterFromIDs(ids []PathID) PathFilter {
 
 func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) {
 	like, kw := findFilter(strings.ReplaceAll(query, "%", "%%"),
-		"at:start", "at:end", "is:event", "is:pageview", "in:path", "in:title", ":not")
+		"at:start", "at:end", "is:event", "is:pageview", "in:path", ":not")
 	var (
-		onlyEvent, onlyPageview, matchPath, matchTitle, atStart, atEnd bool
-		not, or                                                        zdb.SQL
+		onlyEvent, onlyPageview, atStart, atEnd bool
+		not                                     zdb.SQL
 	)
 	for _, f := range kw {
 		switch f {
@@ -197,23 +188,11 @@ func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) 
 			onlyEvent = true
 		case "is:pageview":
 			onlyPageview = true
-		case "in:path":
-			matchPath = true
-		case "in:title":
-			matchTitle = true
 		case ":not":
 			not = "not"
 		}
 	}
-	if !matchPath && !matchTitle {
-		matchPath, matchTitle = true, true
-	}
-	if like == "" {
-		matchPath, matchTitle = false, false
-	}
-	if matchPath && matchTitle {
-		or = "or"
-	}
+	haveLike := like != ""
 	if !atEnd {
 		like = like + "%"
 	}
@@ -223,13 +202,11 @@ func PathFilterFromQuery(ctx context.Context, query string) (PathFilter, error) 
 
 	getPathIDs := func(scan any, invert bool) error {
 		return zdb.Select(ctx, scan, "load:paths.PathFilter", map[string]any{
+			"site":          MustGetSite(ctx).Key,
 			"like":          like,
-			"match_title":   matchTitle,
-			"match_path":    matchPath,
-			"have_like":     matchTitle || matchPath,
+			"have_like":     haveLike,
 			"only_event":    onlyEvent,
 			"only_pageview": onlyPageview,
-			"or":            or,
 			"not":           not,
 			"invert":        invert,
 		})

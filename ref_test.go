@@ -66,10 +66,6 @@ func TestListTopRefs(t *testing.T) {
 		want := `{
 			"more": false,
 			"stats": [{
-				"name": "example.com",
-				"count": 1,
-				"ref_scheme": "h"
-			}, {
 				"name": "example.org",
 				"count": 1,
 				"ref_scheme": "h"

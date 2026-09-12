@@ -18,7 +18,9 @@ func updateHitCounts(ctx context.Context, hits []goatcounter.Hit) error {
 			pathID goatcounter.PathID
 		}
 		grouped := map[string]gt{}
+		siteByPath := map[goatcounter.PathID]string{}
 		for _, h := range hits {
+			siteByPath[h.PathID] = h.Site
 			if h.Bot > 0 {
 				continue
 			}
@@ -44,7 +46,7 @@ func updateHitCounts(ctx context.Context, hits []goatcounter.Hit) error {
 
 		for _, v := range grouped {
 			if v.total > 0 {
-				ins.Values(v.pathID, v.hour, v.total)
+				ins.Values(siteByPath[v.pathID], v.pathID, v.hour, v.total)
 			}
 		}
 		return ins.Finish()

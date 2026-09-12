@@ -3,14 +3,11 @@ import {
 	$1,
 	T,
 	ajax,
-	days,
-	daysShort,
 	format_date,
 	format_date_ymd,
 	format_int,
 	get_date,
 	is_visible,
-	months,
 	monthsShort,
 	on,
 	paginate_button,
@@ -18,6 +15,7 @@ import {
 	parse_rows,
 	style,
 } from './helper.js'
+import Chart from 'chart.js/auto'
 
 ;(function() {
 	'use strict';
@@ -31,7 +29,89 @@ import {
 
 	// Set up all the dashboard widget contents (but not the header).
 	var dashboard_widgets = function() {
-		;[init_charts, paginate_pages, load_refs, hchart_detail, ref_pages, bind_scale].forEach((f) => f.call())
+		;[init_metric_switcher, init_card_tabs, init_metric_chart, paginate_pages, hchart_detail].forEach((f) => f.call())
+	}
+
+	var dashboard_view_key = 'goatcounter-dashboard-view'
+	var dashboard_view = function() {
+		try {
+			return JSON.parse(sessionStorage.getItem(dashboard_view_key)) || {}
+		} catch (_) {
+			return {}
+		}
+	}
+	var save_dashboard_view = function(name, value) {
+		try {
+			let view = dashboard_view()
+			view[name] = value
+			sessionStorage.setItem(dashboard_view_key, JSON.stringify(view))
+		} catch (_) { }
+	}
+
+	var select_metric = function(totals, button) {
+		$$('.metric', totals).forEach((candidate) => {
+			let active = candidate === button
+			candidate.classList.toggle('metric-active', active)
+			candidate.setAttribute('aria-pressed', active ? 'true' : 'false')
+		})
+		let chart = $1('.chart[data-series]', totals)
+		if (chart)
+			chart.dataset.metric = button.dataset.metric
+	}
+
+	var init_metric_switcher = function() {
+		$$('.totals').forEach(function(totals) {
+			if (totals.dataset.metricBound === 't') return
+			totals.dataset.metricBound = 't'
+
+			let saved = dashboard_view().metric,
+				savedButton = $$('.metric[data-metric]', totals).find((button) => button.dataset.metric === saved)
+			if (savedButton)
+				select_metric(totals, savedButton)
+
+			totals.addEventListener('click', function(e) {
+				let button = e.target.closest('.metric[data-metric]')
+				if (!button) return
+				let metric = button.dataset.metric,
+					chart = $1('.chart[data-series]', totals)
+				if (!chart || chart.dataset.metric === metric) return
+				select_metric(totals, button)
+				save_dashboard_view('metric', metric)
+				redraw_metric_chart()
+			})
+		})
+	}
+
+	var select_card_tab = function(card, tab) {
+		$$('.card-tab[data-panel]', card).forEach((candidate) => {
+			let active = candidate === tab
+			candidate.classList.toggle('active', active)
+			candidate.setAttribute('aria-selected', active ? 'true' : 'false')
+		})
+		$$('.card-panel[data-panel]', card).forEach((panel) => {
+			let active = panel.dataset.panel === tab.dataset.panel
+			panel.hidden = !active
+			panel.classList.toggle('active', active)
+		})
+	}
+
+	var init_card_tabs = function() {
+		$$('[data-card-tabs]').forEach(function(card) {
+			if (card.dataset.tabsBound === 't') return
+			card.dataset.tabsBound = 't'
+
+			let saved = dashboard_view()[card.dataset.card],
+				savedTab = $$('.card-tab[data-panel]', card).find((tab) => tab.dataset.panel === saved)
+			if (savedTab)
+				select_card_tab(card, savedTab)
+
+			card.addEventListener('click', function(e) {
+				let tab = e.target.closest('.card-tab[data-panel]')
+				if (!tab) return
+				select_card_tab(card, tab)
+				save_dashboard_view(card.dataset.card, tab.dataset.panel)
+			})
+		})
 	}
 
 	// Direct element children of elem, which is what jQuery's ">div" did.
@@ -40,9 +120,8 @@ import {
 	// Escape HTML special characters.
 	var escape_html = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c])
 
-	// Get the Y-axis scale.
+	// Keep the largest page count across paginated requests.
 	var get_original_scale = function() { return parseInt($1('.count-list-pages')?.getAttribute('data-max'), 10) }
-	var get_current_scale  = function() { return parseInt($1('.count-list-pages')?.getAttribute('data-scale'), 10) }
 
 	// Get the total number of pageviews.
 	var get_total = () => $1('.js-total-utc')?.textContent || ''
@@ -84,7 +163,6 @@ import {
 				})
 
 				dashboard_widgets()
-				redraw_all_charts()
 				highlight_filter()
 				if (done)
 					done()
@@ -95,6 +173,7 @@ import {
 	// Append period-start and period-end values to the data object.
 	var append_period = function(data) {
 		data = data || {}
+		data['site']         = $1('#site-selector').value
 		data['period-start'] = $1('#period-start').value
 		data['period-end']   = $1('#period-end').value
 		data['filter']       = $1('#filter-paths').value
@@ -108,9 +187,9 @@ import {
 		$1('#dash-form').requestSubmit()
 	}
 
-	let filter_kw = /(\b(?:at:start|at:end|is:event|is:pageview|in:path|in:title)|\B:not)\b/g
+	let filter_kw = /(\b(?:at:start|at:end|is:event|is:pageview|in:path)|\B:not)\b/g
 
-	// Highlight a filter pattern in the path and title.
+	// Highlight a filter pattern in the path.
 	let highlight_filter = () => {
 		let val = $1('#filter-paths').value,
 			s   = val.replace(filter_kw, '').trim()
@@ -120,7 +199,6 @@ import {
 		let start   = '',
 			end     = '',
 			inPath  = false,
-			inTitle = false,
 			kw      = val.match(filter_kw) || []
 		for (let k of kw) {
 			if (k === ':not')
@@ -131,19 +209,15 @@ import {
 				end = '$'
 			else if (k === 'in:path')
 				inPath = true
-			else if (k === 'in:title')
-				inTitle = true
 		}
-		if (!inPath && !inTitle)
-			[inPath, inTitle] = [true, true]
+		if (!inPath)
+			inPath = true
 		let where = []
 		if (inPath)
 			where.push('.rlink')
-		if (inTitle)
-			where.push('.page-title:not(.no-title)')
 
-		$$('.pages-list .count-list-pages > tbody.pages').forEach((tbody) => {
-			$$(where.join(','), tbody).forEach((elem) => {
+		$$('.pages-list .rows.pages').forEach((rows) => {
+			$$(where.join(','), rows).forEach((elem) => {
 				if ($1('b', elem))  // Don't apply twice after pagination
 					return
 				elem.innerHTML = elem.innerHTML.replace(new RegExp(start + quote_re(s) + end, 'gi'), '<b>$&</b>')
@@ -319,236 +393,149 @@ import {
 	}
 
 	// Save current view.
-	// Load pages for reference in Totals
-	var ref_pages = function() {
-		on('.count-list', 'click', '.pages-by-ref', function(e) {
-			e.preventDefault()
-			var btn = this,
-				p   = btn.parentNode
+	var metric_chart = null
+	var metric_chart_bound = false
 
-			if ($1('.list-ref-pages', p)) {
-				$$('.list-ref-pages', p).forEach((e) => e.remove())
-				return
-			}
+	var redraw_metric_chart = function() {
+		metric_chart?.destroy()
+		metric_chart = null
 
-			$$('.list-ref-pages').forEach((e) => e.remove())
-			var done = paginate_button(btn, () => {
-				ajax(BASE_PATH + '/pages-by-ref', {
-					data: append_period({name: btn.textContent}),
-					success: function(data) {
-						p.insertAdjacentHTML('beforeend', data.html)
-						done()
-					}
-				})
-			})
-		})
-	}
-
-	// Keep an array of charts so we can stop them on resize, otherwise the
-	// resize and mouse event will be bound twice.
-	var charts = []
-
-	// Bind the Y-axis scale actions.
-	var bind_scale = function() {
-		on('.count-list', 'click', '.rescale', function(e) {
-			e.preventDefault()
-
-			var scale = this.closest('.chart').getAttribute('data-max')
-			$$('.pages-list .scale').forEach((e) => { e.innerHTML = format_int(scale) })
-			$$('.pages-list .count-list-pages').forEach((e) => e.setAttribute('data-scale', scale))
-
-			charts.forEach((c) => {
-				c.ctx().canvas.dataset.done = ''
-				c.stop()
-			})
-			charts = []
-			draw_all_charts()
-		})
-	}
-
-	var redraw_all_charts = function() {
-		$1('#tooltip')?.remove()
-		charts.forEach((c) => {
-			c.ctx().canvas.dataset.done = ''
-			c.stop()
-		})
-		charts = []
-		draw_all_charts()
-	}
-
-	// Only bind the global redraw listeners once, since this runs again after
-	// every widget reload.
-	var charts_bound = false
-
-	var init_charts = function() {
-		draw_all_charts()
-
-		if (charts_bound)
+		let c = $1('.totals .chart[data-series]'),
+			canvas = c && $1('canvas', c)
+		if (!canvas)
 			return
-		charts_bound = true
 
-		window.addEventListener('resize', redraw_all_charts)
-		window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw_all_charts)
+		metric_chart = draw_metric_chart(c, canvas, JSON.parse(c.dataset.series))
+	}
 
-		// force-dark manually added or removed.
-		new MutationObserver(function(muts, observer) {
-			muts.forEach((m) => m.type === 'attributes' && m.attributeName === 'class' && redraw_all_charts())
+	var init_metric_chart = function() {
+		redraw_metric_chart()
+		if (metric_chart_bound)
+			return
+		metric_chart_bound = true
+
+		window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw_metric_chart)
+		new MutationObserver(function(mutations) {
+			if (mutations.some((m) => m.type === 'attributes' && m.attributeName === 'class'))
+				redraw_metric_chart()
 		}).observe(document.documentElement, {attributes: true})
 	}
 
-	// Draw all charts.
-	var draw_all_charts = function() {
-		$$('.chart-line, .chart-bar').forEach(function(chart) {
-			// Use setTimeout to force the browser to actually render this ASAP;
-			// without it, the charts will all be displayed at the same time,
-			// rather than one-by-one as they're generated.
-			//
-			// It's not super-slow to make them, but it's just a split second
-			// where the chart is blank, and it's better with this, especially
-			// on long timeviews and/or with many pages displayed at once.
-			setTimeout(() => draw_chart(chart), 0)
-		})
+	var draw_metric_chart = function(c, canvas, series) {
+		let metric = c.dataset.metric,
+			points = series.points,
+			line = style('chart-line'),
+			fill = style('chart-fill'),
+			grid = style('chart-grid'),
+			muted = style('muted-text'),
+			ctx = canvas.getContext('2d'),
+			chart = new Chart(ctx, {
+				type: 'line',
+				data: {
+					labels: points.map((point) => metric_point_label(point, series.group)),
+					datasets: [{
+						data: points.map((point) => point[metric]),
+						borderColor: line,
+						backgroundColor: fill,
+						borderWidth: 1.25,
+						fill: true,
+						pointRadius: 0,
+						pointHoverRadius: 3,
+						pointHitRadius: 12,
+						tension: .18,
+					}],
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					animation: false,
+					interaction: {mode: 'index', intersect: false},
+					plugins: {
+						legend: {display: false},
+						tooltip: {
+							displayColors: false,
+							callbacks: {
+								label: (item) => format_metric(metric, item.parsed.y),
+							},
+						},
+					},
+					scales: {
+						x: {
+							border: {display: false},
+							grid: {display: false},
+							ticks: {autoSkip: true, maxTicksLimit: 8, maxRotation: 0, color: muted},
+						},
+						y: {
+							beginAtZero: true,
+							max: metric === 'bounce_rate' ? 100 : undefined,
+							border: {display: false},
+							grid: {color: grid},
+							ticks: {
+								color: muted,
+								precision: metric === 'visits' || metric === 'pageviews' ? 0 : undefined,
+								callback: (value) => format_metric_tick(metric, value),
+							},
+						},
+					},
+				},
+			})
+
+		return chart
 	}
 
-	// Draw this chart
-	var draw_chart = function(c) {
-		let canvas = $1('canvas', c)
-		if (!canvas || canvas.dataset.done === 't')
-			return
-		canvas.dataset.done = 't'
-
-		let stats = JSON.parse(c.dataset.stats)
-		if (!stats)
-			return
-
-		let ctx     = canvas.getContext('2d', {alpha: false}),
-			max     = Math.max(10, parseInt(c.dataset.max, 10)),
-			scale   = get_current_scale(),
-			hourly  = c.dataset.group === 'hour',
-			daily   = c.dataset.group === 'day',
-			weekly  = c.dataset.group === 'week',
-			monthly = c.dataset.group === 'month',
-			isBar   = c.classList.contains('chart-bar'),
-			isEvent = !!c.closest('tr')?.classList.contains('event'),
-			isPages = !!c.closest('.count-list-pages'),
-			ndays   = (get_date($1('#period-end').value) - get_date($1('#period-start').value)) / (86400*1000)
-
-		if (isPages && scale)
-			max = scale
-
-		var data
-		if (hourly)
-			data = stats.map((s) => s.hourly).reduce((a, b) => a.concat(b))
-		else if (daily)
-			data = stats.map((s) => [s.daily]).reduce((a, b) => a.concat(b))
-		else if (weekly) {
-			stats = stats.filter((v, i) => i % 7 == 0)
-			data = stats.map((s) => [s.weekly]).reduce((a, b) => a.concat(b))
+	var metric_point_label = function(point, group) {
+		if (group === 'hour')
+			return `${format_date(point.day, true)} ${String(point.hour ?? 0).padStart(2, '0')}:00`
+		if (group === 'week') {
+			let end = get_date(point.day)
+			end.setDate(end.getDate() + 6)
+			return `${format_date(point.day, true)} – ${format_date(end, true)}`
 		}
-		else if (monthly) {
-			stats = stats.filter((v) => v.day.endsWith('-01'))
-			data = stats.map((s) => [s.monthly]).reduce((a, b) => a.concat(b))
+		if (group === 'month') {
+			let date = get_date(point.day)
+			return `${monthsShort[date.getMonth()]} ${date.getFullYear()}`
 		}
+		return format_date(point.day, true)
+	}
 
-		var chart = window.charty(ctx, data, {
-			mode: isBar ? 'bar' : 'line',
-			max:  max,
-			line: {
-				color: style('chart-line'),
-				fill:  style('chart-fill'),
-				width: daily || weekly || monthly || ndays <= 14 ? 1.5 : 1
-			},
-			bar:  {color: style('chart-line')},
-		})
-		charts.push(chart)
+	var format_metric_tick = function(metric, value) {
+		if (metric === 'bounce_rate')
+			return `${value}%`
+		if (metric === 'visit_duration')
+			return format_duration(value, false)
+		if (metric === 'views_per_visit')
+			return Number(value).toFixed(1)
+		return format_int(Math.round(value))
+	}
 
-		// Show tooltip and highlight position on mouse hover.
-		var tip = document.createElement('div'),
-			reset = {x: -1, y: -1, f: () => {}}
-		tip.id = 'tooltip'
-		chart.mouse(function(i, x, y, w, h, offset, ev) {
-			if (ev == 'leave') {
-				tip.remove()
-				reset.f()
-				return
-			}
-			else if (ev === 'enter') { }
-			else if (x === reset.x)
-				return
+	var format_metric = function(metric, value) {
+		if (metric === 'visits' || metric === 'pageviews')
+			return `${format_int(Math.round(value))} ${metric === 'visits' ? 'visits' : 'pageviews'}`
+		if (metric === 'views_per_visit')
+			return `${value.toFixed(2)} views per visit`
+		if (metric === 'bounce_rate')
+			return `${value.toFixed(0)}% bounce rate`
 
-			let day    = hourly ? stats[Math.floor(i / 24)] : stats[i],
-				visits = day.hourly[i%24],
-				views  = day.hourly[i%24],
-				title  = ''
-			if (hourly)
-				title = `${format_date(day.day, true)} ${(i % 24)}:00 – ${(i % 24)}:59`
-			else if (daily) {
-				[visits, views] = [day.daily, day.daily]
-				title = `${format_date(day.day, true)}`
-			}
-			else if (weekly) {
-				[visits, views] = [day.weekly, day.weekly]
-				let end = get_date(day.day)
-				end.setDate(end.getDate() + 6)
-				title = `${format_date(day.day, true)} to ${format_date(end, true)}`
-			} else if (monthly) {
-				[visits, views] = [day.monthly, day.monthly]
-				let d = get_date(day.day)
-				title = `${months[d.getMonth() % 12]} ${d.getFullYear() + Math.floor(d.getMonth() / 12)}`
-			}
+		return `${format_duration(value, true)} visit duration`
+	}
 
-			if (isEvent) {
-				title += '; ' + T('dashboard/tooltip-event', {
-					unique: format_int(visits),
-					clicks: `<span class="views">${format_int(views)}`,
-				}) + '</span>'
-			}
-			else {
-				title += '; ' + T('dashboard/totals/num-visits', {
-					'num-visits': format_int(visits),
-				}) + '</span>'
-			}
-
-			tip.remove()
-			tip.innerHTML = title
-			document.body.appendChild(tip)
-			tip.style.left = (offset.left + x) + 'px'
-			tip.style.top  = (offset.top - tip.offsetHeight - 10) + 'px'
-			if (tip.offsetHeight > 30) {
-				tip.style.left = '0'
-				tip.style.left = (x + offset.left - tip.offsetWidth - 8) + 'px'
-			}
-
-			reset.f()
-			reset = chart.draw(x, 0, w, h, function() {
-				ctx.strokeStyle = '#999'
-				ctx.fillStyle   = 'rgba(99, 99, 99, .5)'
-				ctx.lineWidth   = 1
-
-				ctx.beginPath()
-				if (isBar) {
-					ctx.moveTo(x, 2.5)
-					ctx.lineTo(x+w, 2.5)
-					ctx.lineTo(x+w, 47.5)
-					ctx.lineTo(x, 47.5)
-					ctx.lineTo(x, 2.5)
-					ctx.fill()
-				}
-				else {
-					ctx.moveTo(x + ctx.lineWidth/2, 2.5)
-					ctx.lineTo(x + ctx.lineWidth/2, 47.5)
-					ctx.stroke()
-				}
-			})
-		})
+	var format_duration = function(value, includeSeconds) {
+		let seconds = Math.round(value),
+			hours = Math.floor(seconds / 3600),
+			minutes = Math.floor((seconds % 3600) / 60),
+			parts = []
+		if (hours) parts.push(`${hours}h`)
+		if (minutes) parts.push(`${minutes}m`)
+		if (includeSeconds || parts.length === 0) parts.push(`${seconds % 60}s`)
+		return parts.join(' ')
 	}
 
 	// Paginate the main path overview.
 	var paginate_pages = function() {
-		let sz = $$('.pages-list tbody >tr').length
+		let sz = $$('.pages-list .rows.pages > [data-id]').length
 		on('.pages-list >.load-btns .load-less', 'click', function(e) {
 			e.preventDefault()
-			$$('.pages-list tbody >tr').slice(sz).forEach((r) => r.remove())
+			$$('.pages-list .rows.pages > [data-id]').slice(sz).forEach((r) => r.remove())
 			this.style.display = 'none'
 			let more = this.previousElementSibling
 			if (more?.classList.contains('load-more'))
@@ -567,24 +554,21 @@ import {
 					data: append_period({
 						widget:    pages.getAttribute('data-widget'),
 						group:     $1('#hl-group').value,
-						exclude:   $$('.count-list-pages >tbody >tr', pages).map((e) => e.dataset.id).join(','),
+						exclude:   $$('.count-list-pages .rows.pages > [data-id]', pages).map((e) => e.dataset.id).join(','),
 						max:       get_original_scale(),
+						total:     get_total(),
 					}),
 					success: function(data) {
 						if (less)
 							less.style.display = 'inline'
-						$1('.count-list-pages >tbody.pages', pages).insertAdjacentHTML('beforeend', data.html)
+						$1('.count-list-pages .rows.pages', pages).insertAdjacentHTML('beforeend', data.html)
 
 						// Update scale in case it's higher than the previous maximum value.
 						if (data.max > get_original_scale()) {
 							$$('.count-list-pages').forEach((e) => {
 								e.setAttribute('data-max', data.max)
-								e.setAttribute('data-scale', data.max)
 							})
-							$$('.count-list-pages .scale').forEach((e) => { e.textContent = data.max })
 						}
-
-						draw_all_charts()
 
 						highlight_filter()
 						btn.style.display = data.more ? 'inline-block' : 'none'
@@ -600,86 +584,10 @@ import {
 		})
 	}
 
-	// Load references as an AJAX request.
-	var load_refs = function() {
-		on('.count-list-pages', 'click', '.hchart .load-less', function(e) {
-			e.preventDefault()
-			let rows = $1('.rows', this.closest('.hchart')),
-				sz   = rows._pagesize || 10
-			child_divs(rows).slice(sz).forEach((r) => r.remove())
-			this.style.display = 'none'
-			let more = this.previousElementSibling
-			if (more?.classList.contains('load-more'))
-				more.style.display = 'inline'
-		})
-
-		on('.count-list-pages', 'click', '.load-refs, .hchart .load-more', function(e) {
-			e.preventDefault()
-
-			let params = split_query(location.search),
-				btn    = this,
-				next   = btn.nextElementSibling,
-				less   = next?.classList.contains('load-less') ? next : null,
-				row    = btn.closest('tr'),
-				rows   = $1('.refs .rows', row),
-				widget = row.closest('.pages-list').getAttribute('data-widget'),
-				path   = row.getAttribute('data-id'),
-				init   = btn.classList.contains('load-refs'),
-				close  = function() {
-					var t = $1(`tr[data-id="${(params['showrefs'] || '').replace(/(["\\])/g, '\\$1')}"]`)
-					if (!t)
-						return
-					t.classList.remove('target')
-					let refs = $1('.refs', t.closest('tr'))
-					if (refs)
-						refs.innerHTML = ''
-				}
-			if (rows && !rows._pagesize)
-				rows._pagesize = rows.children.length
-
-			// Clicked on row that's already open, so close and stop. Don't
-			// close anything yet if we're going to load another path, since
-			// that gives a somewhat yanky effect (close, wait on xhr, open).
-			if (init && params['showrefs'] === path) {
-				close()
-				return push_query({showrefs: null})
-			}
-
-			push_query({showrefs: path})
-			let done = paginate_button(btn, () => {
-				ajax(BASE_PATH + '/load-widget', {
-					data: append_period({
-						widget: widget,
-						key:    path,
-						total:  row.getAttribute('data-count'),
-						offset: $$('.refs .rows>div', row).length,
-					}),
-					success: function(data) {
-						if (less)
-							less.style.display = 'inline'
-						row.classList.add('target')
-
-						if (init) {
-							if (params['showrefs'])
-								close()
-							$1('.refs', row).innerHTML = data.html
-						}
-						else {
-							parse_rows(data.html).forEach((d) => rows.appendChild(d))
-							if (!data.more)
-								btn.style.display = 'none'
-						}
-						done()
-					},
-				})
-			})
-		})
-	}
-
 	// Paginate and show details for the horizontal charts.
 	var hchart_detail = function() {
 		// Paginate the horizontal charts.
-		on('.hcharts', 'click', '.load-less', function(e) {
+		on('.hcharts', 'click', '.hchart > .load-less', function(e) {
 			e.preventDefault()
 			let rows = $1('.rows', this.closest('.hchart')),
 				sz   = rows._pagesize || 6
@@ -690,7 +598,7 @@ import {
 				more.style.display = 'inline'
 		})
 
-		on('.hcharts', 'click', '.load-more', function(e) {
+		on('.hcharts', 'click', '.hchart > .load-more', function(e) {
 			e.preventDefault();
 
 			let btn   = this,
@@ -705,7 +613,7 @@ import {
 				ajax(`${BASE_PATH}/load-widget`, {
 					data: append_period({
 						widget: chart.getAttribute('data-widget'),
-						total:  get_total(),
+						total:  chart.getAttribute('data-total') || get_total(),
 						key:    key,
 						offset: child_divs(rows).filter((d) => !d.classList.contains('hchart')).length,
 					}),
@@ -729,9 +637,18 @@ import {
 				row    = btn.closest('div[data-key]'),
 				chart  = row.closest('.hchart'),
 				widget = chart.getAttribute('data-widget'),
-				key    = row.getAttribute('data-key')
-			if (row.nextElementSibling?.classList.contains('detail'))
-				return row.nextElementSibling.remove()
+				key    = row.getAttribute('data-key'),
+				isPage = row.hasAttribute('data-id'),
+				total  = row.getAttribute('data-detail-total') || get_total()
+			if (row.nextElementSibling?.classList.contains('detail')) {
+				row.nextElementSibling.remove()
+				row.classList.remove('target')
+				if (isPage)
+					push_query({showrefs: null})
+				return
+			}
+			if (isPage)
+				push_query({showrefs: key})
 
 			var l = $1('.bar-c', btn)
 			l?.classList.add('loading')
@@ -740,17 +657,20 @@ import {
 					data: append_period({
 						widget: widget,
 						key:    key,
-						total:  get_total(),
+						total:  total,
 						//offset: rows.find('>div').length,
 					}),
 					success: function(data) {
 						$$('.detail', chart).forEach((d) => d.remove())
+						$$('.target', chart).forEach((d) => d.classList.remove('target'))
 						let detail = document.createElement('div')
 						detail.className = 'hchart detail'
 						detail.setAttribute('data-widget', widget)
 						detail.setAttribute('data-key', key)
+						detail.setAttribute('data-total', total)
 						detail.innerHTML = data.html
 						row.insertAdjacentElement('afterend', detail)
+						row.classList.add('target')
 						done()
 					},
 				})

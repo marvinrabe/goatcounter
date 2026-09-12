@@ -1,7 +1,6 @@
 package main
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
@@ -47,12 +46,12 @@ func TestDBQuery(t *testing.T) {
 	exit, _, out, ctx, dbc := startTest(t)
 	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18"))
 
-	runCmd(t, exit, "db", "query", "-db="+dbc, "select user_id, email from users order by user_id")
+	runCmd(t, exit, "db", "query", "-db="+dbc, "select count(*) as versions from version")
 	wantExit(t, exit, out, 0)
 
 	want := `
-		user_id  email
-		1        test@testenv.localhost`
+		versions
+		6`
 	if d := zdb.Diff(out.String(), want); d != "" {
 		t.Error(d)
 	}
@@ -88,115 +87,5 @@ func TestDBMigrate(t *testing.T) {
 	want := "no pending migrations\n"
 	if out.String() != want {
 		t.Error(out.String())
-	}
-}
-
-func grep(s, find string) bool {
-	return regexp.MustCompile(find).MatchString(s)
-}
-
-func TestDBUser(t *testing.T) {
-	exit, _, out, ctx, dbc := startTest(t)
-
-	{ // create
-		runCmd(t, exit, "db", "create", "user",
-			"-db="+dbc,
-			"-email=foo@foo.foo",
-			"-password=password")
-		wantExit(t, exit, out, 0)
-
-		have := zdb.DumpString(ctx, `select user_id, email from users order by user_id`)
-		want := `
-			user_id  email
-			1        test@testenv.localhost
-			2        foo@foo.foo`
-		if d := zdb.Diff(have, want); d != "" {
-			t.Error(d)
-		}
-		out.Reset()
-	}
-
-	{ // update
-		runCmd(t, exit, "db", "update", "user",
-			"-db="+dbc,
-			"-find=2",
-			"-email=new@new.new",
-			"-password=password")
-		wantExit(t, exit, out, 0)
-
-		have := zdb.DumpString(ctx, `select user_id, email from users order by user_id`)
-		want := `
-			user_id  email
-			1        test@testenv.localhost
-			2        new@new.new`
-		if d := zdb.Diff(have, want); d != "" {
-			t.Error(d)
-		}
-		out.Reset()
-	}
-
-	{ // show
-		runCmd(t, exit, "db", "show", "user",
-			"-db="+dbc,
-			"-find=1", "-find=new@new.new")
-		wantExit(t, exit, out, 0)
-		if r := `user_id\s+1`; !grep(out.String(), r) {
-			t.Errorf("user 1 not found in output (via regexp %q):\n%s", r, out.String())
-		}
-		if r := `user_id\s+2`; !grep(out.String(), r) {
-			t.Errorf("user 2 not found in output (via regexp %q):\n%s", r, out.String())
-		}
-		out.Reset()
-	}
-
-	{ // delete
-		runCmd(t, exit, "db", "delete", "user",
-			"-db="+dbc,
-			"-find=2",
-		)
-		wantExit(t, exit, out, 0)
-
-		have := zdb.DumpString(ctx, `select user_id, email from users order by user_id`)
-		want := `
-			user_id  email
-			1        test@testenv.localhost`
-		if d := zdb.Diff(have, want); d != "" {
-			t.Error(d)
-		}
-		out.Reset()
-	}
-
-	{ // delete when it's the last user
-		runCmd(t, exit, "db", "delete", "user",
-			"-db="+dbc,
-			"-find=1",
-		)
-		wantExit(t, exit, out, 1)
-
-		have := zdb.DumpString(ctx, `select user_id, email from users order by user_id`)
-		want := `
-			user_id  email
-			1        test@testenv.localhost`
-		if d := zdb.Diff(have, want); d != "" {
-			t.Error(d)
-		}
-		out.Reset()
-	}
-
-	{ // force delete
-		runCmd(t, exit, "db", "delete", "user",
-			"-db="+dbc,
-			"-find=1",
-			"-force",
-		)
-		wantExit(t, exit, out, 0)
-
-		have := zdb.DumpString(ctx, `select user_id, email from users order by user_id`)
-		want := `
-			user_id  email`
-		if d := zdb.Diff(have, want); d != "" {
-			t.Error(d)
-		}
-		out.Reset()
 	}
 }

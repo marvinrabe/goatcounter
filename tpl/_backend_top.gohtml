@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>{{if .Site.LinkDomain}}{{.Site.LinkDomainURL false}}{{else}}{{.Site.Domain .Context}}{{end}} – GoatCounter</title>
+	<title>{{.Site.LinkDomain}} – GoatCounter</title>
 	<link rel="stylesheet" href="{{.Asset "assets/backend.css"}}">
 </head>
 
@@ -14,18 +14,11 @@
 	<nav class="center">
 	
 		<div id="domaininfo">
-			{{if .Site.LinkDomain -}}
-				{{.T "top-nav/public-link|Analytics for %(domain)"
-					(tag "a" (printf `target="_blank" rel="noopener" href="%s"` (.Site.LinkDomainURL true)) .Site.LinkDomain)
-				}}
-			{{end}}
+			<label class="hide" for="site-selector">Site</label>
+			<select id="site-selector" aria-label="Site">
+				{{range .Sites}}<option value="{{.Key}}" {{if eq .Key $.Site.Key}}selected{{end}}>{{.LinkDomain}}</option>{{end}}
+			</select>
 		</div>
-		{{- if .User.ID}}
-		<div id="usermenu">
-			<a {{if not (has_prefix .Path "/settings")}}class="active" {{end}}href="{{.Base}}/">{{.T "top-nav/dashboard|Dashboard"}}</a>
-			<a {{if has_prefix .Path "/settings"}}class="active" {{end}}href="{{.Base}}/settings">{{.T "top-nav/settings|Settings"}}</a>
-		</div>
-		{{- end -}}
 	</nav>
 
 	<div class="page">

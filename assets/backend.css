@@ -5,23 +5,17 @@
  ****************************/
 /* Always display a scrollbar; this prevents the layout from jumping around when
  * you expand or collapse something that makes a scrollbar appear. */
-body       { overflow-y: scroll; }
+body       { overflow-y: scroll; padding-bottom: 1.25rem; }
 
-.page      { padding: 1em; }
-
-@media (max-width: 54em) {
+#page-dashboard {
+    --page-padding: 1.25rem;
+    --control-padding-block: .6rem;
+    --control-padding-inline: .75rem;
+    --dashboard-radius: 3px;
 }
 
-/* Don't make various explanatory texts too wide. */
-.page > p, .page > div > p,
-.page > ul, .page > div > ul,
-.page > ol, .page > div > ol,
-.page > table,
-.form-max-width label, .form-max-width textarea, .form-max-width input {
-    max-width: 50em;
-}
-.form-max-width label { display:inline-block; }
-label.inline          { display:inline; }
+.page      { padding: var(--page-padding);
+             border-radius: var(--dashboard-radius); overflow: hidden; }
 
 #js-settings, #js-csrf, #js-i18n { display: none; }
 
@@ -30,17 +24,16 @@ label.inline          { display:inline; }
      * width. .page has a 1em padding on either side.
      * The last 10mm is needede because magic (1mm will work, this just looks
      * more even). */
-    max-width: calc((1em * 2) + (86mm * 4) + 10mm);
+    max-width: calc((var(--page-padding) * 2) + (86mm * 4) + 10mm);
 }
 
-nav                    { display: flex; justify-content: space-between; padding-right: .5em; }
-nav #usermenu          { text-align: right; min-width: 20.5em; }
-nav #usermenu a       { margin-left: 1em; }
+nav                    { display: flex; justify-content: space-between;
+                         padding: .25rem var(--page-padding) .5rem; }
 nav #signin           { white-space: nowrap; margin-left: 1em; }
 nav #back             { white-space: nowrap; }
-@media (max-width: 87rem) {
-    nav { padding-left: .5em; }
-}
+#site-selector          { min-height: 2.5rem;
+                         padding: var(--control-padding-block) var(--control-padding-inline);
+                         border-radius: var(--dashboard-radius); }
 
 .footer-timezone { color: var(--muted-text); font-size: .9em; text-align: center; }
 
@@ -54,19 +47,10 @@ h3.border        { border-bottom:1px solid var(--border-strong); margin-bottom:.
 
 form .err        { color:var(--form-error-text); display:block; }
 form .disabled,
-form *[disabled] { color:var(--pageviews-text); cursor:not-allowed;}
+form *[disabled] { color:var(--muted-text); cursor:not-allowed;}
 
 span.red  { color: var(--form-error-text); }
-input.red { border: 1px solid var(--input-error-border) !important; }
-
-@media (min-width: 55rem) {
-    .form-wrap form          { display: flex; flex-wrap: wrap; }
-    .form-wrap form fieldset { width: 48%; }
-
-    .flex-form          { display: flex; flex-wrap: wrap; }
-    .flex-form form     { width: 48%; }
-    .flex-form fieldset { height: 100%; }
-}
+input.red { border: 1px solid var(--form-error-text) !important; }
 
 .flash              { padding:10px; text-align:center; border:2px solid var(--bg); margin:calc(-1em - 2px); margin-bottom:1em; }
 .flash p            { max-width:none !important; }
@@ -77,7 +61,6 @@ input.red { border: 1px solid var(--input-error-border) !important; }
 .flash.flash-inline { margin:1em 0; text-align:left; }
 .onetime            { display:none; }
 
-.screen-reader { display: none; }
 .hide          { display: none; }
 .show-mobile   { display: none; }
 @media (max-width: 55rem) {
@@ -88,101 +71,102 @@ input.red { border: 1px solid var(--input-error-border) !important; }
 /* Using display: none means it's ignored by Safary when pressing Enter. */
 button.hide-btn { overflow: visible; height: 0; width: 0; margin: 0; border: 0; padding: 0; display: block; }
 
-fieldset               { margin-bottom: 1em; border: 1px solid var(--fieldset-border); }
-legend                 { font-weight: bold; }
-fieldset:target legend { background-color: var(--target-bg); }
-
-select#timezone { max-width: 20rem; }
-
 .active { font-weight: bold; text-decoration: underline; }
-
-/* Break to new flexbox row. */
-.flex-break { flex-basis: 100%; height: 0; }
-
-table.auto { width: auto; }
-
-/* Otherwise .page-title has different vertical alignment? Hmmm... */
-.show-mobile .page-title { vertical-align: top; }
 
 .rlink { display: inline-block; overflow: hidden;
          max-width: 17.5rem; text-overflow: ellipsis; white-space: nowrap; }
 .rlink { min-width: 3em; } /* Make very short paths (like just /) easier to click/touch. */
-.page-title b, .rlink b { background-color: var(--target-bg); }
+.rlink b { background-color: var(--target-bg); }
 
-/* Hide "Go to [..]" link unless we loaded the page details. */
-small.go           { display: none; }
 .go { word-break: normal; }
 
 
 /*** Pages and totals list/charts
  ********************************/
 .pages-list h2           { margin-top: .5em; }
-.count-list              { margin-top: 15px; }
-.count-list tr           { border: none; }
-.count-list td           { vertical-align: top; }
-.count-list th           { text-align: left; }
-.count-list .col-count   { width: 5rem; text-align: right; }
-.count-list .col-count-diff { font-size:.9rem; }
-.count-list .col-path    { width: 20rem; }
 .label-event             { background-color: var(--event-bg); border-radius: 1em; padding: .1em .3em; }
-.count-list td[colspan="3"] {  /* "nothing to display" */
-    text-align: left;
-    width: auto;
-}
-.pages-list >.load-btns                  { display:block; margin-top:-.7em; width:max-content; }
-.pages-list.pages-list-text >.load-btns  { margin-top:0; }
-.plus      { color: var(--plus); }
-.minus     { color: var(--minus); }
+.pages-list >.load-btns                  { display:block; width:max-content; }
 .load-less { display:none; margin-left: 1rem; }
 
-.count-list tr:target,
-.count-list tr.target             { background-color: inherit; }
-.count-list tr:target .load-refs,
-.count-list tr.target .load-refs  { font-weight: bold; border-bottom: 4px solid var(--target-bg); }
-tr.target small.go                { display: inline-block; }
-
-/* Border doesn't affect layout. */
-.count-list:not(.count-list-text) .load-refs { border-bottom: 4px solid transparent; margin-bottom: -4px; }
-
 .chart { position: relative; height: 50px; width: 100%; margin-bottom: 1em; }
+.metric-chart canvas { display: block; width: 100%; height: 220px; }
 
-.chart-left {
-    position: absolute; left: -1.2em; top: -.1em; padding: 0 .1em; font-size: 1.2rem; text-align: center;
-    display: none; margin-right: 0;
+.metric-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+	              border-bottom: 1px solid var(--border); }
+.metric       { min-width: 0; padding: .65em 1em .75em; border: 0; border-left: 1px solid var(--border);
+	              border-radius: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.metric:first-child { border-left: 0; }
+.metric-label { display: block; color: var(--muted-text); font-size: .8em; text-transform: uppercase;
+	              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric strong { display: block; margin-top: .15em; font-size: 1.55em; font-weight: normal; }
+.metric.link:not(.disabled):not([disabled]):hover { background: transparent; color: var(--text); text-decoration: none;
+	                                                   box-shadow: inset 0 -3px var(--border-strong); }
+.metric.link:focus-visible { background: transparent; color: var(--text); text-decoration: none;
+	                         outline: 2px solid var(--input-focus); outline-offset: -2px; }
+.metric-active { background: transparent; box-shadow: inset 0 -3px var(--chart-line); }
+.metric-active.link:not(.disabled):not([disabled]):hover,
+.metric-active.link:focus-visible { background: transparent; box-shadow: inset 0 -3px var(--chart-line); }
+.totals.dashboard-card { margin-bottom: var(--dashboard-card-gap, 1em); }
+.totals-chart { padding: var(--dashboard-card-padding, 1em); }
+.totals-chart .chart { margin-bottom: 0; }
+.totals .chart { height: 220px; }
+
+@media (max-width: 50rem) {
+	.metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.metric { border-bottom: 1px solid var(--border); }
+	.metric:nth-child(odd) { border-left: 0; }
 }
-.chart-left a:hover { text-decoration: none; }
 
-tr:hover .chart-left,
-tr.target .chart-left { display: block; }
-
-.chart-right { position: absolute; right: .4em; top: -.8em; padding: 0 .1em; font-size: 1.2rem;
-               line-height: 1; text-align: center; }
-.page-n      { color: var(--muted-text); font-size: .8em; }
-
-.chart-line canvas { display: block; height: 50px; width: 100%; }
-.chart-bar canvas  { display: block; height: 50px; width: 100%; }
-
-.chart.chart-line, .chart.chart-bar { border: unset; }
-
-
-/*** Text pageviews
- ******************/
-.count-list-text .rlink             { white-space:normal; overflow:inherit; }
-.count-list-text td                 { padding:.5em; }
-.count-list-text .refs .rows        { margin-top:1em; }
-.count-list-text tbody tr           { border-bottom:1px solid var(--text-table-border); border-top:1px solid var(--text-table-border); }
-.count-list-text tr:nth-child(even) { background-color:var(--text-table-even-bg); }
-.count-list-text .col-idx           { width:1em; color:var(--text-table-rank-text); }
-.count-list-text .col-n             { text-align:right; width:1em; } /* Make column as small as possible */
-.count-list-text .col-diff          { text-align:right; width:1em; }
 
 /*** Horizontal charts
  ********************/
-.hcharts            { display: flex; flex-wrap: wrap; justify-content: space-between; }
-.hcharts > div      { width: 49%; }
+#dash-widgets { --dashboard-card-padding: 1em; --dashboard-card-gap: 1em; --dashboard-row-gap: .65em; }
+.dashboard-grid     { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--dashboard-card-gap) 3%; align-items: stretch; }
+.dashboard-grid > .dashboard-card { width: auto; min-width: 0; }
+.dashboard-card { border: 1px solid var(--border); border-radius: var(--dashboard-radius); overflow: hidden; }
+.card-tabs { display: flex; gap: 1.25em; min-height: 2.7em; padding: 0 var(--dashboard-card-padding, 1em); align-items: end;
+	         border-bottom: 1px solid var(--border); overflow: hidden; scrollbar-width: none; }
+.card-tabs::-webkit-scrollbar { display: none; }
+.card-tab { position: relative; margin: 0; padding: .65em 0 .55em; border: 0; border-radius: 0;
+	        background: transparent; color: var(--muted-text); font: inherit; font-weight: bold; white-space: nowrap; }
+button.card-tab { cursor: pointer; }
+.card-tab.link:not(.disabled):not([disabled]):hover { background: transparent; color: var(--text); text-decoration: none; }
+.card-tab.link:not(.disabled):not([disabled]):hover::after { content: ''; position: absolute; right: 0; bottom: -1px; left: 0;
+	                                                          height: 2px; background: var(--border-strong); }
+.card-tab.link:focus-visible { background: transparent; color: var(--muted-text); text-decoration: none;
+	                          outline: 2px solid var(--input-focus); outline-offset: -2px; }
+.card-tab.active { color: var(--text); text-decoration: none; }
+.card-tab.active.link:not(.disabled):not([disabled]):hover,
+.card-tab.active.link:focus-visible { color: var(--text); }
+.card-tab.active::after { content: ''; position: absolute; right: 0; bottom: -1px; left: 0;
+	                  height: 3px; background: var(--chart-line); }
+.card-tab.active.link:not(.disabled):not([disabled]):hover::after { height: 3px; background: var(--chart-line); }
+.card-panel { padding: .75em var(--dashboard-card-padding, 1em) .5em; }
+.card-panel[hidden] { display: none; }
+.card-panel.active { font-weight: normal; text-decoration: none; }
+.dashboard-card .widget-header { display: none; }
+.dashboard-card a, .dashboard-card a:hover, .dashboard-card a:focus { text-decoration: none !important; }
+.dashboard-card .hchart .hchart-row { display: flex; flex-wrap: wrap; align-items: start; }
+.dashboard-card .hchart .col-name { flex: 1 1 auto; min-width: 0; width: auto; }
+.dashboard-card .hchart .hchart-row > .col-count:not(.col-perc) { flex: 0 0 4.5rem; }
+.dashboard-card .hchart .hchart-row > .col-perc { visibility: hidden; overflow: hidden; flex: 0 0 0;
+	width: 0; margin: 0; opacity: 0; transform: translateX(.5rem); white-space: nowrap;
+	transition: flex-basis .18s ease, width .18s ease, margin-left .18s ease, opacity .12s ease, transform .18s ease; }
+.dashboard-card:hover .hchart .hchart-row > .col-perc,
+.dashboard-card:focus-within .hchart .hchart-row > .col-perc { visibility: visible; flex-basis: 2.5em;
+	width: 2.5em; margin-left: .5rem; opacity: 1; transform: translateX(0); }
+.dashboard-card .hchart .rows > div { margin-bottom: var(--dashboard-row-gap, .65em); }
+.dashboard-card .hchart .rows > div:last-child { margin-bottom: .35em; }
+.dashboard-card .hchart .load-more,
+.dashboard-card .pages-list > .load-btns { display: block; width: max-content; margin: .1em 0 0; }
+.dashboard-card .load-less { margin-left: .75rem; }
+.pages-overview .rows > div { border: 0; background: transparent; }
+.pages-overview .go { flex-basis: 100%; margin-left: 5rem; }
 @media (max-width: 45rem) {
-    .hcharts       { display: block; }
-    .hcharts > div { width: auto; }
+	.dashboard-grid { display: block; }
+	.dashboard-grid > .dashboard-card { margin-bottom: 1em; }
+	.card-tabs { overflow-x: auto; overflow-y: hidden; }
 }
 
 .hchart .rows >div   { position: relative; margin-bottom: .8em; }
@@ -195,17 +179,19 @@ tr.target .chart-left { display: block; }
 .hchart .col-count   { display: inline-block; width: 4.5rem; text-align: right; vertical-align: top; }
 .hchart .col-perc    { width: 2.5em; margin-right: .5rem; vertical-align: top; }
 .hchart .load-more   { display: inline-block; margin-left: .2em; margin-top: .2em; }
-.hchart .load-detail { display: block; color: var(--text); }
+.hchart .hchart-row-link { display: block; color: var(--text); text-decoration: none; }
 .hchart .detail      { padding: 0 3em; border-bottom: 1px solid var(--border-mid); }
-.load-detail:hover      { text-decoration: none; color: var(--link); }
-.load-detail:hover .bar { background-color: var(--hchart-bar-hover); }
+.hchart-row-link:hover, .hchart-row-link:focus { text-decoration: none; color: var(--link); }
+.hchart-row-link:hover .bar, .hchart-row-link:focus .bar { background-color: var(--hchart-bar-hover); }
 .hchart .not-collected  { text-align: center; padding-bottom: .4em; font-style: italic; }
 
 
 /*** Dashboard form (filter, time period select, etc.)
  ******************************************************/
-#dash-move        { display: flex; justify-content: space-between; align-items: start; padding: .2em; margin: 0 1em; }
-#dash-form        { display: block; padding-bottom: .4em; margin: -1em; margin-bottom: 1em; }
+#dash-move        { display: flex; justify-content: space-between; align-items: center;
+                    gap: 1rem; padding: .55rem 1rem; margin: 0; }
+#dash-form        { display: block; padding-bottom: .5rem;
+                    margin: calc(-1 * var(--page-padding)); margin-bottom: var(--page-padding); }
 #dash-form span   { margin-left: 0; } /* Reset from hello-css */
 
 @media (max-width: 36.5rem) {
@@ -213,27 +199,36 @@ tr.target .chart-left { display: block; }
     #dash-move div:last-child { display: flex; flex-direction: column-reverse; text-align: right; align-items: end; }
 }
 
-#dash-main { display: flex; justify-content: space-between; padding: .5em 1em;
+#dash-main { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start;
+             gap: .75rem 1rem; padding: .75rem 1rem;
              background-color: var(--nav-bg); border-bottom: 1px solid var(--nav-border); border-radius: 2px; }
-#dash-main input[type="checkbox"] { vertical-align: middle; }
-#dash-main label                  { text-align: right; margin-right: .4em; }
+#dash-main > div:first-child > span:first-child { display: flex; align-items: center; gap: .35rem; }
+#dash-main > div:last-child { margin-left: auto; }
+#dash-main input[type="date"] { min-height: 2.5rem;
+    padding: var(--control-padding-block) var(--control-padding-inline);
+    border-radius: var(--dashboard-radius); }
 
-#dash-select-period           { display: block; padding-left: .3em; }
+#dash-select-period           { display: block; margin-top: .25rem; padding-left: .25rem; }
 #dash-select-period span+span { margin-left: .5em; }
+#dash-select-group            { display: block; margin-top: .3rem; }
 
 #dash-timerange { background-color: var(--nav-bg); border: 1px solid var(--nav-border); text-align: center;
-                  padding: 0 .4em; padding-top: 2px; border-top: 0; margin-top: -4px;
+                  align-self: flex-start; padding: .15rem .5rem; border-top: 0;
+                  margin-top: calc(-.55rem - 1px);
                   border-bottom-left-radius: 2px; border-bottom-right-radius: 2px; }
 
 #filter-outer              { position:relative; }
-#filter-wrap               { position:relative; padding:0; display:flex; width:18.5em;
-                             overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+#filter-wrap               { position:relative; padding:0; display:flex; width:19rem; min-height:2.5rem;
+                             overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
+                             border-radius:var(--dashboard-radius); }
 #filter-wrap.value         { border-color:var(--text); box-shadow:0 0 0 1px var(--text); }
 #filter-wrap.focus         { outline:1px solid var(--input-focus); box-shadow:0 0 .2em var(--input-focus); }
 #filter-styled             { position:absolute; display:inline-flex; overflow:hidden; user-select:none; -webkit-user-select:none;
-                             padding:.6em; line-height:100%; white-space:pre; word-break:break-word; color:var(--text); }
+                             padding:var(--control-padding-block) var(--control-padding-inline);
+                             line-height:1.2; white-space:pre; word-break:break-word; color:var(--text); }
 #filter-outer em           { font-style:normal; color:var(--filter-kw-text); }
-#filter-paths              { min-width:100%; resize:none; z-index:1; flex-shrink:0; margin-left:auto; padding:.6em;
+#filter-paths              { min-width:100%; resize:none; z-index:1; flex-shrink:0; margin-left:auto;
+                             padding:var(--control-padding-block) var(--control-padding-inline); line-height:1.2;
                              background:transparent; color:transparent; caret-color:var(--text); border:0; }
 #filter-paths:focus        { outline:none; box-shadow:none; }
 #filter-paths::placeholder { color:color-mix(in srgb, var(--text) 54%, transparent); }
@@ -262,8 +257,13 @@ tr.target .chart-left { display: block; }
 
 @media (max-width: 33.5rem) {
     #dash-main       { display:block; }
+    #dash-main > div:last-child { margin-top:.75rem; }
+    #dash-main input[type="date"] { min-width:0; width:calc(50% - .35rem); }
     #filter-wrap     { width:100%; margin-top:.5em; }
-    #dash-main label { text-align:left; }
+}
+
+@media (max-width: 54em) {
+    #page-dashboard { --page-padding: .75rem; }
 }
 
 .period-day [value=day],
@@ -279,84 +279,6 @@ tr.target .chart-left { display: block; }
     font-weight: bold;
     text-decoration: underline;
 }
-
-/* Widget settings button for every widget. */
-.widget-header          { position: relative; margin-left: -1em; padding-left: 1em; }
-#page-dashboard .widget-settings { position: absolute; z-index: 2; padding: .5em;
-    background-color: var(--tooltip-bg); color: var(--tooltip-text);
-    border: 1px solid var(--tooltip-border); box-shadow: 0 0 2px var(--tooltip-shadow); }
-
-/*** Tooltip
- ************/
-#tooltip { position: absolute; left: 0; top: 0; padding: .2em .5em; font-size: 14px; z-index: 100;
-           color: var(--tooltip-text); background-color: var(--tooltip-bg); box-shadow: 0 0 2px var(--tooltip-shadow); }
-#tooltip .views { color: var(--pageviews-text); } /* Grey out "pageviews" in tooltip. */
-
-
-/*** Settings tabs
- ******************/
-.tab-nav               { padding: 1em; margin: -1em; margin-bottom: 1em; justify-content: left; border-radius: 2px;
-                         background-color: var(--nav-bg); border-bottom: 1px solid var(--nav-border); }
-.tab-nav a             { padding: 0 .9em; border-right: 1px solid var(--border-mid); }
-.tab-nav a:first-child { padding-left: 0; }
-.tab-nav a:last-child  { border-right: none; padding-right: 0; }
-@media (max-width: 40rem) {
-    .tab-nav   { flex-wrap: wrap; justify-content: center; }
-    .tab-nav a { line-height: 2.5em; }
-}
-
-/*** Settings page
- *******************/
-#page-settings-main #secret { display:none; margin-left:1em; padding-left:1em; border-left:1px solid var(--border-mid); }
-.purge-err                  { margin-left:1em; margin-top:1em; }
-.user-api-key               { width:100%; }
-.user-api-key td            { vertical-align:top; }
-.user-api-key ul            { margin:0; padding-left:1em; }
-
-/*** Batch manage pageviews
- **************************/
-#batchpurge-preview .buttons    { display:flex; justify-content:space-between; margin-top:2em; }
-#batchpurge-preview .box        { border:1px solid var(--header-border); margin-top:1em; padding:.5em; }
-#batchpurge-preview h4          { margin:0; }
-.preview-batchmerge             { display:flex; flex-wrap:wrap; }
-.preview-batchmerge h5          { margin-right:1em; }
-.preview-batchmerge table       { max-width:80%; }
-.indent                         { margin-left:4em; }
-
-/*** Widget settings
- *******************/
-.widget                 { position: relative; margin-bottom: .5em; padding-left: 2em; border-top: 1px solid var(--widget-border); box-shadow: 2px 2px 2px var(--shadow); }
-.widget .header         { display: flex; justify-content: space-between; padding: .5em; }
-.widget .header strong  { display: inline-block; width: 12em; }
-.widget .show-s         { display: inline-block; width: 2em; text-align: center; }
-.widget-save            { display: flex; justify-content: space-between; }
-.widget-settings label  { display: inline-block; min-width: 9em; margin-bottom: 1em; }
-.widget-settings button { margin-left: 0; }
-.widget-settings select, .widget-settings input:not([type="checkbox"]) { background-color: var(--bg); width: 14em; }
-.widget-settings        { margin-top: .5em; margin-left: 2em; }
-.widget-settings .help  { margin-left: 1em;  }
-.widget-settings br:last-child { display: none; }
-.widget-add-new         { margin: 1em 0 1.5em 2.1em; }
-#page-user-dashboard .widget-settings { display: none; }
-
-@media (max-width: 46rem) {
-    .widget-settings label { display: block; margin-bottom: 0; }
-    .widget-settings .help { display: block; margin-left: .2em; }
-}
-
-/* Dragula */
-.gu-mirror       { position: fixed !important; z-index: 9999 !important; opacity: 0 !important; }
-.gu-hide         { display: none !important; }
-.gu-unselectable { user-select: none; -webkit-user-select: none; }
-.gu-transit      { outline: 3px dashed var(--widget-dragging-border); background-color: var(--widget-dragging-bg); }
-
-.drag-handle        { position: absolute; top: 0; left: 0; width: 2em; height: 100%; padding: 4px 0 0 2px;
-                      font-size: 12px; font-weight: bold; line-height: 6px; letter-spacing: 3px; margin-left: 0;
-                      content: '....'; text-align: center; cursor: move;
-                      background-color: var(--widget-handle-bg); color: var(--widget-handle-text); }
-.drag-handle::after { content: '··· ··· ··· ··· ···'; }
-.drag-handle:hover  { background-color: var(--widget-handle-hover-bg); }
-
 
 /*** noscript
  *************/
@@ -381,21 +303,6 @@ noscript p { margin: .5em; }
 @supports (-webkit-overflow-scrolling: touch) {
     input, select, textarea { font-size: 16px !important; }
 }
-
-dl { max-width: 50em; }
-dt { font-weight: bold; margin-top: 1em; }
-
-.input-prefix input   { padding-left: 1.8em !important; }
-.input-prefix         { position: relative; }
-.input-prefix .prefix { position: absolute; left: 0; top: 0; line-height: 2.55em; padding: 0 .3em 0 .5em; }
-
-/* Work around Firefox mobile not displaying validation errors :-/ This at least
- * gives *some* hint something has gone wrong. This is so broken that I'm not
- * going to bother writing a JS thing.
- * https://github.com/arp242/goatcounter/issues/529 */
-input:user-invalid { outline: 1px solid var(--input-error-border) !important;
-                     box-shadow: 0 0 .2em var(--input-error-border) !important;
-                     background-color: var(--input-error-bg); }
 
 /* Basic print styles, for dashboard only. */
 #print-header { display:none; }

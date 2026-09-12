@@ -6,7 +6,6 @@ import (
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/i18n"
-	"zgo.at/zstd/ztime"
 )
 
 type TotalPages struct {
@@ -15,9 +14,9 @@ type TotalPages struct {
 	err    error
 	html   template.HTML
 
-	Align, NoEvents bool
-	Style           string
-	Total           goatcounter.HitList
+	// Total remains part of the dashboard API response.
+	Total  goatcounter.HitList
+	Series goatcounter.DashboardMetricSeries
 }
 
 func (w TotalPages) Name() string { return "totalpages" }
@@ -34,49 +33,20 @@ func (w TotalPages) ID() int                  { return w.id }
 func (w *TotalPages) SetDetail(d string) {}
 
 func (w *TotalPages) GetData(ctx context.Context, a Args) (more bool, err error) {
-	err = w.Total.Totals(ctx, a.Rng, a.PathFilter, a.Group, w.NoEvents)
+	w.Series, err = goatcounter.GetDashboardMetricSeries(ctx, a.Rng, a.PathFilter, a.Group)
 	w.loaded = true
 	return false, err
 }
 
 func (w TotalPages) RenderHTML(ctx context.Context, shared SharedData) (string, any) {
-	// Set days in the future to -1; we filter this in the JS when rendering the
-	// chart. It's easier to do this here because JavaScript Date() has
-	// piss-poor support for timezones.
-	//
-	// Only remove them if the last day is today: for everything else we want to
-	// display the future as "greyed out".
-	var (
-		now   = ztime.Now(ctx).In(goatcounter.Config(ctx).Timezone.Loc())
-		today = now.Format("2006-01-02")
-		hour  = now.Hour()
-	)
-	if len(w.Total.Stats) > 0 && w.Total.Stats[len(w.Total.Stats)-1].Day == today {
-		j := len(w.Total.Stats) - 1
-		w.Total.Stats[j].Hourly = w.Total.Stats[j].Hourly[:hour+1]
-	}
-
 	return "_dashboard_totals.gohtml", struct {
 		Context context.Context
-		Site    *goatcounter.Site
-		User    *goatcounter.User
 		ID      int
 		Loaded  bool
 		Err     error
 
-		Align    bool
-		NoEvents bool
-		Page     goatcounter.HitList
-		Group    goatcounter.Group
-		Max      int
-
-		Total       int
-		TotalEvents int
-
-		Style string
-	}{ctx, shared.Site, shared.User, w.id, w.loaded, w.err,
-		w.Align, w.NoEvents,
-		w.Total, shared.Args.Group, w.Total.Max,
-		shared.Total, shared.TotalEvents,
-		w.Style}
+		Group   goatcounter.Group
+		Metrics goatcounter.DashboardMetrics
+		Series  goatcounter.DashboardMetricSeries
+	}{ctx, w.id, w.loaded, w.err, shared.Args.Group, shared.Metrics, w.Series}
 }

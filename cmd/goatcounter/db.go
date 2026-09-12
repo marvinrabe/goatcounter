@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"slices"
 	"strings"
 
 	"github.com/marvinrabe/goatcounter"
@@ -15,24 +12,12 @@ import (
 	"zgo.at/zdb"
 	"zgo.at/zdb/drivers"
 	"zgo.at/zli"
-	"zgo.at/zvalidate"
 )
 
 const helpDB = `
 The db command manages the GoatCounter database.
 
-Some common examples:
-
-    Create a user to log in with:
-
-        $ goatcounter db create user -email martin@example.com
-
-        GoatCounter tracks a single site; the site itself is created
-        automatically on first run. Any username works when logging in; only
-        the password is checked.
-
-
-    Run database migrations:
+For example, run database migrations with:
 
         $ goatcounter db migrate all
 
@@ -48,48 +33,6 @@ Flags accepted by all commands:
 
   -debug       Modules to debug, comma-separated or 'all' for all modules.
                See "goatcounter help debug" for a list of modules.
-
-show command:
-
-    -find       User to find; you can use the numeric ID column (e.g. 1) or the
-                email address ("user@example.com").
-
-    -format     Format to print, accepted values:
-
-                    table     ASCII table, one row per line.
-                    vertical  Vertical table, one column per line (default).
-                    csv       CSV (includes header).
-                    json      JSON, as an array of objects.
-                    html      HTML table.
-
-delete command:
-
-    -find       As documented in show
-
-    -force      Force deletion even if this is the last user.
-
-
-create and update commands:
-
-    The create and update commands accept a set of flags with column values.
-    You can't set all columns, just the useful ones for regular management. The
-    flags for create and update are identical, except that "update" also needs
-    a -find flag; this is documented above in the show command.
-
-    You may need to restart GoatCounter for some changes to take effect due to
-    caching.
-
-    You can add multiple -find flags to update multiple rows.
-
-    Flags marked with * are required for create; for update only the flags that
-    are given are updated.
-
-    Flags for "user":
-
-        -email*     Email address; required to log in.
-
-        -password   Password; will be asked interactively if omitted. Read from
-                    stdin if it's "-".
 
 migrate command:
 
@@ -210,11 +153,6 @@ SQLite notes:
 
 const helpDBCommands = `List of commands:
 
-     create user        Create a new user.
-     update user        Update a user.
-     delete user        Delete a user.
-     show   user        Show a user.
-
      newdb              Create a new database.
      migrate            Run or view database migrations.
      schema-sqlite      Print the SQLite schema.
@@ -225,18 +163,6 @@ const helpDBShort = "\n" + helpDBCommands + `
 
 Use "goatcounter help db" for the full documentation.`
 
-type (
-	findMany interface {
-		Find(context.Context, []string) error
-		IDs() []int32
-		Delete(context.Context, bool) error
-	}
-	stringFlag interface {
-		String() string
-		Set() bool
-	}
-)
-
 func cmdDB(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	defer func() { ready <- struct{}{} }()
 
@@ -246,7 +172,6 @@ func cmdDB(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		createdb  = f.Bool(false, "createdb").Pointer()
 	)
 
-start:
 	cmd, err := f.ShiftCommand()
 	if err != nil && !errors.Is(err, zli.ErrCommandNoneGiven{}) {
 		return err
@@ -254,13 +179,6 @@ start:
 
 	switch cmd {
 	default:
-		// Be forgiving if someone reverses the order of "create" and "site".
-		maybeCmd := f.Shift()
-		if slices.Contains([]string{"create", "update", "delete", "show"}, maybeCmd) {
-			f.Args = append([]string{maybeCmd, cmd}, f.Args...)
-			goto start
-		}
-
 		return errors.Errorf("unknown command for \"db\": %q\n%s", cmd, helpDBShort)
 	case "": //, zli.CommandNoneGiven:
 		return errors.New("\"db\" needs a subcommand\n" + helpDBShort)
@@ -277,17 +195,6 @@ start:
 		return cmdDBMigrate(f, dbConnect, debug.StringsSplit(","), createdb)
 	case "query":
 		return cmdDBQuery(f, dbConnect, debug.StringsSplit(","), createdb)
-	case "show":
-		return cmdDBShow(f, cmd, dbConnect, debug.StringsSplit(","), createdb)
-	case "delete":
-		return cmdDBDelete(f, cmd, dbConnect, debug.StringsSplit(","), createdb)
-
-	case "create", "update":
-		if _, err := getTable(&f, cmd); err != nil {
-			return err
-		}
-		return cmdDBUser(f, cmd, dbConnect, debug.StringsSplit(","), createdb)
-
 	case "newdb":
 		err := cmdDBTest(f, dbConnect, debug.StringsSplit(","), false)
 		if err == nil {
@@ -304,27 +211,6 @@ start:
 			return err
 		}
 		return db.Close()
-	}
-}
-
-func getTable(f *zli.Flags, cmd string) (string, error) {
-	tbl, err := f.ShiftCommand()
-	if err != nil && !errors.Is(err, zli.ErrCommandNoneGiven{}) {
-		return "", err
-	}
-
-	switch tbl {
-	default:
-		return "", errors.Errorf("unknown table %q\n%s", tbl, helpDBShort)
-	case "":
-		return "", errors.Errorf("%q commands needs a table name\n%s", cmd, helpDBShort)
-	case "help":
-		zli.WantColor = true
-		printHelp(helpDB)
-		return "", guru.New(0, "")
-
-	case "user", "users":
-		return "user", nil
 	}
 }
 
@@ -433,184 +319,4 @@ func cmdDBQuery(f zli.Flags, dbConnect *string, debug []string, createdb *bool) 
 	}
 	zdb.Dump(ctx, zli.Stdout, q, dump)
 	return nil
-}
-
-func getManyFinder(ctx context.Context, f *zli.Flags, cmd string, find []string) (findMany, string, error) {
-	if len(find) == 0 {
-		return nil, "", errors.New("need at least on -find flag")
-	}
-
-	tbl, err := getTable(f, cmd)
-	if err != nil {
-		return nil, "", err
-	}
-
-	finder := map[string]findMany{
-		"user": &goatcounter.Users{},
-	}[tbl]
-
-	err = finder.Find(ctx, find)
-	return finder, tbl, err
-}
-
-func dbParseFlag(f zli.Flags, dbConnect *string, debug []string, createdb *bool) (zdb.DB, context.Context, error) {
-	if err := f.Parse(zli.FromEnv("GOATCOUNTER")); err != nil && !errors.As(err, &zli.ErrUnknownEnv{}) {
-		return nil, nil, err
-	}
-	log.SetDebug(debug)
-
-	db, _, err := connectDB(*dbConnect, "", []string{"pending"}, *createdb, false)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	ctx := goatcounter.NewContext(context.Background(), db)
-	return db, ctx, nil
-}
-
-func cmdDBShow(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error {
-	var (
-		find   = f.StringList(nil, "find")
-		format = f.String("vertical", "format")
-	)
-	db, ctx, err := dbParseFlag(f, dbConnect, debug, createdb)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	finder, tbl, err := getManyFinder(ctx, &f, cmd, find.Strings())
-	if err != nil {
-		return err
-	}
-
-	q := map[string]string{
-		"user": "users where user_id",
-	}[tbl]
-
-	ids := finder.IDs()
-	if len(ids) == 0 {
-		return errors.New("nothing found")
-	}
-
-	dump, err := getFormat(format.String())
-	if err != nil {
-		return err
-	}
-
-	zdb.Dump(ctx, zli.Stdout, `select * from `+q+` in (?)`, ids, dump)
-	return nil
-}
-
-func cmdDBDelete(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error {
-	var (
-		find  = f.StringList(nil, "find")
-		force = f.Bool(false, "force").Pointer()
-	)
-	db, ctx, err := dbParseFlag(f, dbConnect, debug, createdb)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	finder, _, err := getManyFinder(ctx, &f, cmd, find.Strings())
-	if err != nil {
-		return err
-	}
-	return finder.Delete(ctx, *force)
-}
-
-func cmdDBUser(f zli.Flags, cmd string, dbConnect *string, debug []string, createdb *bool) error {
-	var (
-		email = f.String("", "email")
-		pwd   = f.String("", "password")
-		find  *[]string
-	)
-	if cmd == "update" {
-		find = f.StringList(nil, "find").Pointer()
-	}
-	db, ctx, err := dbParseFlag(f, dbConnect, debug, createdb)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	if cmd == "create" {
-		return cmdDBUserCreate(ctx, email.String(), pwd.String())
-	}
-	return cmdDBUserUpdate(ctx, *find, email, pwd)
-}
-
-func cmdDBUserCreate(ctx context.Context, email, pwd string) error {
-	v := zvalidate.New()
-	v.Required("-email", email)
-	v.Email("-email", email)
-	if v.HasErrors() {
-		return v
-	}
-
-	var site goatcounter.Site
-	err := site.Load(ctx)
-	if err != nil {
-		return err
-	}
-	ctx = goatcounter.WithSite(ctx, &site)
-
-	pwd, err = readPassword(pwd)
-	if err != nil {
-		return err
-	}
-
-	return (&goatcounter.User{
-		Email:    email,
-		Password: []byte(pwd),
-	}).Insert(ctx, false)
-}
-
-func cmdDBUserUpdate(ctx context.Context, find []string, email, pwd stringFlag) error {
-	v := zvalidate.New()
-	v.Required("-find", find)
-	v.Email("-email", email.String())
-	if v.HasErrors() {
-		return v
-	}
-
-	var users goatcounter.Users
-	err := users.Find(ctx, find)
-	if err != nil {
-		return err
-	}
-
-	return zdb.TX(ctx, func(ctx context.Context) error {
-		for _, u := range users {
-			if email.Set() {
-				u.Email = email.String()
-				if err := u.Update(ctx, true); err != nil {
-					return err
-				}
-			}
-			if pwd.Set() {
-				if err := u.UpdatePassword(ctx, pwd.String()); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-}
-
-// readPassword reads the password from stdin if it's "-", or asks for it
-// interactively if it's empty.
-func readPassword(pwd string) (string, error) {
-	if pwd == "-" {
-		p, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return "", fmt.Errorf("reading password: %w", err)
-		}
-		return string(p), nil
-	}
-	if pwd == "" {
-		return zli.AskPassword(8)
-	}
-	return pwd, nil
 }

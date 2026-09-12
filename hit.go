@@ -20,6 +20,7 @@ type HitID int64
 
 type Hit struct {
 	ID         HitID        `db:"hit_id,id" json:"-"`
+	Site       string       `db:"site" json:"-"`
 	PathID     PathID       `db:"path_id" json:"-"`
 	RefID      RefID        `db:"ref_id" json:"-"`
 	BrowserID  BrowserID    `db:"browser_id" json:"-"`
@@ -29,7 +30,6 @@ type Hit struct {
 	Width      *int16       `db:"width" json:"width"`
 
 	Path      string     `db:"-" json:"p,omitempty"`
-	Title     string     `db:"-" json:"t,omitempty"`
 	Ref       string     `db:"-" json:"r,omitempty"`
 	Event     zbool.Bool `db:"-" json:"e,omitempty"`
 	Size      Floats     `db:"-" json:"s,omitempty"`
@@ -174,6 +174,9 @@ func (h *Hit) cleanPath(ctx context.Context) {
 // Defaults sets fields to default values, unless they're already set.
 func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 	site := MustGetSite(ctx)
+	if h.Site == "" {
+		h.Site = site.Key
+	}
 
 	if h.CreatedAt.IsZero() {
 		h.CreatedAt = ztime.Now(ctx)
@@ -264,7 +267,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 	// vulnerability scanners and whatnot
 	if h.Bot == 0 {
 		// Get or insert path.
-		path := Path{Path: h.Path, Title: h.Title, Event: h.Event}
+		path := Path{Path: h.Path, Event: h.Event}
 		err := path.GetOrInsert(ctx)
 		if err != nil {
 			return errors.Wrap(err, "Hit.Defaults")
@@ -311,10 +314,8 @@ func (h *Hit) Validate(ctx context.Context, initial bool) error {
 	if initial {
 		v.Required("path", h.Path)
 		v.UTF8("path", h.Path)
-		v.UTF8("title", h.Title)
 		v.UTF8("user_agent_header", h.UserAgentHeader)
 		v.Len("path", h.Path, 1, 2048)
-		v.Len("title", h.Title, 0, 1024)
 		v.Len("user_agent_header", h.UserAgentHeader, 0, 512)
 		for _, s := range h.Size {
 			if s > math.MaxInt32 {
@@ -344,7 +345,6 @@ func (h *Hits) TestList(ctx context.Context) error {
 		B BrowserID  `db:"browser_id"`
 		S SystemID   `db:"system_id"`
 		P string     `db:"path"`
-		T string     `db:"title"`
 		E zbool.Bool `db:"event"`
 		R string     `db:"ref"`
 	}
@@ -355,7 +355,6 @@ func (h *Hits) TestList(ctx context.Context) error {
 			browser_id,
 			system_id,
 			paths.path,
-			paths.title,
 			paths.event,
 			refs.ref
 		from hits
@@ -370,7 +369,6 @@ func (h *Hits) TestList(ctx context.Context) error {
 		x.Hit.BrowserID = x.B
 		x.Hit.SystemID = x.S
 		x.Hit.Path = x.P
-		x.Hit.Title = x.T
 		x.Hit.Event = x.E
 		x.Hit.Ref = x.R
 		*h = append(*h, x.Hit)

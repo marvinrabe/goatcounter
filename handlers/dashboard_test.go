@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +25,11 @@ func TestDashboard(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		runTest(t, tt, nil)
+		runTest(t, tt, func(t *testing.T, rr *httptest.ResponseRecorder, _ *http.Request) {
+			if strings.Contains(rr.Body.String(), `id="usermenu"`) {
+				t.Error("dashboard-only main menu is still rendered")
+			}
+		})
 	}
 }
 

@@ -36,6 +36,7 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 
 	site := Site(r.Context())
 	hit := goatcounter.Hit{
+		Site:            site.Key,
 		UserAgentHeader: r.UserAgent(),
 		CreatedAt:       ztime.Now(r.Context()),
 		RemoteAddr:      r.RemoteAddr,

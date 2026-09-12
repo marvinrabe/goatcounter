@@ -105,6 +105,7 @@ func init() {
 	tplfunc.Add("error_code", func(err error) string { return zhttp.UserErrorCode(err) })
 	// Implemented as function for performance.
 	tplfunc.Add("horizontal_chart", HorizontalChart)
+	tplfunc.Add("horizontal_chart_pages", HorizontalChartPages)
 
 	type x struct {
 		href, label string
@@ -226,18 +227,7 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 	for _, s := range stats.Stats {
 		displayed += s.Count
 
-		var (
-			p    = float64(s.Count) / float64(total) * 100
-			perc string
-		)
-		switch {
-		case p == 0:
-			perc = "0%"
-		case p < .5:
-			perc = fmt.Sprintf("%.1f%%", p)[1:]
-		default:
-			perc = fmt.Sprintf("%.0f%%", math.Round(p))
-		}
+		perc := horizontalChartPercentage(s.Count, total)
 
 		name := ""
 		if s.Name != "" {
@@ -258,9 +248,9 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 			name = i18n.T(ctx, "unknown|(unknown)")
 			unknown = true
 		}
-		class := ""
+		class := "hchart-row"
 		if unknown || (s.RefScheme != nil && string(*s.RefScheme) == goatcounter.RefSchemeGenerated) {
-			class = "generated"
+			class += " generated"
 		}
 		visit := ""
 		if !link && s.RefScheme != nil && string(*s.RefScheme) == goatcounter.RefSchemeHTTP {
@@ -278,7 +268,7 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 		ename := zstring.ElideCenter(name, 76)
 		var ref string
 		if link && !unknown {
-			ref = fmt.Sprintf(`<a href="#" class="load-detail">`+
+			ref = fmt.Sprintf(`<a href="#" class="hchart-row-link load-detail">`+
 				`<span class="bar" style="width: %s"></span>`+
 				`<span class="bar-c"><span class="cutoff">%s</span> %s</span></a>`, perc, ename, visit)
 		} else {
@@ -292,13 +282,7 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 		if id == "" {
 			id = name
 		}
-		fmt.Fprintf(b, `
-			<div class="%[1]s" data-key="%[2]s">
-				<span class="col-count col-perc">%[3]s</span>
-				<span class="col-name">%[4]s</span>
-				<span class="col-count">%[5]s</span>
-			</div>`,
-			class, id, perc, ref, ncol)
+		writeHorizontalChartRow(b, class, `data-key="`+template.HTMLEscapeString(id)+`"`, perc, ref, ncol, "")
 	}
 	b.WriteString(`</div>`)
 
@@ -313,4 +297,78 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 	}
 
 	return template.HTML(b.String())
+}
+
+// HorizontalChartPages adapts page statistics to the same horizontal-chart
+// row component used by referrers, browsers, systems, locations, and languages.
+// Only its action and optional nested detail data are page-specific.
+func HorizontalChartPages(
+	ctx context.Context, pages goatcounter.HitLists, total int, showRefs goatcounter.PathID,
+	refs goatcounter.HitStats, widgetID int, rowsOnly bool,
+) template.HTML {
+	if total == 0 || len(pages) == 0 {
+		return template.HTML("<em>" + i18n.T(ctx, "dashboard/nothing-to-display|Nothing to display") + "</em>")
+	}
+
+	b := new(strings.Builder)
+	if !rowsOnly {
+		b.WriteString(`<div class="rows pages">`)
+	}
+	for _, page := range pages {
+		perc := horizontalChartPercentage(page.Count, total)
+		name := template.HTMLEscapeString(zstring.ElideCenter(page.Path, 76))
+		class := "hchart-row"
+		if page.Event {
+			class += " event"
+		}
+		if page.PathID == showRefs {
+			class += " target"
+		}
+
+		suffix := ""
+		if page.Event {
+			suffix += `<sup class="label-event">` + i18n.T(ctx, "event|event") + `</sup>`
+		}
+
+		content := `<a class="hchart-row-link load-detail rlink" href="#" title="` +
+			template.HTMLEscapeString(page.Path) + `">` +
+			`<span class="bar" style="width: ` + perc + `"></span>` +
+			`<span class="bar-c"><span class="cutoff">` + name + `</span> ` + suffix + `</span></a>`
+		attrs := fmt.Sprintf(`id="%s" data-id="%d" data-key="%d" data-count="%d" data-detail-total="%d"`,
+			template.HTMLEscapeString(page.Path), page.PathID, page.PathID, page.Count, page.Count)
+		writeHorizontalChartRow(b, class, attrs, perc, content,
+			tplfunc.Number(page.Count, 0x202f), "")
+		if page.PathID == showRefs {
+			fmt.Fprintf(b, `<div class="hchart detail" data-widget="%d" data-key="%d" data-total="%d">%s</div>`,
+				widgetID, page.PathID, page.Count, HorizontalChart(ctx, refs, page.Count, false, true))
+		}
+	}
+	if !rowsOnly {
+		b.WriteString(`</div>`)
+	}
+	return template.HTML(b.String())
+}
+
+func horizontalChartPercentage(count, total int) string {
+	p := float64(count) / float64(total) * 100
+	switch {
+	case p == 0:
+		return "0%"
+	case p < .5:
+		return fmt.Sprintf("%.1f%%", p)[1:]
+	default:
+		return fmt.Sprintf("%.0f%%", math.Round(p))
+	}
+}
+
+func writeHorizontalChartRow(
+	b *strings.Builder, class, attrs, percentage, content, count, extra string,
+) {
+	fmt.Fprintf(b, `
+		<div class="%[1]s" %[2]s>
+			<span class="col-name">%[4]s</span>
+			<span class="col-count">%[5]s</span>
+			<span class="col-count col-perc">%[3]s</span>
+			%[6]s
+		</div>`, class, attrs, percentage, content, count, extra)
 }

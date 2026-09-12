@@ -4,7 +4,7 @@ with prev as (
 		sum(total) as total
 	from hit_counts
 	where
-		path_id :in (:paths) and
+		site = :site and path_id :in (:paths) and
 		hour >= :prevstart and hour <= :prevend
 	group by path_id
 ),
@@ -14,7 +14,7 @@ cur as (
 		sum(c.total) as total
 	from hit_counts c
 	where
-		path_id :in (:paths) and
+		site = :site and path_id :in (:paths) and
 		hour >= :start and hour <= :end
 	group by path_id
 )

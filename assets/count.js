@@ -4,14 +4,16 @@
 	'use strict';
 
 	window.goatcounter = window.goatcounter || {}
+	var script = document.currentScript
+	if (!script)
+		script = document.querySelector('script[data-site][src], script[data-endpoint][src], script[src*="/count.js"]')
 
 	// Load settings from data-goatcounter-settings.
-	var s = document.querySelector('script[data-goatcounter]')
-	if (s && s.dataset.goatcounterSettings) {
-		try         { var set = JSON.parse(s.dataset.goatcounterSettings) }
+	if (script && script.dataset.goatcounterSettings) {
+		try         { var set = JSON.parse(script.dataset.goatcounterSettings) }
 		catch (err) { console.error('invalid JSON in data-goatcounter-settings: ' + err) }
 		for (var k in set)
-			if (['no_onload', 'no_events', 'allow_local', 'allow_frame', 'path', 'title', 'referrer', 'event'].indexOf(k) > -1)
+			if (['no_onload', 'no_events', 'allow_local', 'allow_frame', 'path', 'referrer', 'event'].indexOf(k) > -1)
 				window.goatcounter[k] = set[k]
 	}
 
@@ -21,27 +23,24 @@
 	window.goatcounter.get_data = function(vars) {
 		vars = vars || {}
 		var data = {
+			site: (vars.site === undefined ? ((script || {}).dataset || {}).site : vars.site),
 			p: (vars.path     === undefined ? goatcounter.path     : vars.path),
 			r: (vars.referrer === undefined ? goatcounter.referrer : vars.referrer),
-			t: (vars.title    === undefined ? goatcounter.title    : vars.title),
 			e: !!(vars.event || goatcounter.event),
 			s: window.screen.width,
 			b: is_bot(),
 			q: location.search,
 		}
 
-		var rcb, pcb, tcb  // Save callbacks to apply later.
+		var rcb, pcb  // Save callbacks to apply later.
 		if (typeof(data.r) === 'function') rcb = data.r
-		if (typeof(data.t) === 'function') tcb = data.t
 		if (typeof(data.p) === 'function') pcb = data.p
 
 		if (is_empty(data.r)) data.r = document.referrer
-		if (is_empty(data.t)) data.t = document.title
 		if (is_empty(data.p)) data.p = get_path()
 		if (vars.no_session) data.ns = (typeof(vars.no_session) === 'function' ? vars.no_session(false) : vars.no_session)
 
 		if (rcb) data.r = rcb(data.r)
-		if (tcb) data.t = tcb(data.t)
 		if (pcb) data.p = pcb(data.p)
 		return data
 	}
@@ -82,8 +81,18 @@
 
 	// Get the endpoint to send requests to.
 	var get_endpoint = function() {
-		var s = document.querySelector('script[data-goatcounter]')
-		return (s && s.dataset.goatcounter) ? s.dataset.goatcounter : goatcounter.endpoint
+		if (script && script.dataset.endpoint)
+			return script.dataset.endpoint
+		if (goatcounter.endpoint)
+			return goatcounter.endpoint
+		if (!script || !script.src)
+			return
+
+		// The default endpoint is "count" in the same directory as count.js.
+		// script.src is absolute even if the attribute used a relative or
+		// protocol-relative URL.
+		var src = script.src.split('#')[0].split('?')[0]
+		return src.substr(0, src.lastIndexOf('/') + 1) + 'count'
 	}
 
 	// Get current path.
@@ -180,7 +189,6 @@
 				goatcounter.count({
 					event:      true,
 					path:       (elem.dataset.goatcounterClick || elem.name || elem.id || ''),
-					title:      (elem.dataset.goatcounterTitle || elem.title || (elem.innerHTML || '').substr(0, 200) || ''),
 					referrer:   (elem.dataset.goatcounterReferrer || elem.dataset.goatcounterReferral || ''),
 					no_session: ['1', 't', 'true'].indexOf((elem.dataset.goatcounterNoSession || '').toLowerCase()) !== -1,
 				})

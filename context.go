@@ -3,6 +3,7 @@ package goatcounter
 import (
 	"context"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/geo"
@@ -51,7 +52,6 @@ func init() {
 }
 
 var (
-	keyCacheSite      = &struct{ n string }{""}
 	keyCacheUA        = &struct{ n string }{""}
 	keyCacheBrowsers  = &struct{ n string }{""}
 	keyCacheSystems   = &struct{ n string }{""}
@@ -59,25 +59,30 @@ var (
 	keyCacheRefs      = &struct{ n string }{""}
 	keyCacheLoc       = &struct{ n string }{""}
 	keyCacheCampaigns = &struct{ n string }{""}
-	keyChangedTitles  = &struct{ n string }{""}
 
 	keyConfig = &struct{ n string }{""}
 	keyHost   = &struct{ n string }{""}
 )
 
-// The site is a singleton, so the cache only ever holds this one key.
-const cacheSiteKey = "site"
-
 type GlobalConfig struct {
-	Timezone      Timezone
-	Domain        string
-	DomainStatic  string
-	DomainCount   string
-	BasePath      string
-	URLStatic     string
-	Dev           bool
-	Port          string
-	BcryptMinCost bool
+	Timezone     Timezone
+	Domain       string
+	DomainStatic string
+	DomainCount  string
+	BasePath     string
+	URLStatic    string
+	Dev          bool
+	Port         string
+	Sites        []Site
+}
+
+func (c *GlobalConfig) Site(name string) (Site, bool) {
+	for _, s := range c.Sites {
+		if strings.EqualFold(s.LinkDomain, strings.TrimSpace(name)) {
+			return s, true
+		}
+	}
+	return Site{}, false
 }
 
 // WithSite adds the site to the context.
@@ -112,29 +117,6 @@ func MustGetSite(ctx context.Context) *Site {
 	return s
 }
 
-// WithUser adds the site to the context.
-func WithUser(ctx context.Context, u *User) context.Context {
-	return context.WithValue(ctx, ctxkey.User, u)
-}
-
-// GetUser gets the currently logged in user.
-func GetUser(ctx context.Context) *User {
-	u, _ := ctx.Value(ctxkey.User).(*User)
-	if u == nil {
-		return &User{}
-	}
-	return u
-}
-
-// MustGetUser behaves as GetUser(), panicking if this fails.
-func MustGetUser(ctx context.Context) *User {
-	u := GetUser(ctx)
-	if u == nil {
-		panic("MustGetUser: no user on context")
-	}
-	return u
-}
-
 // NewContext creates a new context with all values set.
 func NewContext(ctx context.Context, db zdb.DB) context.Context {
 	n := zdb.WithDB(context.Background(), db)
@@ -145,7 +127,6 @@ func NewContext(ctx context.Context, db zdb.DB) context.Context {
 }
 
 func NewCache(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, keyCacheSite, zcache.New[string, *Site](24*time.Hour, 1*time.Hour))
 	ctx = context.WithValue(ctx, keyCacheUA, zcache.New[string, UserAgent](30*time.Minute, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCacheBrowsers, zcache.New[string, Browser](1*time.Hour, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCacheSystems, zcache.New[string, System](1*time.Hour, 5*time.Minute))
@@ -153,7 +134,6 @@ func NewCache(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, keyCacheRefs, zcache.New[string, Ref](1*time.Hour, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCacheLoc, zcache.New[string, *Location](zcache.NoExpiration, zcache.NoExpiration))
 	ctx = context.WithValue(ctx, keyCacheCampaigns, zcache.New[string, *Campaign](24*time.Hour, 15*time.Minute))
-	ctx = context.WithValue(ctx, keyChangedTitles, zcache.New[string, []string](48*time.Hour, 1*time.Hour))
 	return ctx
 }
 
@@ -168,12 +148,6 @@ func Config(ctx context.Context) *GlobalConfig {
 	return &GlobalConfig{}
 }
 
-func cacheSite(ctx context.Context) *zcache.Cache[string, *Site] {
-	if c := ctx.Value(keyCacheSite); c != nil {
-		return c.(*zcache.Cache[string, *Site])
-	}
-	return zcache.New[string, *Site](0, 0)
-}
 func cacheUA(ctx context.Context) *zcache.Cache[string, UserAgent] {
 	if c := ctx.Value(keyCacheUA); c != nil {
 		return c.(*zcache.Cache[string, UserAgent])
@@ -215,10 +189,4 @@ func cacheCampaigns(ctx context.Context) *zcache.Cache[string, *Campaign] {
 		return c.(*zcache.Cache[string, *Campaign])
 	}
 	return zcache.New[string, *Campaign](0, 0)
-}
-func cacheChangedTitles(ctx context.Context) *zcache.Cache[string, []string] {
-	if c := ctx.Value(keyChangedTitles); c != nil {
-		return c.(*zcache.Cache[string, []string])
-	}
-	return zcache.New[string, []string](0, 0)
 }

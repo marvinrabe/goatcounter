@@ -19,7 +19,9 @@ func updateRefCounts(ctx context.Context, hits []goatcounter.Hit) error {
 			refID  goatcounter.RefID
 		}
 		grouped := map[string]gt{}
+		siteByPath := map[goatcounter.PathID]string{}
 		for _, h := range hits {
+			siteByPath[h.PathID] = h.Site
 			if h.Bot > 0 {
 				continue
 			}
@@ -46,7 +48,7 @@ func updateRefCounts(ctx context.Context, hits []goatcounter.Hit) error {
 
 		for _, v := range grouped {
 			if v.total > 0 {
-				ins.Values(v.pathID, v.hour, v.refID, v.total)
+				ins.Values(siteByPath[v.pathID], v.pathID, v.hour, v.refID, v.total)
 			}
 		}
 		return ins.Finish()

@@ -1,12 +1,39 @@
 <div id="dash-widgets">
-	{{$div := false}}
-	{{range $w := .Widgets}}
-		{{if and (eq $w.Type "hchart") (not $div)}}
-			{{$div = true}}
-			<div class="hcharts">
-		{{end}}
-		{{if and (ne $w.Type "hchart") $div}}</div>{{$div = false}}{{end}}
-		{{$w.HTML}}
-	{{end}}
-	{{if $div}}</div>{{end}}
+	{{$widgets := .Widgets}}
+	{{(index ($widgets.Get "totalpages") 0).HTML}}
+	<div class="hcharts dashboard-grid">
+		<section class="dashboard-card">
+			<div class="card-tabs"><span class="card-tab active">Pages</span></div>
+			<div class="card-panel active">{{(index ($widgets.Get "pages") 0).HTML}}</div>
+		</section>
+
+		<section class="dashboard-card" data-card-tabs data-card="acquisition">
+			<div class="card-tabs" role="tablist" aria-label="Acquisition">
+				<button type="button" class="card-tab link active" data-panel="sources" aria-selected="true">Sources</button>
+				<button type="button" class="card-tab link" data-panel="campaigns" aria-selected="false">Campaigns</button>
+			</div>
+			<div class="card-panel active" data-panel="sources">{{(index ($widgets.Get "toprefs") 0).HTML}}</div>
+			<div class="card-panel" data-panel="campaigns" hidden>{{(index ($widgets.Get "campaigns") 0).HTML}}</div>
+		</section>
+
+		<section class="dashboard-card" data-card-tabs data-card="technology">
+			<div class="card-tabs" role="tablist" aria-label="Technology">
+				<button type="button" class="card-tab link active" data-panel="browsers" aria-selected="true">Browsers</button>
+				<button type="button" class="card-tab link" data-panel="systems" aria-selected="false">Operating systems</button>
+				<button type="button" class="card-tab link" data-panel="sizes" aria-selected="false">Devices</button>
+			</div>
+			<div class="card-panel active" data-panel="browsers">{{(index ($widgets.Get "browsers") 0).HTML}}</div>
+			<div class="card-panel" data-panel="systems" hidden>{{(index ($widgets.Get "systems") 0).HTML}}</div>
+			<div class="card-panel" data-panel="sizes" hidden>{{(index ($widgets.Get "sizes") 0).HTML}}</div>
+		</section>
+
+		<section class="dashboard-card" data-card-tabs data-card="audience">
+			<div class="card-tabs" role="tablist" aria-label="Audience">
+				<button type="button" class="card-tab link active" data-panel="locations" aria-selected="true">Locations</button>
+				<button type="button" class="card-tab link" data-panel="languages" aria-selected="false">Languages</button>
+			</div>
+			<div class="card-panel active" data-panel="locations">{{(index ($widgets.Get "locations") 0).HTML}}</div>
+			<div class="card-panel" data-panel="languages" hidden>{{(index ($widgets.Get "languages") 0).HTML}}</div>
+		</section>
+	</div>
 </div>

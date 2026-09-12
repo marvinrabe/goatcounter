@@ -2,59 +2,57 @@ package goatcounter_test
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
+	"zgo.at/zstd/ztime"
 )
 
-func TestSiteLoad(t *testing.T) {
+func TestSiteLoadFromConfig(t *testing.T) {
 	ctx := testenv.DB(t)
-
-	var s Site
+	s, ok := Config(ctx).Site("example.com")
+	if !ok {
+		t.Fatal("configured site not found")
+	}
 	if err := s.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if s.CreatedAt.IsZero() {
-		t.Error("created_at is zero")
+	if s.Key != "example.com" || s.LinkDomain != "example.com" {
+		t.Fatalf("wrong site: %#v", s)
 	}
-	if s.Settings.Public != "private" {
-		t.Errorf("default settings not applied: %#v", s.Settings)
-	}
-}
-
-func TestSiteUpdate(t *testing.T) {
-	ctx := testenv.DB(t)
-
-	var s Site
-	if err := s.Load(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	s.LinkDomain = "example.com"
-	s.Settings.Public = "public"
-	if err := s.Update(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	// Re-read from the database; Update() clears the cache.
-	var s2 Site
-	if err := s2.Load(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if s2.LinkDomain != "example.com" {
-		t.Errorf("link_domain not stored: %q", s2.LinkDomain)
-	}
-	if !s2.Settings.IsPublic() {
-		t.Errorf("settings not stored: %#v", s2.Settings)
+	if s.Settings.Public != "private" || s.Settings.DataRetention != 0 || s.Settings.Collect != CollectAll {
+		t.Errorf("fixed settings not applied: %#v", s.Settings)
 	}
 }
 
-func TestSiteValidate(t *testing.T) {
+func TestSitesAreIsolatedByStableName(t *testing.T) {
 	ctx := testenv.DB(t)
+	second := Site{Key: "foobar.net", LinkDomain: "foobar.net"}
+	second.Defaults(ctx)
+	Config(ctx).Sites = append(Config(ctx).Sites, second)
 
-	s := Site{LinkDomain: "not a url"}
-	s.Defaults(ctx)
-	if err := s.Validate(ctx); err == nil {
-		t.Error("no error for an invalid link_domain")
+	now := ztime.Now(ctx)
+	testenv.StoreHits(ctx, t, false,
+		Hit{Site: "example.com", Path: "/same", FirstVisit: true, CreatedAt: now},
+		Hit{Site: "foobar.net", Path: "/same", FirstVisit: true, CreatedAt: now},
+		Hit{Site: "foobar.net", Path: "/other", FirstVisit: true, CreatedAt: now},
+	)
+
+	rng := ztime.NewRange(now.Add(-time.Hour)).To(now.Add(time.Hour))
+	for _, tt := range []struct {
+		name  string
+		total int
+	}{{"example.com", 1}, {"foobar.net", 2}} {
+		s, _ := Config(ctx).Site(tt.name)
+		siteCtx := WithSite(ctx, &s)
+		var rows HitLists
+		total, _, err := rows.List(siteCtx, rng, PathFilter{}, nil, 10, GroupHourly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != tt.total {
+			t.Errorf("%s total=%d, want %d", tt.name, total, tt.total)
+		}
 	}
 }

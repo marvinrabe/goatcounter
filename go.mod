@@ -3,11 +3,12 @@ module github.com/marvinrabe/goatcounter
 go 1.27.0
 
 require (
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/monoculum/formam/v3 v3.6.1-0.20221106124510-6a93f49ac1f8
 	github.com/sethvargo/go-limiter v1.2.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/oauth2 v0.37.0
 	zgo.at/errors v1.6.0
 	zgo.at/gadget v1.0.0
 	zgo.at/guru v1.2.0
@@ -22,3 +23,5 @@ require (
 	zgo.at/ztpl v0.0.0-20250628022642-3b2c314e8e05
 	zgo.at/zvalidate v0.0.0-20250622183046-6812c1c79e1a
 )
+
+require github.com/go-jose/go-jose/v4 v4.1.4 // indirect

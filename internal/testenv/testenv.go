@@ -32,8 +32,10 @@ func Context(db zdb.DB) context.Context {
 	geodb, _ := geo.Open("")
 	ctx = geo.With(ctx, geodb)
 
-	goatcounter.Config(ctx).BcryptMinCost = true
 	goatcounter.Config(ctx).Domain = "test"
+	s := goatcounter.Site{Key: "example.com", LinkDomain: "example.com"}
+	s.Defaults(ctx)
+	goatcounter.Config(ctx).Sites = []goatcounter.Site{s}
 	return ctx
 }
 
@@ -93,16 +95,6 @@ func initData(ctx context.Context, db zdb.DB, t testing.TB) context.Context {
 		t.Fatalf("create site: %s", err)
 	}
 	ctx = goatcounter.WithSite(ctx, &site)
-
-	user := goatcounter.User{
-		Email:    "test@testenv.localhost",
-		Password: []byte("coconuts"),
-	}
-	err = user.Insert(ctx, false)
-	if err != nil {
-		t.Fatalf("create user: %s", err)
-	}
-	ctx = goatcounter.WithUser(ctx, &user)
 
 	return ctx
 }

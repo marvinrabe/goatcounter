@@ -6,21 +6,13 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/cron"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zstd/zbool"
 	"zgo.at/zstd/ztime"
 )
 
-func TestDataRetention(t *testing.T) {
+func TestDataRetentionForever(t *testing.T) {
 	ctx := testenv.DB(t)
-
-	site := goatcounter.MustGetSite(ctx)
-	site.Settings.DataRetention = 31
-	err := site.Update(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	now := time.Now().UTC()
 	past := now.Add(-40 * 24 * time.Hour)
@@ -32,18 +24,12 @@ func TestDataRetention(t *testing.T) {
 		{CreatedAt: past, Path: "/a", FirstVisit: zbool.Bool(false)},
 	}...)
 
-	err = cron.TaskDataRetention()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cron.WaitDataRetention()
-
 	var hits goatcounter.Hits
-	err = hits.TestList(ctx)
+	err := hits.TestList(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 0 {
+	if len(hits) != 4 {
 		t.Errorf("len(hits) is %d\n%v", len(hits), hits)
 	}
 
@@ -56,7 +42,7 @@ func TestDataRetention(t *testing.T) {
 	}
 
 	out := fmt.Sprintf("%d %t %v", display, more, err)
-	want := `1 false <nil>`
+	want := `2 false <nil>`
 	if out != want {
 		t.Errorf("\ngot:  %s\nwant: %s", out, want)
 	}

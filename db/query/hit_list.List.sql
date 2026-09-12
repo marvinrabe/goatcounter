@@ -16,7 +16,6 @@ with x as (
 select
 	path_id,
 	paths.path,
-	paths.title,
 	paths.event,
 	total as count,
 	coalesce(stats2, '{}') as stats2

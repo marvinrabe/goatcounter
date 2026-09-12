@@ -9,6 +9,7 @@ import (
 
 type TotalCount struct {
 	goatcounter.TotalCount
+	Metrics goatcounter.DashboardMetrics
 
 	loaded bool
 	err    error
@@ -30,6 +31,10 @@ func (w TotalCount) RenderHTML(context.Context, SharedData) (string, any) { retu
 
 func (w *TotalCount) GetData(ctx context.Context, a Args) (more bool, err error) {
 	w.TotalCount, err = goatcounter.GetTotalCount(ctx, a.Rng, a.PathFilter, w.NoEvents)
+	if err != nil {
+		return false, err
+	}
+	w.Metrics, err = goatcounter.GetDashboardMetrics(ctx, a.Rng, a.PathFilter)
 	w.loaded = true
 	return false, err
 }

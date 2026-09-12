@@ -15,7 +15,7 @@ import (
 )
 
 func NewBackend(db zdb.DB, dev bool,
-	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits,
+	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits, apiToken string, auth Auth,
 ) chi.Router {
 
 	root := chi.NewRouter()
@@ -25,7 +25,7 @@ func NewBackend(db zdb.DB, dev bool,
 		root.Mount(basePath, r)
 	}
 
-	backend{dashTimeout}.Mount(r, db, dev, domainStatic, ratelimits)
+	backend{dashTimeout: dashTimeout, apiToken: apiToken}.Mount(r, db, dev, domainStatic, ratelimits, auth)
 
 	NewStatic(r, dev, basePath)
 
@@ -34,9 +34,10 @@ func NewBackend(db zdb.DB, dev bool,
 
 type backend struct {
 	dashTimeout int
+	apiToken    string
 }
 
-func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, ratelimits Ratelimits) {
+func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, ratelimits Ratelimits, auth Auth) {
 	r.Use(
 		mware.RealIP(),
 		mware.WrapWriter(),
@@ -102,8 +103,14 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic string, r
 		"X-Content-Type-Options":    []string{"nosniff"},
 		"X-Frame-Options":           []string{}, // Clear default from zhttp
 	}))
-	a.With(loggedInOrPublic).Get("/", zhttp.Wrap(h.dashboard))
-	af := a.With(loggedIn)
+	auth.Mount(a)
+	af := a.With(auth.Middleware)
+	af.Get("/", zhttp.Wrap(h.dashboard))
 	af.Get("/load-widget", zhttp.Wrap(h.loadWidget))
-	settings{}.mount(af, ratelimits)
+
+	// An empty token disables the API completely: no route is registered.
+	if h.apiToken != "" {
+		a.With(h.bearerAuth).Get("/api", h.api)
+		a.With(h.bearerAuth).Post("/api", h.api)
+	}
 }

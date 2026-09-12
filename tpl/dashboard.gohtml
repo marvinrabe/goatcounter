@@ -19,13 +19,13 @@
 				"bold"      (tag "strong" "")
 				"pre"       (tag "pre" "")
 				"domain"    (.Site.Domain .Context)
-				"js_code"   (printf "<script data-goatcounter=\"%s/count\"\n        async src=\"//%s/count.js\"></script>" (.Site.URL .Context) .CountDomain)
+				"js_code"   (printf "<script data-site=\"%s\"\n        async src=\"//%s/count.js\"></script>" .Site.LinkDomain .CountDomain)
 			)}}
 		</div>
 	{{end}}
 
 {{/* Hide in CSS as the JavaScript uses a number of the elements to render the charts. */}}
-{{if and (not .User.ID) (.HideUI)}}
+{{if .HideUI}}
 	<style>
 		#dash-form, nav.center { display: none; }
 		.page                  { max-width: unset; box-shadow: unset; margin: 0; padding: 0; }
@@ -34,6 +34,7 @@
 {{end}}
 
 <form id="dash-form">
+	<input type="hidden" name="site" value="{{.Site.LinkDomain}}">
 	{{/* The first button gets used on the enter key, AFAICT there is no way to change that. */}}
 	<button type="submit" tabindex="-1" class="hide-btn" aria-label="{{.T "button/submit|Submit"}}"></button>
 	{{if .ShowRefs}}<input type="hidden" name="showrefs" value="{{.ShowRefs}}">{{end}}
@@ -45,12 +46,12 @@
 			<span>
 				<input type="date" autocomplete="off" id="period-start" name="period-start"
 					min="{{.Site.FirstHitAt.Format "2006-01-02"}}" max="{{time "now" "2006-01-02"}}"
-					title="{{.T "nav-dash/start-date|First day to display"}}"
+					aria-label="{{.T "nav-dash/start-date|First day to display"}}"
 					value="{{tformat $.Context .Period.Start ""}}"
 				>–{{- "" -}}
 				<input type="date" autocomplete="off" id="period-end" name="period-end"
 					min="{{.Site.FirstHitAt.Format "2006-01-02"}}" max="{{time "now" "2006-01-02"}}"
-					title="{{.T "nav-dash/end-date|Last day to display"}}"
+					aria-label="{{.T "nav-dash/end-date|Last day to display"}}"
 					value="{{tformat $.Context .Period.End ""}}"
 				>{{- "" -}}
 			</span>
@@ -77,13 +78,12 @@
 						class="unstyled">
 				</div>
 				<div id="filter-help">{{.T `nav-dash/filter-tooltip|
-					<p>Filter the list of paths; matched case-insensitive on path and title. %[%more More help]</p>
+					<p>Filter the list of paths; matched case-insensitive. %[%more More help]</p>
 
 					<div>
 						<p>Recognizes the following keywords:</p>
 						<ul>
-							<li><em>at:start</em>, <em>at:end</em>:       match only at the start or end of path or title. Use both for exact match.</li>
-							<li><em>in:path</em>, <em>in:title</em>       match only path or title.</li>
+							<li><em>at:start</em>, <em>at:end</em>:       match only at the start or end of the path. Use both for exact match.</li>
 							<li><em>is:event</em>, <em>is:pageview</em>   show only events or pageviews.</li>
 							<li><em>:not</em> negate the match (that is: only show paths that don't match the filter).</li>
 						</ul>

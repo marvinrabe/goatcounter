@@ -78,7 +78,7 @@ func TestLanguageStatsNoCollect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := `{false [{ (unknown) 1 <nil>}]}`
+	want := `{false [{nld Dutch 1 <nil>}]}`
 	out := fmt.Sprintf("%v", stats)
 	if want != out {
 		t.Errorf("\nwant: %s\nout:  %s", want, out)

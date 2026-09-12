@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/marvinrabe/goatcounter/internal/db2"
-	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
 	"zgo.at/zdb"
 	"zgo.at/zstd/zbool"
@@ -19,52 +17,45 @@ type PathID int32
 
 type Path struct {
 	ID    PathID     `db:"path_id,id" json:"id"` // Path ID
-	Path  string     `db:"path" json:"path"`     // Path name
-	Title string     `db:"title" json:"title"`   // Page title
-	Event zbool.Bool `db:"event" json:"event"`   // Is this an event?
+	Site  string     `db:"site" json:"site"`
+	Path  string     `db:"path" json:"path"`   // Path name
+	Event zbool.Bool `db:"event" json:"event"` // Is this an event?
 }
 
 func (Path) Table() string { return "paths" }
 
 var _ zdb.Defaulter = &Path{}
 
-func (p *Path) Defaults(ctx context.Context) {}
+func (p *Path) Defaults(ctx context.Context) { p.Site = MustGetSite(ctx).Key }
 
 var _ zdb.Validator = &Path{}
 
 func (p *Path) Validate(ctx context.Context) error {
 	v := NewValidate(ctx)
 	v.UTF8("path", p.Path)
-	v.UTF8("title", p.Title)
 	v.Len("path", p.Path, 1, 2048)
-	v.Len("title", p.Title, 0, 1024)
 	return v.ErrorOrNil()
 }
 
 func (p *Path) ByID(ctx context.Context, id PathID) error {
 	err := zdb.Get(ctx, p,
-		`/* Path.ByID */ select * from paths where path_id=?`, id)
+		`/* Path.ByID */ select * from paths where path_id=? and site=?`, id, MustGetSite(ctx).Key)
 	return errors.Wrapf(err, "Path.ByID(%d)", id)
 }
 
 func (p *Path) ByPath(ctx context.Context, path string) error {
 	err := zdb.Get(ctx, p,
-		`/* Path.ByPath */ select * from paths where lower(path) = lower(?)`, path)
+		`/* Path.ByPath */ select * from paths where lower(path) = lower(?) and site=?`, path, MustGetSite(ctx).Key)
 	return errors.Wrapf(err, "Path.ByPath(%q)", path)
 }
 
 func (p *Path) GetOrInsert(ctx context.Context) error {
-	title := p.Title
-	k := p.Path
+	k := MustGetSite(ctx).Key + ":" + p.Path
 	c, ok := cachePaths(ctx).Get(k)
 	if ok {
 		*p = c
 		cachePaths(ctx).Touch(k)
 
-		err := p.updateTitle(ctx, p.Title, title)
-		if err != nil {
-			log.Error(ctx, err, "path_id", p.ID, "title", title)
-		}
 		return nil
 	}
 
@@ -76,16 +67,12 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 
 	err = zdb.Get(ctx, p, `/* Path.GetOrInsert */
 		select * from paths
-		where lower(path) = lower($1)
-		limit 1`, p.Path)
+		where lower(path) = lower($1) and site = $2
+		limit 1`, p.Path, MustGetSite(ctx).Key)
 	if err != nil && !zdb.ErrNoRows(err) {
 		return errors.Errorf("Path.GetOrInsert select: %w", err)
 	}
 	if err == nil {
-		err := p.updateTitle(ctx, p.Title, title)
-		if err != nil {
-			log.Error(ctx, err, "path_id", p.ID, "title", title)
-		}
 		cachePaths(ctx).Set(k, *p)
 		return nil
 	}
@@ -103,7 +90,7 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 		return errors.Wrap(err, "Path.GetOrInsert insert")
 	}
 	for _, ff := range f {
-		m := ff.Match(p.Path, p.Title, bool(p.Event))
+		m := ff.Match(p.Path, bool(p.Event))
 		if ff.Invert {
 			m = !m
 		}
@@ -116,44 +103,6 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 	}
 
 	cachePaths(ctx).Set(k, *p)
-	return nil
-}
-
-func (p Path) updateTitle(ctx context.Context, currentTitle, newTitle string) error {
-	if newTitle == currentTitle {
-		return nil
-	}
-
-	k := strconv.Itoa(int(p.ID))
-	_, ok := cacheChangedTitles(ctx).Get(k)
-	if !ok {
-		cacheChangedTitles(ctx).Set(k, []string{newTitle})
-		return nil
-	}
-
-	var titles []string
-	cacheChangedTitles(ctx).Modify(k, func(v []string) []string {
-		v = append(v, newTitle)
-		titles = v
-		return v
-	})
-
-	grouped := make(map[string]int)
-	for _, t := range titles {
-		grouped[t]++
-	}
-
-	for t, n := range grouped {
-		if n > 10 {
-			err := zdb.Exec(ctx, `update paths set title = $1 where path_id = $2`, t, p.ID)
-			if err != nil {
-				return errors.Wrap(err, "Paths.updateTitle")
-			}
-			cacheChangedTitles(ctx).Delete(k)
-			break
-		}
-	}
-
 	return nil
 }
 
@@ -184,7 +133,8 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 
 			selCTE[l] = fmt.Sprintf("sum(%[1]s) as %[1]s", selCTE[l])
 
-			group = group[i+1 : len(group)-1]
+			group = slices.Delete(group, i, i+1)
+			group = group[:len(group)-1]
 
 			err := zdb.Exec(ctx, `load:paths.Merge`, map[string]any{
 				"Table":      t.Table,
@@ -238,6 +188,7 @@ type Paths []Path
 // List all paths.
 func (p *Paths) List(ctx context.Context, after PathID, limit int) (bool, error) {
 	err := zdb.Select(ctx, p, "load:paths.List", map[string]any{
+		"site":  MustGetSite(ctx).Key,
 		"after": after,
 		"limit": limit + 1,
 	})

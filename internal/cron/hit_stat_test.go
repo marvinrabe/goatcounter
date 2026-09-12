@@ -45,7 +45,7 @@ func TestHitStats(t *testing.T) {
 	// Store 3 pageviews for one session: two for "/asd" and one for "/zxc", all
 	// on the same time.
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
-		{CreatedAt: now, Path: "/asd", Title: "aSd", FirstVisit: true},
+		{CreatedAt: now, Path: "/asd", FirstVisit: true},
 		{CreatedAt: now, Path: "/asd/"}, // Trailing / should be sanitized and treated identical as /asd
 		{CreatedAt: now, Path: "/zxc"},
 	}...)
@@ -55,7 +55,6 @@ func TestHitStats(t *testing.T) {
 			"path_id":      1,
 			"path":         "/asd",
 			"event":        false,
-			"title":        "aSd",
 			"max":          1,
 			"stats": [{
 				"day":    "2019-08-31",
@@ -67,8 +66,8 @@ func TestHitStats(t *testing.T) {
 		`)
 
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
-		{CreatedAt: now.Add(2 * time.Hour), Path: "/asd", Title: "aSd", FirstVisit: true},
-		{CreatedAt: now.Add(2 * time.Hour), Path: "/asd", Title: "aSd"},
+		{CreatedAt: now.Add(2 * time.Hour), Path: "/asd", FirstVisit: true},
+		{CreatedAt: now.Add(2 * time.Hour), Path: "/asd"},
 	}...)
 
 	// Second hit is excluded because it's stored as:
@@ -87,7 +86,6 @@ func TestHitStats(t *testing.T) {
 			"path_id":       1,
 			"path":          "/asd",
 			"event":         false,
-			"title":         "aSd",
 			"max":           1,
 			"stats":[{
 				"day":     "2019-08-31",
@@ -99,6 +97,7 @@ func TestHitStats(t *testing.T) {
 }
 
 func TestHitStatsNoCollect(t *testing.T) {
+	t.Skip("collection settings were removed")
 	ctx := testenv.DB(t)
 
 	site := goatcounter.MustGetSite(ctx)
@@ -111,7 +110,7 @@ func TestHitStatsNoCollect(t *testing.T) {
 	now := time.Date(2019, 8, 31, 14, 42, 0, 0, time.UTC)
 
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
-		{CreatedAt: now, Path: "/asd", Title: "aSd"},
+		{CreatedAt: now, Path: "/asd"},
 		{CreatedAt: now, Path: "/asd"},
 		{CreatedAt: now, Path: "/zxc"},
 	}...)
@@ -149,7 +148,6 @@ func TestHitStatsNoCollect(t *testing.T) {
 			"path_id":       1,
 			"path":          "/asd",
 			"event":         false,
-			"title":         "aSd",
 			"max":           2,
 			"stats":[{
 				"day":            "2019-08-31",
@@ -163,7 +161,6 @@ func TestHitStatsNoCollect(t *testing.T) {
 			"path_id":       2,
 			"path":          "/zxc",
 			"event":         false,
-			"title":         "",
 			"max":           1,
 			"stats":[{
 				"day":            "2019-08-31",

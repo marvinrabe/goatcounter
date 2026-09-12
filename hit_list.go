@@ -81,9 +81,6 @@ type HitList struct {
 	// Is this an event?
 	Event zbool.Bool `db:"event" json:"event"`
 
-	// Page title.
-	Title string `db:"title" json:"title"`
-
 	// Highest visitors per hour or day (depending on daily being set).
 	Max int `json:"max"`
 
@@ -135,6 +132,7 @@ type HitListStat struct {
 // PathCount gets the visit count for one path.
 func (h *HitList) PathCount(ctx context.Context, path string, rng ztime.Range) error {
 	err := zdb.Get(ctx, h, "load:hit_list.PathCount", map[string]any{
+		"site":  MustGetSite(ctx).Key,
 		"path":  path,
 		"start": rng.Start,
 		"end":   rng.End,
@@ -148,10 +146,11 @@ func (h *HitList) SiteTotalUTC(ctx context.Context, rng ztime.Range) error {
 		select
 			coalesce(sum(total), 0) as count
 		from hit_counts
-		where 1=1
+		where site = :site
 		{{:start and hour >= :start}}
 		{{:end   and hour <= :end}}
 	`, map[string]any{
+		"site":  MustGetSite(ctx).Key,
 		"start": rng.Start,
 		"end":   rng.End,
 	})
@@ -224,11 +223,11 @@ func (h *HitList) sum(ctx context.Context, rng ztime.Range, group Group) int {
 type HitLists []HitList
 
 // ListPathsLike lists all paths matching the like pattern.
-func (h *HitLists) ListPathsLike(ctx context.Context, search string, matchTitle, matchCase bool) error {
+func (h *HitLists) ListPathsLike(ctx context.Context, search string, matchCase bool) error {
 	err := zdb.Select(ctx, h, "load:hit_list.ListPathsLike", map[string]any{
-		"search":      search,
-		"match_title": matchTitle,
-		"match_case":  matchCase,
+		"site":       MustGetSite(ctx).Key,
+		"search":     search,
+		"match_case": matchCase,
 	})
 	return errors.Wrap(err, "Hits.ListPathsLike")
 }
@@ -365,6 +364,7 @@ func (h HitLists) Diff(ctx context.Context, rng, prev ztime.Range) ([]float64, e
 
 	var diffs []float64
 	err := zdb.Select(ctx, &diffs, "load:hit_list.DiffTotal", map[string]any{
+		"site":      MustGetSite(ctx).Key,
 		"start":     rng.Start,
 		"end":       rng.End,
 		"prevstart": prev.Start,

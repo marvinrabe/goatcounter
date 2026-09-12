@@ -1,24 +1,34 @@
-<div class="totals" data-widget="{{.ID}}">
-	<div class="widget-header">
-		<h2>{{t .Context "dashboard/totals/header|Totals"}}
-			{{if .NoEvents}}
-				<small>{{t .Context `dashboard/totals/num-visits|%(num-visits) visits; excluding events`
-					(map
-						"num-visits" (tag "span" `` (nformat (sub .Total .TotalEvents)))
-					)}}</small>
-			{{else}}
-				<small>{{t .Context `dashboard/totals/num-visits|%(num-visits) visits`
-					(map
-						"num-visits" (tag "span" `` (nformat .Total))
-					)}}</small>
-			{{end}}
-		</h2>
+<section class="totals dashboard-card widget-{{if .Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
+	<div class="metric-strip" aria-label="Traffic summary">
+		<button type="button" class="metric link metric-active" data-metric="visits" aria-pressed="true">
+			<span class="metric-label">Total visits</span>
+			<strong>{{nformat .Metrics.Visits}}</strong>
+		</button>
+		<button type="button" class="metric link" data-metric="pageviews" aria-pressed="false">
+			<span class="metric-label">Pageviews</span>
+			<strong>{{nformat .Metrics.Pageviews}}</strong>
+		</button>
+		<button type="button" class="metric link" data-metric="views_per_visit" aria-pressed="false">
+			<span class="metric-label">Views per visit</span>
+			<strong>{{printf "%.2f" .Metrics.ViewsPerVisit}}</strong>
+		</button>
+		<button type="button" class="metric link" data-metric="bounce_rate" aria-pressed="false">
+			<span class="metric-label">Bounce rate</span>
+			<strong>{{printf "%.0f%%" .Metrics.BounceRate}}</strong>
+		</button>
+		<button type="button" class="metric link" data-metric="visit_duration" aria-pressed="false">
+			<span class="metric-label">Visit duration</span>
+			<strong>{{.Metrics.VisitDuration}}</strong>
+		</button>
 	</div>
-
-	{{if .Err}}
-		<em>{{t .Context "p/error|Error: %(error-message)" .Err.Error}}</em>
-	{{else}}
-		<table class="count-list">{{template "_dashboard_totals_row.gohtml" .}}</table>
-	{{end}}
-</div>
-
+	<div class="totals-chart">
+		{{if .Err}}
+			<em>{{t .Context "p/error|Error: %(error-message)" .Err.Error}}</em>
+		{{else}}
+			<div class="chart metric-chart"
+				data-series="{{.Series | json}}" data-group="{{.Group}}" data-metric="visits">
+				{{if .Loaded}}<canvas></canvas>{{else}}{{t .Context "dashboard/loading|Loading…"}}{{end}}
+			</div>
+		{{end}}
+	</div>
+</section>

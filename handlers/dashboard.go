@@ -30,17 +30,7 @@ import (
 const defaultPeriod = "week"
 
 func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
-	var (
-		site       = Site(r.Context())
-		publicView = site.Settings.IsPublic() && User(r.Context()).ID == 0
-	)
-
-	// Cache much more aggressively for public displays. Don't care so much if
-	// it's outdated by an hour.
-	if publicView {
-		w.Header().Set("Cache-Control", "public,max-age=3600")
-		w.Header().Set("Vary", "Cookie")
-	}
+	site := Site(r.Context())
 
 	q := r.URL.Query()
 
@@ -118,7 +108,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 
 	// Load widgets data from the database.
 	wid := widgets.NewList(r.Context())
-	shared := widgets.SharedData{Args: args, Site: site, User: User(r.Context())}
+	shared := widgets.SharedData{Args: args, Site: site}
 
 	getData := func(w widgets.Widget, start time.Time) {
 		// Create context for every goroutine, so we know which timed out.
@@ -168,6 +158,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	// Set shared params.
 	tc := wid.GetOne("totalcount").(*widgets.TotalCount)
 	shared.Total, shared.TotalUTC, shared.TotalEvents = tc.Total, tc.TotalUTC, tc.TotalEvents
+	shared.Metrics = tc.Metrics
 
 	// Render widget templates.
 	func() {
@@ -247,7 +238,6 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 
 	args := widgets.SharedData{
 		Site:     Site(r.Context()),
-		User:     User(r.Context()),
 		TotalUTC: total,
 		Total:    total,
 		RowsOnly: key != "" || offset > 0,
