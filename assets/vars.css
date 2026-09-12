@@ -5,12 +5,23 @@
     --font-mono:         ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
                          'Courier New', monospace;
 
+    /* Let the browser style scrollbars, form controls, etc. to match; the dark
+     * palette below is applied from the same signal. */
+    color-scheme: light dark;
+
     --text:              #252525;
     --bg:                #fff;
     --header-border:     #252525;                          /* Border below some headers */
     --backdrop:          #eee;
     --target-bg:         #ff6;                             /* :target; for highlighting search results and headers in the documentation. */
     --loading-text:      #777;                             /* Little … that appears if something takes more than ~300ms to load */
+    --muted-text:        #555;                             /* De-emphasised text (page numbers in charts, etc.) */
+    --faint-text:        #999;                             /* Barely-there text (§ permalinks in headers) */
+    --shadow:            rgba(0,0,0,.2);                   /* box-shadow on .page and widgets */
+
+    --border:            #ddd;                             /* Hairline borders: table rows, etc. */
+    --border-mid:        #bbb;                             /* Slightly heavier separators */
+    --border-strong:     #666;                             /* Heaviest separators (h3.border) */
 
     --link:              #00f;                             /* <a> */
     --link-hover:        #6491ff;
@@ -22,6 +33,7 @@
     --fieldset-border:   #666;                             /* Border around setting boxes on the settings page */
     --form-error-text:   red;
     --input-error-border: red;
+    --input-error-bg:    #feeaea;                          /* :user-invalid inputs */
 
     --btn-text:          #252525;                          /* <button> */
     --btn-bg:            linear-gradient(#f6f5f4, #edebe9);
@@ -55,6 +67,8 @@
     --info-border:       #a1a1ff;
     --error-bg:          #fff0f0;
     --error-border:      #f00;
+    --noscript-bg:       #ffcfcf;                          /* "GoatCounter requires JavaScript" banner */
+    --noscript-border:   #f88;
 
     --event-bg:          #f6f3da;                          /* "Event" label in paths overview */
     --pageviews-text:    #7a7a7a;                          /* Grey out "pageviews" in tooltip. */
@@ -88,4 +102,105 @@
 
     --plus:                    #008837;                    /* Positive numbers (+5%) */
     --minus:                   #ac3ad3;                    /* Negative numbers (-5%) */
+}
+
+/* Dark palette; follows the operating system / browser preference. Every
+ * variable above is overridden here, so the two blocks stay in sync: if you add
+ * a colour above, add it here too. */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --text:              #e8e8e8;
+        --bg:                #16181a;
+        --header-border:     #888;
+        --backdrop:          #0e1011;
+        --target-bg:         #6b5310;
+        --loading-text:      #999;
+        --muted-text:        #a3a3a3;
+        --faint-text:        #8a8a8a;
+        --shadow:            rgba(0,0,0,.7);
+
+        --border:            #3a3d40;
+        --border-mid:        #4a4d50;
+        --border-strong:     #6a6d70;
+
+        --link:              #8edff8;
+        --link-hover:        #b6ecfb;
+
+        --input-text:        #e8e8e8;
+        --input-bg:          #0e1011;
+        --input-border:      #4a4d50;
+        --input-focus:       #8edff8;
+        --fieldset-border:   #4a4d50;
+        --form-error-text:   #ff8f8f;
+        --input-error-border: #ff5c5c;
+        --input-error-bg:    #3a1616;
+
+        --btn-text:          #e8e8e8;
+        --btn-bg:            linear-gradient(#3a3d40, #2a2c2e);
+        --btn-border:        #4a4d50;
+        --btn-border-outset: #5a5d60;
+        --btn-hover-bg:      linear-gradient(#45484b, #313335);
+        --btn-active-bg:     linear-gradient(#2a2c2e, #3a3d40);
+
+        --code-text:         #e8e8e8;
+        --code-bg:           #0e1011;
+        --code-border:       #3a3d40;
+
+        --tooltip-text:      #e8e8e8;
+        --tooltip-bg:        #26292c;
+        --tooltip-border:    #3a3d40;
+        --tooltip-shadow:    #000;
+
+        --chart-line:        #d07ae0;
+        --chart-fill:        #3d1442;
+        --chart-grid:        #3a3d40;
+        --hchart-border:     #7a3a85;
+        --hchart-bar:        #2b1430;
+        --hchart-bar-hover:  #5c2a66;
+
+        --nav-bg:            #292514;
+        --nav-border:        #6b5c2a;
+        --footer-shadow:     #0d0b04;
+        --filter-kw-text:    #ffb454;
+
+        --info-bg:           #10384a;
+        --info-border:       #2d6a8c;
+        --error-bg:          #3d1212;
+        --error-border:      #b10606;
+        --noscript-bg:       #4a1616;
+        --noscript-border:   #a33;
+
+        --event-bg:          #3a3218;
+        --pageviews-text:    #9a9a9a;
+
+        --datepicker-border:             #4a4d50;
+        --datepicker-shadow:             rgba(0,0,0,.7);
+        --datepicker-dayname-text:       #999;
+        --datepicker-day-text:           #ddd;
+        --datepicker-day-bg:             #26292c;
+        --datepicker-day-hover-bg:       #ff8000;
+        --datepicker-today-text:         #33aaff;
+        --datepicker-selected-shadow:    #178fe5;
+        --datepicker-selected-text:      #33aaff;
+        --datepicker-future-text:        #777;
+        --datepicker-future-bg:          #1d2f3a;
+        --datepicker-outside-month-text: #777;
+
+        --text-table-even-bg:      #1b1e20;
+        --text-table-border:       #3a3d40;
+        --text-table-rank-text:    #9a9a9a;
+
+        --widget-border:           #3a3d40;
+        --widget-dragging-border:  #d8c23a;
+        --widget-dragging-bg:      #2e2a12;
+        --widget-handle-bg:        #2a2c2e;
+        --widget-handle-text:      #b0b0b0;
+        --widget-handle-hover-bg:  #3a3d40;
+
+        --box-bg:                  #2a2718;
+        --box-shadow:              #000;
+
+        --plus:                    #4cc47c;
+        --minus:                   #d07ae0;
+    }
 }

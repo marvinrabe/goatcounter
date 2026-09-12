@@ -27,6 +27,9 @@ pre {
 * {
   box-sizing: border-box;
 }
+:root {
+  color-scheme: light dark;
+}
 html {
   background-color: #eee;
   color: #252525;
@@ -115,6 +118,37 @@ sup {
 }
 sub {
   top: .5ex;
+}
+
+/* Dark palette; follows the operating system / browser preference. Kept in sync
+ * by hand with assets/vars.css: this page is standalone on purpose, so that it
+ * still renders when the stylesheets can't be loaded. */
+@media (prefers-color-scheme: dark) {
+  html {
+    background-color: #0e1011;
+    color: #e8e8e8;
+  }
+  .page {
+    background-color: #16181a;
+    box-shadow: 0 0 6px rgba(0,0,0,.7);
+  }
+  a, a code, .link {
+    color: #8edff8;
+  }
+  a:hover, .link:hover, a:hover code {
+    color: #b6ecfb;
+  }
+  h2 {
+    border-bottom-color: #888;
+  }
+  code, pre, kbd, samp {
+    background-color: #0e1011;
+    color: #e8e8e8;
+  }
+  pre {
+    border-top-color: #3a3d40;
+    border-bottom-color: #3a3d40;
+  }
 }
 
 	</style>

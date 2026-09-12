@@ -9,7 +9,7 @@ html, body { margin: 0; }
 *:target { background-color: var(--target-bg); }
 
 .center, .page { max-width: 54rem; margin: .5rem auto; position: relative; }
-.page          { padding: 1rem 4rem; background-color: var(--bg); box-shadow: 0 0 6px rgba(0,0,0,.2); }
+.page          { padding: 1rem 4rem; background-color: var(--bg); box-shadow: 0 0 6px var(--shadow); }
 @media (max-width: 54em) {
   .page, .center { max-width: 100%; padding: .5rem 1rem; }
 }
@@ -33,7 +33,7 @@ pre, code, .monospace { font-family: var(--font-mono); }
 code, pre, kbd, samp  { background-color:var(--code-bg); color:var(--code-text); }
 code, kbd, samp       { padding:1px 2px; }
 pre                   { font-size:14px; line-height:130%; overflow:auto; max-height:500px; padding:.5em 1em;
-                        border-radius:2px; border-top:1px solid var(--pre-border); border-bottom:1px solid var(--pre-border); }
+                        border-radius:2px; border-top:1px solid var(--code-border); border-bottom:1px solid var(--code-border); }
 pre > code            { padding:0; box-shadow:none; border:none; }
 h1 code, h2 code, h3 code, h4 code, h5 code, h6 code { background-color:transparent; box-shadow:none; color:inherit; }
 
@@ -45,12 +45,12 @@ sub, .sub             { top:.5ex; }
 table        { border-collapse: collapse; width: 100%; }
 table +table { margin-top: 2em; }
 caption      { font-weight: bold; }
-tr           { border-bottom: 1px solid #ddd; }
+tr           { border-bottom: 1px solid var(--border); }
 td, th       { padding: .2em .5em; hyphens: none; text-align: left; }
 td.right     { font-feature-settings: 'tnum' on; font-variant-numeric: tabular-nums; }
 td.right, th.right { text-align: right; }
 table > tr:last-child, tbody tr:last-child, tfoot tr:last-child { border-bottom: none; }
-tfoot tr:first-child { border-top: 1px solid #ddd; }
+tfoot tr:first-child { border-top: 1px solid var(--border); }
 
 /*** Forms ***/
 form { display: inline; margin: 0; padding: 0; }
@@ -125,5 +125,5 @@ fieldset legend+p     { margin-top: 0; }
 .vertical label                { display: block; margin-top: .5em; }
 
 /*** Permalinks in headers ***/
-h1 a, h2 a, h3 a, h4 a, h5 a, h6 a { font-size: .7em; line-height: 0; color: #999; }
+h1 a, h2 a, h3 a, h4 a, h5 a, h6 a { font-size: .7em; line-height: 0; color: var(--faint-text); }
 h1 a:after, h2 a:after, h3 a:after, h4 a:after, h5 a:after, h6 a:after { content: "§"; }

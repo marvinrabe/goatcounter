@@ -47,7 +47,7 @@ Web interface:
   code. Settings are two pages: the site settings and managing pageviews.
 - No marketing website (home, "why", contact, contribute, design) and no
   in-app help pages.
-- No dark theme, no footer menu, and no custom date picker — the browser's
+- No no footer menu and no custom date picker — the browser's
   native date input is used instead.
 - No third-party front-end code: jQuery, dragula, and pikaday are gone, as are
   the bundled Lato webfonts (a system font stack is used).

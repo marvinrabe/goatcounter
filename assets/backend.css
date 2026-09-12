@@ -48,7 +48,7 @@ h2 small         { font-size:.9rem; font-weight:normal; margin-right:.1em; line-
                    display:flex; justify-content:space-between; align-items:flex-end; }
 h3, h4           { margin-bottom:0; }
 h3+p, h4+p       { margin-top:0; }
-h3.border        { border-bottom:1px solid #666; margin-bottom:.2em; }
+h3.border        { border-bottom:1px solid var(--border-strong); margin-bottom:.2em; }
 
 form .err        { color:var(--form-error-text); display:block; }
 form .disabled,
@@ -155,7 +155,7 @@ tr.target .chart-left { display: block; }
 
 .chart-right { position: absolute; right: .4em; top: -.8em; padding: 0 .1em; font-size: 1.2rem;
                line-height: 1; text-align: center; }
-.page-n      { color: #555; font-size: .8em; }
+.page-n      { color: var(--muted-text); font-size: .8em; }
 
 .chart-line canvas { display: block; height: 50px; width: 100%; }
 .chart-bar canvas  { display: block; height: 50px; width: 100%; }
@@ -194,7 +194,7 @@ tr.target .chart-left { display: block; }
 .hchart .col-perc    { width: 2.5em; margin-right: .5rem; vertical-align: top; }
 .hchart .load-more   { display: inline-block; margin-left: .2em; margin-top: .2em; }
 .hchart .load-detail { display: block; color: var(--text); }
-.hchart .detail      { padding: 0 3em; border-bottom: 1px solid #bbb; }
+.hchart .detail      { padding: 0 3em; border-bottom: 1px solid var(--border-mid); }
 .load-detail:hover      { text-decoration: none; color: var(--link); }
 .load-detail:hover .bar { background-color: var(--hchart-bar-hover); }
 .hchart .not-collected  { text-align: center; padding-bottom: .4em; font-style: italic; }
@@ -295,7 +295,7 @@ tr.target .chart-left { display: block; }
  ******************/
 .tab-nav               { padding: 1em; margin: -1em; margin-bottom: 1em; justify-content: left; border-radius: 2px;
                          background-color: var(--nav-bg); border-bottom: 1px solid var(--nav-border); }
-.tab-nav a             { padding: 0 .9em; border-right: 1px solid #aaa; }
+.tab-nav a             { padding: 0 .9em; border-right: 1px solid var(--border-mid); }
 .tab-nav a:first-child { padding-left: 0; }
 .tab-nav a:last-child  { border-right: none; padding-right: 0; }
 @media (max-width: 40rem) {
@@ -305,7 +305,7 @@ tr.target .chart-left { display: block; }
 
 /*** Settings page
  *******************/
-#page-settings-main #secret { display:none; margin-left:1em; padding-left:1em; border-left:1px solid #aaa; }
+#page-settings-main #secret { display:none; margin-left:1em; padding-left:1em; border-left:1px solid var(--border-mid); }
 .purge-err                  { margin-left:1em; margin-top:1em; }
 .user-api-key               { width:100%; }
 .user-api-key td            { vertical-align:top; }
@@ -323,7 +323,7 @@ tr.target .chart-left { display: block; }
 
 /*** Widget settings
  *******************/
-.widget                 { position: relative; margin-bottom: .5em; padding-left: 2em; border-top: 1px solid var(--widget-border); box-shadow: 2px 2px 2px rgba(0,0,0,.2); }
+.widget                 { position: relative; margin-bottom: .5em; padding-left: 2em; border-top: 1px solid var(--widget-border); box-shadow: 2px 2px 2px var(--shadow); }
 .widget .header         { display: flex; justify-content: space-between; padding: .5em; }
 .widget .header strong  { display: inline-block; width: 12em; }
 .widget .show-s         { display: inline-block; width: 2em; text-align: center; }
@@ -358,7 +358,7 @@ tr.target .chart-left { display: block; }
 
 /*** noscript
  *************/
-noscript   { display: block; padding: .4em; text-align: center; background-color: #ffcfcf; border-bottom: 1px solid #f88; }
+noscript   { display: block; padding: .4em; text-align: center; background-color: var(--noscript-bg); border-bottom: 1px solid var(--noscript-border); }
 noscript p { margin: .5em; }
 
 
@@ -391,7 +391,9 @@ dt { font-weight: bold; margin-top: 1em; }
  * gives *some* hint something has gone wrong. This is so broken that I'm not
  * going to bother writing a JS thing.
  * https://github.com/arp242/goatcounter/issues/529 */
-input:user-invalid { outline: 1px solid #f00 !important; box-shadow: 0 0 .2em #f00 !important; background-color: #feeaea; }
+input:user-invalid { outline: 1px solid var(--input-error-border) !important;
+                     box-shadow: 0 0 .2em var(--input-error-border) !important;
+                     background-color: var(--input-error-bg); }
 
 /* Basic print styles, for dashboard only. */
 #print-header { display:none; }
