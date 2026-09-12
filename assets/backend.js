@@ -13,7 +13,6 @@ import {$$, $1, T, ajax, on} from './helper.js'
 		window.TZ_OFFSET         = parseInt(s.getAttribute('data-offset'), 10) || 0
 		window.SITE_FIRST_HIT_AT = s.getAttribute('data-first-hit-at') * 1000
 		window.DEV               = s.getAttribute('data-dev') === 'true'
-		window.FEWER_NUMBERS     = s.getAttribute('data-fewer-numbers') === 'true'
 
 		;[report_errors, bind_tooltip, bind_confirm, onetime].forEach((f) => f.call())
 		;[window.page_dashboard, page_settings_main]
@@ -134,31 +133,6 @@ import {$$, $1, T, ajax, on} from './helper.js'
 	}
 
 	var page_settings_main = function() {
-		// Add current IP address to ignore_ips.
-		on('#add-ip', 'click', function(e) {
-			e.preventDefault()
-
-			ajax(BASE_PATH + '/settings/main/ip', {
-				success: function(data) {
-					var input   = $1('[name="settings.ignore_ips"]'),
-						current = input.value.split(',').
-							map(function(m) { return m.trim() }).
-							filter(function(m) { return m !== '' })
-
-					if (current.indexOf(data) > -1) {
-						$1('#add-ip').insertAdjacentHTML('afterend',
-							'<span class="err">IP ' + data + ' is already in the list</span>')
-						return
-					}
-					current.push(data)
-					var set = current.join(', ')
-					input.value = set
-					input.focus()
-					input.setSelectionRange(set.length, set.length)
-				},
-			})
-		})
-
 		// Generate random token.
 		on('#rnd-secret', 'click', function(e) {
 			e.preventDefault()

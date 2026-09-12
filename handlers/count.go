@@ -35,14 +35,6 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	site := Site(r.Context())
-	for _, ip := range site.Settings.IgnoreIPs {
-		if ip == r.RemoteAddr {
-			w.Header().Add("X-Goatcounter", fmt.Sprintf("ignored because %q is in the IP ignore list", ip))
-			w.WriteHeader(http.StatusAccepted)
-			return zhttp.Bytes(w, gif)
-		}
-	}
-
 	hit := goatcounter.Hit{
 		UserAgentHeader: r.UserAgent(),
 		CreatedAt:       ztime.Now(r.Context()),

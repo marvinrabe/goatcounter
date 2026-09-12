@@ -497,18 +497,16 @@ import {
 				title = `${months[d.getMonth() % 12]} ${d.getFullYear() + Math.floor(d.getMonth() / 12)}`
 			}
 
-			if (!FEWER_NUMBERS) {
-				if (isEvent) {
-					title += '; ' + T('dashboard/tooltip-event', {
-						unique: format_int(visits),
-						clicks: `<span class="views">${format_int(views)}`,
-					}) + '</span>'
-				}
-				else {
-					title += '; ' + T('dashboard/totals/num-visits', {
-						'num-visits': format_int(visits),
-					}) + '</span>'
-				}
+			if (isEvent) {
+				title += '; ' + T('dashboard/tooltip-event', {
+					unique: format_int(visits),
+					clicks: `<span class="views">${format_int(views)}`,
+				}) + '</span>'
+			}
+			else {
+				title += '; ' + T('dashboard/totals/num-visits', {
+					'num-visits': format_int(visits),
+				}) + '</span>'
 			}
 
 			tip.remove()

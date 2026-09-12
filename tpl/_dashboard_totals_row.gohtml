@@ -3,9 +3,7 @@
 	<td>
 		<div class="chart chart-{{$.Style}} widget-{{if $.Loaded}}loaded{{else}}loading{{end}}" data-max="{{.Max}}" data-stats="{{.Page.Stats | json}}" data-group="{{.Group}}">
 			{{if .Loaded}}
-				{{if not $.Site.Settings.FewerNumbers}}
-					<span class="chart-right"><small class="scale" title="Y-axis scale">{{nformat .Max}}</small></span>
-				{{end}}
+				<span class="chart-right"><small class="scale" title="Y-axis scale">{{nformat .Max}}</small></span>
 				<canvas></canvas>
 			{{else}}
 				{{t $.Context "dashboard/loading|Loading…"}}

@@ -32,41 +32,6 @@
 			</div>
 		</fieldset>
 
-		<fieldset id="section-fewer-numbers">
-			<legend>{{.T "header/fewer-number|Show fewer numbers"}}</legend>
-
-			<label>
-				<input type="checkbox" name="settings.fewer_numbers" id="settings.fewer_numbers"
-					{{if .Site.Settings.FewerNumbers}}checked{{end}}
-					{{if .FewerNumbersLocked}}disabled{{end}}
-				>
-				<input type="hidden" name="settings.fewer_numbers" value="{{if .FewerNumbersLocked}}on{{else}}off{{end}}">
-				{{.T "label/fewer-numbers|Show fewer numbers"}}
-			</label>
-			<span>{{.T `help/fewer-numbers|
-				Don’t show numbers on the dashboard. This is intended to
-				still give a reasonably useful overview of what happens on
-				your site but prevent an “obsession” over the exact number
-				of visitors and stats.
-			`}}</span>
-
-			<div id="lock-settings">
-				{{if .FewerNumbersLocked}}
-					<br>
-					{{.T "help/locked-until|Locked until %(date)"
-						(.Site.Settings.FewerNumbersLockUntil.Format "2006-01-02")}}
-				{{else}}
-					<label for="fewer-numbers-lock">{{.T "label/lock-setting|Lock setting"}}</label>
-					<select id="fewer-numbers-lock" name="fewer_numbers_lock">
-						<option value="">{{.T "dont-lock|Don’t lock"}}</option>
-						<option value="week">{{ucfirst (printf "%s" (.T "nav-dash/week|week"))}}</option>
-						<option value="month">{{ucfirst (printf "%s" (.T "nav-dash/month|month"))}}</option>
-					</select>
-					<span>{{.T "help/fewer-numbers-lock|You won’t be able to disable this setting for the given time period."}}</span>
-				{{end}}
-			</div>
-		</fieldset>
-
 		<fieldset id="section-tracking">
 			<legend>{{.T "header/tracking|Tracking"}}</legend>
 
@@ -75,17 +40,6 @@
 			{{validate "site.settings.data_retention" .Validate}}
 			<span class="help">{{.T "help/data-retention|Pageviews and all associated data will be permanently removed after this many days. Set to <code>0</code> to never delete."}}</span>
 
-			<label>{{.T "label/ignore-ips|Ignore IPs"}}</label>
-			<input type="text" name="settings.ignore_ips" value="{{.Site.Settings.IgnoreIPs}}">
-			{{validate "site.settings.ignore_ips" .Validate}}
-			<span>{{.T `help/ignore-ips|
-				Never count requests coming from these IP addresses. Comma-separated. Only supports exact matches. %[Add your current IP].`
-					(tag "a" `href="#_" id="add-ip"`)}}
-				{{if .Site.LinkDomain}}<br>
-					<span>{{.T `help/ignore-ips-2|Alternatively, %[disable for this browser] (click again to enable).`
-						(tag "a" (printf `target="_blank" href="%s#toggle-goatcounter"` (.Site.LinkDomainURL true)))}}
-				{{end}}
-			</span>
 		</fieldset>
 
 		<fieldset id="section-collect">

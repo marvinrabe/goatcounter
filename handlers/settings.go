@@ -16,7 +16,6 @@ import (
 	"zgo.at/guru"
 	"zgo.at/zhttp"
 	"zgo.at/zstd/zint"
-	"zgo.at/zstd/ztime"
 	"zgo.at/zvalidate"
 )
 
@@ -33,7 +32,6 @@ func (h settings) mount(r chi.Router, ratelimits Ratelimits) {
 			return h.main(nil)(w, r)
 		}))
 		set.Post("/settings/main", zhttp.Wrap(h.mainSave))
-		set.Get("/settings/main/ip", zhttp.Wrap(h.ip))
 		set.Get("/settings/purge", zhttp.Wrap(h.purge))
 		set.Post("/settings/purge", zhttp.Wrap(h.purgeDo))
 		set.Post("/settings/merge", zhttp.Wrap(h.merge))
@@ -52,16 +50,10 @@ func (h settings) main(verr *zvalidate.Validator) zhttp.HandlerFunc {
 
 		return zhttp.Template(w, "settings_main.gohtml", struct {
 			Globals
-			Validate           *zvalidate.Validator
-			Cities             bool
-			FewerNumbersLocked bool
-		}{newGlobals(w, r), verr, cities,
-			Site(r.Context()).Settings.FewerNumbersLockUntil.After(ztime.Now(r.Context()))})
+			Validate *zvalidate.Validator
+			Cities   bool
+		}{newGlobals(w, r), verr, cities})
 	}
-}
-
-func (h settings) ip(w http.ResponseWriter, r *http.Request) error {
-	return zhttp.String(w, r.RemoteAddr)
 }
 
 func (h settings) mainSave(w http.ResponseWriter, r *http.Request) error {
@@ -69,11 +61,9 @@ func (h settings) mainSave(w http.ResponseWriter, r *http.Request) error {
 
 	site := Site(r.Context())
 	args := struct {
-		LinkDomain       string                   `json:"link_domain"`
-		Settings         goatcounter.SiteSettings `json:"settings"`
-		FewerNumbersLock string                   `json:"fewer_numbers_lock"`
+		LinkDomain string                   `json:"link_domain"`
+		Settings   goatcounter.SiteSettings `json:"settings"`
 	}{Settings: site.Settings}
-	oldFewerNumbers := site.Settings.FewerNumbers
 
 	// Don't use zhttp.Decode to decode forms: without IgnoreUnknownKeys
 	// formam stops decoding at the first unknown key and zhttp.Decode
@@ -103,21 +93,6 @@ func (h settings) mainSave(w http.ResponseWriter, r *http.Request) error {
 		// formam stops decoding on the first error, so there's nothing more
 		// to report; bail out with what we have.
 		return h.main(&v)(w, r)
-	}
-
-	// "Fewer numbers" can be locked for a week or a month; don't allow turning
-	// it back off before then.
-	if oldFewerNumbers && !args.Settings.FewerNumbers &&
-		site.Settings.FewerNumbersLockUntil.After(ztime.Now(r.Context())) {
-		zhttp.FlashError(w, r, "Nice try")
-		return zhttp.SeeOther(w, "/settings/main")
-	}
-	if args.FewerNumbersLock != "" {
-		args.Settings.FewerNumbersLockUntil = ztime.Time{Time: ztime.Now(r.Context())}.
-			In(goatcounter.Config(r.Context()).Timezone.Loc()).
-			AddPeriod(1, map[string]ztime.Period{"week": ztime.WeekMonday, "month": ztime.Month}[args.FewerNumbersLock]).
-			StartOf(ztime.Day).
-			Time
 	}
 
 	site.Settings = args.Settings

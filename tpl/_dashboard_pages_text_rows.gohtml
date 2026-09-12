@@ -3,17 +3,15 @@
 		class="{{if eq $h.PathID $.ShowRefs}}target{{end}} {{if $h.Event}}event{{end}}"
 	>
 		<td class="col-idx">{{sum $.Offset $i 1}}</td>
-		{{if not $.Site.Settings.FewerNumbers}}
-			<td class="col-n col-count">{{nformat $h.Count}}</td>
-			{{$d := index $.Diff $i}}
-			<td class="col-diff {{if is_inf $d}}{{else if gt $d 0.0}}plus{{else if lt $d 0.0}}minus{{end}}">
-				{{if is_inf $d}}
-					<i>{{t $.Context "new-paren|(new)"}}</i>
-				{{else}}
-					{{if gt $d 0.0}}+{{else if lt $d 0.0}}–{{end}}{{printf "%.0f" (max (round (abs $d) 0) 1)}}%
-				{{end}}
-			</td>
-		{{end}}
+		<td class="col-n col-count">{{nformat $h.Count}}</td>
+		{{$d := index $.Diff $i}}
+		<td class="col-diff {{if is_inf $d}}{{else if gt $d 0.0}}plus{{else if lt $d 0.0}}minus{{end}}">
+			{{if is_inf $d}}
+				<i>{{t $.Context "new-paren|(new)"}}</i>
+			{{else}}
+				{{if gt $d 0.0}}+{{else if lt $d 0.0}}–{{end}}{{printf "%.0f" (max (round (abs $d) 0) 1)}}%
+			{{end}}
+		</td>
 		<td class="col-p">
 			<a class="load-refs rlink" href="#">{{$h.Path}}</a>
 

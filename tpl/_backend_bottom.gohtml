@@ -1,13 +1,13 @@
 	</div> {{- /* .page */}}
 
-	{{if or (.User.ID) (not .HideUI)}}
-	{{end}}
+	<footer class="footer-timezone">
+		Timezone: {{.TZName}} (UTC{{.TZOffsetDisplay}})
+	</footer>
 
 	<span id="js-settings"
 		data-offset="{{.TZOffset}}"
 		data-first-hit-at="{{.Site.FirstHitAt.Unix}}"
 		data-dev="{{.Dev}}"
-		data-fewer-numbers="{{.Site.Settings.FewerNumbers}}"
 		{{if .Base}}data-base-path="{{.Base}}"{{end}}
 	></span>
 	<span id="js-i18n">{{.JSTranslations | json}}</span>

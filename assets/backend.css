@@ -42,6 +42,8 @@ nav #back             { white-space: nowrap; }
     nav { padding-left: .5em; }
 }
 
+.footer-timezone { color: var(--muted-text); font-size: .9em; text-align: center; }
+
 h2               { margin-bottom:.4em; }
 h2 small         { font-size:.9rem; font-weight:normal; margin-right:.1em; line-height:1rem; }
 #dash-widgets h2 { margin-left:.0; margin-right:.4em; padding-right:.2em;

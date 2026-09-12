@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"fmt"
-	"time"
 	"unicode"
 
 	"github.com/marvinrabe/goatcounter/internal/i18n"
@@ -42,13 +41,8 @@ type (
 		Secret         string         `json:"secret"`
 		DataRetention  int            `json:"data_retention"`
 		Campaigns      Strings        `json:"-"`
-		IgnoreIPs      Strings        `json:"ignore_ips"`
 		Collect        zint.Bitflag16 `json:"collect"`
 		CollectRegions Strings        `json:"collect_regions"`
-
-		// Don't show exact numbers on the dashboard.
-		FewerNumbers          bool      `json:"fewer_numbers"`
-		FewerNumbersLockUntil time.Time `json:"fewer_numbers_lock_until"`
 	}
 )
 
@@ -90,12 +84,6 @@ func (ss *SiteSettings) Validate(ctx context.Context) error {
 
 	if ss.DataRetention > 0 {
 		v.Range("data_retention", int64(ss.DataRetention), 31, 365*5)
-	}
-
-	if len(ss.IgnoreIPs) > 0 {
-		for _, ip := range ss.IgnoreIPs {
-			v.IP("ignore_ips", ip)
-		}
 	}
 
 	return v.ErrorOrNil()

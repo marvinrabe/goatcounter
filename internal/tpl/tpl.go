@@ -219,7 +219,6 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 	}
 
 	var (
-		fewer     = goatcounter.MustGetSite(ctx).Settings.FewerNumbers
 		displayed int
 		b         = new(strings.Builder)
 	)
@@ -289,10 +288,7 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 				`<span class="bar-c"><span class="cutoff">%s</span> %s</span>`, perc, ename, visit)
 		}
 
-		ncol := ""
-		if !fewer {
-			ncol = tplfunc.Number(s.Count, 0x202f)
-		}
+		ncol := tplfunc.Number(s.Count, 0x202f)
 
 		id := s.ID
 		if id == "" {
