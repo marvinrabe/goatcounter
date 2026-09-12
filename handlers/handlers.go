@@ -104,7 +104,6 @@ type Globals struct {
 	StaticDomain    string
 	Domain          string
 	Version         string
-	StaticVersion   string
 	Dev             bool
 	Port            string
 	TZName          string
@@ -112,10 +111,28 @@ type Globals struct {
 	TZOffsetDisplay string
 	JSTranslations  map[string]string
 	HideUI          bool
+	assetPaths      map[string]string
+	assetErr        error
 }
 
 func (g Globals) T(msg string, data ...any) template.HTML {
 	return template.HTML(i18n.T(g.Context, msg, data...))
+}
+
+// Asset resolves a source asset to its Vite-generated, content-hashed URL.
+func (g Globals) Asset(name string) (string, error) {
+	paths, err := g.assetPaths, g.assetErr
+	if paths == nil && err == nil {
+		paths, err = goatcounter.AssetPaths(g.Context)
+	}
+	if err != nil {
+		return "", err
+	}
+	file, ok := paths[name]
+	if !ok {
+		return "", fmt.Errorf("asset %q is missing from Vite manifest", name)
+	}
+	return g.Static + "/" + file, nil
 }
 
 func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
@@ -126,18 +143,17 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 		path = "/"
 	}
 	g := Globals{
-		Context:       ctx,
-		User:          goatcounter.GetUser(ctx),
-		Site:          goatcounter.GetSite(ctx),
-		Path:          path,
-		Base:          base,
-		Flash:         zhttp.ReadFlash(w, r),
-		Static:        goatcounter.Config(ctx).URLStatic,
-		Domain:        goatcounter.Config(ctx).Domain,
-		Version:       goatcounter.Version,
-		StaticVersion: goatcounter.StaticVersion(ctx),
-		Dev:           goatcounter.Config(ctx).Dev,
-		Port:          goatcounter.Config(ctx).Port,
+		Context: ctx,
+		User:    goatcounter.GetUser(ctx),
+		Site:    goatcounter.GetSite(ctx),
+		Path:    path,
+		Base:    base,
+		Flash:   zhttp.ReadFlash(w, r),
+		Static:  goatcounter.Config(ctx).URLStatic,
+		Domain:  goatcounter.Config(ctx).Domain,
+		Version: goatcounter.Version,
+		Dev:     goatcounter.Config(ctx).Dev,
+		Port:    goatcounter.Config(ctx).Port,
 
 		TZName:          goatcounter.Config(ctx).Timezone.Abbr(),
 		TZOffset:        goatcounter.Config(ctx).Timezone.Offset(),
@@ -158,6 +174,7 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 			"nav-fash/filter-less-help":   T(ctx, "nav-fash/filter-less-help|Less help"),
 		},
 	}
+	g.assetPaths, g.assetErr = goatcounter.AssetPaths(ctx)
 	if g.User == nil {
 		g.User = &goatcounter.User{}
 	}
@@ -180,7 +197,8 @@ func NewStatic(r chi.Router, dev bool, basePath string) chi.Router {
 	if !dev {
 		cache = map[string]int{
 			"/count.js": 86400 * 7,
-			"*":         86400 * 90,
+			"/assets/*": 86400 * 365,
+			"":          86400 * 90,
 		}
 		for i := range 20 {
 			cache[fmt.Sprintf("/count.v%d.js", i+1)] = 86400 * 365

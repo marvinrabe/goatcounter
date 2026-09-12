@@ -1,4 +1,6 @@
-(function() {
+import {style} from './helper.js'
+
+;(function() {
 	'use strict';
 
 	window.charty = function(ctx, data, opt) {
@@ -67,7 +69,7 @@
 			clearTimeout(t)
 			t = setTimeout(() => {
 				stop()
-				charty(ctx, data, opt)
+				window.charty(ctx, data, opt)
 			}, 200)
 		}
 		window.addEventListener('resize', r)

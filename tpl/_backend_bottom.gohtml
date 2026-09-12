@@ -12,9 +12,6 @@
 	></span>
 	<span id="js-i18n">{{.JSTranslations | json}}</span>
 
-	<script crossorigin="anonymous" src="{{.Static}}/charty.js?v={{.StaticVersion}}"></script>
-	<script crossorigin="anonymous" src="{{.Static}}/helper.js?v={{.StaticVersion}}"></script>
-	<script crossorigin="anonymous" src="{{.Static}}/dashboard.js?v={{.StaticVersion}}"></script>
-	<script crossorigin="anonymous" src="{{.Static}}/backend.js?v={{.StaticVersion}}"></script>
+	<script crossorigin="anonymous" src="{{.Asset "assets/backend.js"}}"></script>
 </body>
 </html>

@@ -1,3 +1,24 @@
+import {
+	$$,
+	$1,
+	T,
+	ajax,
+	days,
+	daysShort,
+	format_date,
+	format_date_ymd,
+	format_int,
+	get_date,
+	is_visible,
+	months,
+	monthsShort,
+	on,
+	paginate_button,
+	parse_html,
+	parse_rows,
+	style,
+} from './helper.js'
+
 ;(function() {
 	'use strict';
 
@@ -429,7 +450,7 @@
 			data = stats.map((s) => [s.monthly]).reduce((a, b) => a.concat(b))
 		}
 
-		var chart = charty(ctx, data, {
+		var chart = window.charty(ctx, data, {
 			mode: isBar ? 'bar' : 'line',
 			max:  max,
 			line: {

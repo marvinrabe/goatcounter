@@ -1,10 +1,18 @@
 # syntax=docker/dockerfile:1-labs
 # Use -labs for copy --exclude
 
+### Build frontend assets
+from docker.io/node:24-alpine as assets
+workdir /goatcounter
+copy package.json package-lock.json vite.config.js ./
+copy assets ./assets
+run npm ci && npm run build
+
 ### Build GoatCounter
 from docker.io/golang:1.27 as build
 workdir /goatcounter
-copy --exclude=goatcounter-data --exclude=Dockerfile . /goatcounter
+copy --exclude=goatcounter-data --exclude=node_modules --exclude=public --exclude=Dockerfile . /goatcounter
+copy --from=assets /goatcounter/public ./public
 env CGO_ENABLED=1
 env GOTOOLCHAIN=auto
 run go build -trimpath -ldflags='-s -w -extldflags=-static' \

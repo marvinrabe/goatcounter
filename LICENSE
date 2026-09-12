@@ -17,7 +17,7 @@ this file as well). See docs/sbom.md for a list of all dependencies and their
 licenses.
 
 
-––– public/count.js; ISC license ––––––––––––––––––––––––––––––––––––––––––––––
+––– assets/count.js; ISC license ––––––––––––––––––––––––––––––––––––––––––––––
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice

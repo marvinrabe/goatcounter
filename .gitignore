@@ -2,3 +2,5 @@
 /goatcounter.test
 /goatcounter.exe
 goatcounter-data/
+/public/
+/node_modules/

@@ -6,13 +6,18 @@ spending just a few minutes.
 
 Running
 -------
-You can start a test/development server with:
+Install the frontend dependencies once, then run Vite and GoatCounter in
+separate terminals:
+
+    % npm ci
+    % npm run dev
 
     % goatcounter serve -dev
 
 The `-dev` flag makes some small things a bit more convenient for development:
-the application will automatically restart on recompiles, templates and static
-files will be read directly from the filesystem, and a few other minor changes.
+the application will automatically restart on recompiles, templates and built
+static files will be read directly from the filesystem, and a few other minor
+changes. Vite rebuilds `public/` when files in `assets/` change.
 
 General notes
 -------------
@@ -31,7 +36,8 @@ General notes
   restart on recompile, and reload templates once they change (no restart
   required).
 
-- Tests can be run with `go test ./...`; nothing special needed.
+- Tests can be run with `go test ./...`; run `npm run build` first after
+  changing frontend assets.
 
 - Keep lines under 80 characters if possible, but don't bend over backwards to
   do so: it's usually okay for a function definition or call to be 90 or even

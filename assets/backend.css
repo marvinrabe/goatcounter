@@ -1,3 +1,6 @@
+@import './vars.css';
+@import './shared.css';
+
 /*** Generic stuff and layout
  ****************************/
 /* Always display a scrollbar; this prevents the layout from jumping around when

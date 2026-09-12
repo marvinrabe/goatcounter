@@ -1,3 +1,7 @@
+import './charty.js'
+import './dashboard.js'
+import {$$, $1, T, ajax, on} from './helper.js'
+
 ;(function() {
 	'use strict';
 
@@ -12,7 +16,7 @@
 		window.FEWER_NUMBERS     = s.getAttribute('data-fewer-numbers') === 'true'
 
 		;[report_errors, bind_tooltip, bind_confirm, onetime].forEach((f) => f.call())
-		;[page_dashboard, page_settings_main]
+		;[window.page_dashboard, page_settings_main]
 			.forEach((f) => document.body.id.match(new RegExp('^' + f.name.replace(/_/g, '-'))) && f.call())
 	})
 

@@ -1,7 +1,7 @@
 name: 'test'
 on:
   pull_request:
-    paths: ['**.go', 'go.mod', '.github/workflows/*']
+    paths: ['**.go', 'assets/**', 'tpl/**', 'go.mod', 'package*.json', 'vite.config.js', '.github/workflows/*']
   push:
     branches: ['main']
 
@@ -9,16 +9,40 @@ jobs:
   # Uncomment to get a debug shell.
   # debug: {runs-on: 'ubuntu-latest', steps: [{uses: 'actions/checkout@v6'}, {uses: 'mxschmitt/action-tmate@v3'}]}
 
+  # Go embeds Vite's generated output, so build it once for every test job.
+  assets:
+    name:    'assets'
+    runs-on: 'ubuntu-latest'
+    steps:
+      - uses: 'actions/checkout@v6'
+      - uses: 'actions/setup-node@v6'
+        with:
+          node-version: 24
+          cache: 'npm'
+      - run: 'npm ci'
+      - run: 'npm run build'
+      - uses: 'actions/upload-artifact@v4'
+        with:
+          name: 'public'
+          path: 'public'
+          retention-days: 1
+
   # staticcheck
   staticcheck:
+    needs:   'assets'
     name:    'staticcheck'
     runs-on: 'ubuntu-latest'
     steps:
       - uses: 'actions/checkout@v6'
+      - uses: 'actions/download-artifact@v4'
+        with:
+          name: 'public'
+          path: 'public'
       - uses: 'dominikh/staticcheck-action@v1'
 
   # Linux, macOS, Windows SQLite
   test:
+    needs:   'assets'
     strategy:
       matrix:
         os: ['ubuntu-latest', 'ubuntu-24.04-arm', 'macos-latest']
@@ -26,6 +50,10 @@ jobs:
     name:    "${{ matrix.os }} / sqlite"
     steps:
       - uses: 'actions/checkout@v6'
+      - uses: 'actions/download-artifact@v4'
+        with:
+          name: 'public'
+          path: 'public'
       - uses: 'actions/setup-go@v6'
         with: {go-version: 'stable'}
       - shell: 'bash'
@@ -37,11 +65,16 @@ jobs:
 
   # FreeBSD SQLite
   freebsd:
+    needs:   'assets'
     runs-on: 'ubuntu-latest'
     name:    'test / freebsd / sqlite'
     timeout-minutes: 20
     steps:
       - uses: 'actions/checkout@v6'
+      - uses: 'actions/download-artifact@v4'
+        with:
+          name: 'public'
+          path: 'public'
       - name: 'test / freebsd / sqlite'
         id:   'freebsd'
         uses: 'vmactions/freebsd-vm@v1'
@@ -51,11 +84,16 @@ jobs:
 
   # OpenBSD SQLite
   openbsd:
+    needs:   'assets'
     runs-on: 'ubuntu-latest'
     name:    'test / openbsd / sqlite'
     timeout-minutes: 20
     steps:
       - uses: 'actions/checkout@v6'
+      - uses: 'actions/download-artifact@v4'
+        with:
+          name: 'public'
+          path: 'public'
       - name: 'test / openbsd / sqlite'
         id:   'openbsd'
         uses: 'vmactions/openbsd-vm@v1'
@@ -81,11 +119,16 @@ jobs:
 
   # illumos SQLite
   illumos:
+    needs:   'assets'
     runs-on: 'ubuntu-latest'
     name:    'test / illumos / sqlite'
     timeout-minutes: 20
     steps:
     - uses: 'actions/checkout@v6'
+    - uses: 'actions/download-artifact@v4'
+      with:
+        name: 'public'
+        path: 'public'
     - name: 'test / illumos / sqlite'
       id:   'illumos'
       uses: 'vmactions/omnios-vm@v1'

@@ -145,15 +145,19 @@ pending` lists pending migrations and `goatcounter db migrate list` shows all of
 them.
 
 ### Building from source
-You need Go 1.27 or newer and a C compiler (for SQLite).
+You need Go 1.27 or newer, Node.js 22.12 or newer, and a C compiler
+(for SQLite).
 
 You can build from source with:
 
     % git clone https://github.com/marvinrabe/goatcounter
     % cd goatcounter
+    % npm ci
+    % npm run build
     % go build ./cmd/goatcounter
 
-Which will produce a `goatcounter` binary in the current directory.
+This builds the Vite-managed frontend assets and produces a `goatcounter`
+binary in the current directory.
 
 To build a fully statically linked binary:
 

@@ -1,0 +1,12 @@
+{
+  "name": "goatcounter",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch"
+  },
+  "devDependencies": {
+    "vite": "8.3.0"
+  }
+}

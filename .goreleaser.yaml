@@ -1,0 +1,37 @@
+version: 2
+
+project_name: goatcounter
+
+before:
+  hooks:
+    - npm ci
+    - npm run build
+
+builds:
+  - id: goatcounter
+    main: ./cmd/goatcounter
+    binary: goatcounter
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if and (eq .Os "linux") (eq .Arch "arm64") }}CC=aarch64-linux-musl-gcc{{- end }}
+    flags:
+      - -trimpath
+    tags:
+      - osusergo
+      - netgo
+      - sqlite_omit_load_extension
+    ldflags:
+      - -s -w -extldflags=-static -X github.com/marvinrabe/goatcounter.Version={{ .Tag }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+
+checksum:
+  name_template: checksums.txt

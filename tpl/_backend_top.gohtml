@@ -3,10 +3,7 @@
 <head>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{if .Site.LinkDomain}}{{.Site.LinkDomainURL false}}{{else}}{{.Site.Domain .Context}}{{end}} – GoatCounter</title>
-	<link rel="stylesheet" href="{{.Static}}/vars.css?v={{.StaticVersion}}">
-	<link rel="stylesheet" href="{{.Static}}/shared.css?v={{.StaticVersion}}">
-	<link rel="stylesheet" href="{{.Static}}/backend.css?v={{.StaticVersion}}">
-	<style>{{if not .User.ID}}.logged-in { display: none !important; }{{end}}</style>
+	<link rel="stylesheet" href="{{.Asset "assets/backend.css"}}">
 </head>
 
 <body id="page-{{.Path | path_id}}">
