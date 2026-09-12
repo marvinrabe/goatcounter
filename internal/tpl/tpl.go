@@ -247,11 +247,9 @@ func HorizontalChart(ctx context.Context, stats goatcounter.HitStats, total int,
 			case goatcounter.SizePhones:
 				name = i18n.T(ctx, "label/size-phones|Phones")
 			case goatcounter.SizeTablets:
-				name = i18n.T(ctx, "label/size-tablets|Tablets and large phones")
+				name = i18n.T(ctx, "label/size-tablets|Tablets")
 			case goatcounter.SizeDesktop:
-				name = i18n.T(ctx, "label/size-desktop|Computer monitors")
-			case goatcounter.SizeDesktopHD:
-				name = i18n.T(ctx, "label/size-desktophd|Computer monitors larger than HD")
+				name = i18n.T(ctx, "label/size-desktop|Desktop")
 			}
 		}
 

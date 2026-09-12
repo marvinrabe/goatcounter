@@ -145,11 +145,6 @@ func TestHitStats(t *testing.T) {
 						"count": 1
 					},
 					{
-						"id": "desktophd",
-						"name": "",
-						"count": 0
-					},
-					{
 						"id": "unknown",
 						"name": "",
 						"count": 0
@@ -232,11 +227,10 @@ func TestListSizes(t *testing.T) {
 
 	// Copy from hit_stats
 	const (
-		sizePhones    = "phone"
-		sizeTablets   = "tablet"
-		sizeDesktop   = "desktop"
-		sizeDesktopHD = "desktophd"
-		sizeUnknown   = "unknown"
+		sizePhones  = "phone"
+		sizeTablets = "tablet"
+		sizeDesktop = "desktop"
+		sizeUnknown = "unknown"
 	)
 
 	now := ztime.Now(ctx)
@@ -248,7 +242,6 @@ func TestListSizes(t *testing.T) {
 		{600, sizePhones},
 		{1000, sizeTablets},
 		{1920, sizeDesktop},
-		{3000, sizeDesktopHD},
 	}
 
 	for _, w := range widths {
@@ -258,6 +251,8 @@ func TestListSizes(t *testing.T) {
 		)
 	}
 	testenv.StoreHits(ctx, t, false,
+		Hit{CreatedAt: now, Size: []float64{3000, 0, 1}},
+		Hit{CreatedAt: now, Size: []float64{3000, 0, 1}, FirstVisit: true},
 		Hit{CreatedAt: now, Size: []float64{4000, 0, 1}},
 		Hit{CreatedAt: now, Size: []float64{4000, 0, 1}, FirstVisit: true},
 		Hit{CreatedAt: now, Size: []float64{4200, 0, 1}},
@@ -288,12 +283,7 @@ func TestListSizes(t *testing.T) {
 				{
 					"id": "desktop",
 					"name": "",
-					"count": 1
-				},
-				{
-					"id": "desktophd",
-					"name": "",
-					"count": 3
+					"count": 4
 				},
 				{
 					"id": "unknown",
@@ -349,11 +339,7 @@ func TestListSizes(t *testing.T) {
 				{
 					"name": "↔\ufe0e 1920px",
 					"count": 1
-				}
-			]
-		}{
-			"more": false,
-			"stats": [
+				},
 				{
 					"name": "↔\ufe0e 3000px",
 					"count": 1

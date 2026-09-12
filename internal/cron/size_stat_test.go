@@ -37,7 +37,6 @@ func TestSizeStats(t *testing.T) {
 			{"count": 0, "id": "phone", "name": ""},
 			{"count": 0, "id": "tablet", "name": ""},
 			{"count": 2, "id": "desktop", "name": ""},
-			{"count": 0, "id": "desktophd", "name": ""},
 			{"count": 0, "id": "unknown", "name": ""}
 		]
 	}`
@@ -68,7 +67,6 @@ func TestSizeStats(t *testing.T) {
 			{"count": 0, "id": "phone", "name": ""},
 			{"count": 0, "id": "tablet", "name": ""},
 			{"count": 3, "id": "desktop", "name": ""},
-			{"count": 0, "id": "desktophd", "name": ""},
 			{"count": 1, "id": "unknown", "name": ""}
 		]
 	}`

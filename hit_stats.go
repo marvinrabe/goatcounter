@@ -270,11 +270,10 @@ func (h *HitStats) ListLanguages(ctx context.Context, rng ztime.Range, pathFilte
 }
 
 const (
-	SizePhones    = "phone"
-	SizeTablets   = "tablet"
-	SizeDesktop   = "desktop"
-	SizeDesktopHD = "desktophd"
-	SizeUnknown   = "unknown"
+	SizePhones  = "phone"
+	SizeTablets = "tablet"
+	SizeDesktop = "desktop"
+	SizeUnknown = "unknown"
 )
 
 // ListSizes lists all device sizes.
@@ -296,22 +295,19 @@ func (h *HitStats) ListSizes(ctx context.Context, rng ztime.Range, pathFilter Pa
 		{ID: SizePhones, Count: 0},
 		{ID: SizeTablets, Count: 0},
 		{ID: SizeDesktop, Count: 0},
-		{ID: SizeDesktopHD, Count: 0},
 		{ID: SizeUnknown, Count: 0},
 	}
 	for i := range h.Stats {
 		x, _ := zstrconv.ParseInt[int16](h.Stats[i].Name, 10)
 		switch {
 		case x == 0:
-			ns[4].Count += h.Stats[i].Count
+			ns[3].Count += h.Stats[i].Count
 		case x <= 600:
 			ns[0].Count += h.Stats[i].Count
 		case x <= 1000:
 			ns[1].Count += h.Stats[i].Count
-		case x <= 1920:
-			ns[2].Count += h.Stats[i].Count
 		default:
-			ns[3].Count += h.Stats[i].Count
+			ns[2].Count += h.Stats[i].Count
 		}
 	}
 	if sortByCount {
@@ -334,9 +330,7 @@ func (h *HitStats) ListSize(ctx context.Context, id string, rng ztime.Range, pat
 	case SizeTablets:
 		minSize, maxSize = 600, 1000
 	case SizeDesktop:
-		minSize, maxSize = 1000, 1920
-	case SizeDesktopHD:
-		minSize, maxSize = 1920, 99999
+		minSize, maxSize = 1000, 99999
 	case SizeUnknown:
 		empty = true
 	default:
