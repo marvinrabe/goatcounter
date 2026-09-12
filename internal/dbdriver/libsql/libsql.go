@@ -35,8 +35,12 @@ func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
 	files := opt.Files
 	opt.Files = nil
 	db, err := zdb.Connect(ctx, opt)
-	if err != nil || files == nil {
+	if err != nil {
 		return db, err
+	}
+	configureRemotePool(db, opt.Connect)
+	if files == nil {
+		return db, nil
 	}
 
 	var tables int
@@ -61,7 +65,34 @@ func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
 
 	opt.Files = files
 	opt.Create = false
-	return zdb.Connect(ctx, opt)
+	db, err = zdb.Connect(ctx, opt)
+	if err == nil {
+		configureRemotePool(db, opt.Connect)
+	}
+	return db, err
+}
+
+// configureRemotePool disables idle connection reuse for remote databases.
+// Remote Hrana streams expire after a short period of inactivity, and
+// go-libsql does not translate that response to driver.ErrBadConn. It therefore
+// cannot ask database/sql to retry with a fresh connection.
+//
+// This must run after zdb.Connect: zdb applies its own pool settings after the
+// driver's Connect method returns, so configuring this in driver.Connect gets
+// overwritten.
+func configureRemotePool(db zdb.DB, connect string) {
+	if !isRemote(connect) {
+		return
+	}
+	sqlDB, _ := db.DBSQL()
+	sqlDB.SetMaxIdleConns(0)
+}
+
+func isRemote(connect string) bool {
+	connect = strings.TrimPrefix(connect, "libsql+")
+	return strings.HasPrefix(connect, "libsql://") ||
+		strings.HasPrefix(connect, "http://") ||
+		strings.HasPrefix(connect, "https://")
 }
 
 func createSchema(ctx context.Context, db zdb.DB, files fs.FS) error {
@@ -118,12 +149,6 @@ func (driver) Connect(ctx context.Context, connect string, create bool) (*sql.DB
 	db, err := sql.Open("libsql", connect)
 	if err != nil {
 		return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
-	}
-	if !local && !strings.HasPrefix(connect, ":memory:") {
-		// Remote Hrana streams expire after a short period of inactivity. The
-		// driver doesn't report an expired stream as driver.ErrBadConn, so
-		// database/sql would otherwise keep handing it out from the idle pool.
-		db.SetMaxIdleConns(0)
 	}
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
