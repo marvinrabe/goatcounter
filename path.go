@@ -66,7 +66,7 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 
 	err = zdb.Get(ctx, p, `/* Path.GetOrInsert */
 		select * from paths
-		where lower(path) = lower($1) and site = $2
+		where lower(path) = lower(?) and site = ?
 		limit 1`, p.Path, MustGetSite(ctx).Key)
 	if err != nil && !zdb.ErrNoRows(err) {
 		return errors.Errorf("Path.GetOrInsert select: %w", err)

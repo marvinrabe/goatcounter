@@ -39,7 +39,7 @@ func (l *Location) ByCode(ctx context.Context, code string) error {
 		return nil
 	}
 
-	err := zdb.Get(ctx, l, `select * from locations where iso_3166_2 = $1`, code)
+	err := zdb.Get(ctx, l, `select * from locations where iso_3166_2 = ?`, code)
 	if zdb.ErrNoRows(err) {
 		l.ISO3166_2 = code
 		l.Country, l.Region, _ = strings.Cut(code, "-")
@@ -83,7 +83,7 @@ func (l *Location) Lookup(ctx context.Context, ip string) error {
 	}
 
 	err = zdb.Get(ctx, l,
-		`select * from locations where country = $1 and region = $2`,
+		`select * from locations where country = ? and region = ?`,
 		l.Country, l.Region)
 	if zdb.ErrNoRows(err) {
 		err = l.insert(ctx)

@@ -141,7 +141,7 @@ func (m *ms) StoreSessions(db zdb.DB) {
 	}
 
 	err = db.Exec(context.Background(),
-		`insert into store (key, value) values ('session', $1)`, d)
+		`insert into store (key, value) values ('session', ?)`, d)
 	if err != nil {
 		memlog.Error(context.Background(), err)
 	}

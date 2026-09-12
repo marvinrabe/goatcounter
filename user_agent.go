@@ -73,7 +73,7 @@ func (b *Browser) GetOrInsert(ctx context.Context, name, version string) error {
 
 	b.Name, b.Version = name, version
 
-	err := zdb.Get(ctx, &b.ID, `select browser_id from browsers where name=$1 and version=$2`, name, version)
+	err := zdb.Get(ctx, &b.ID, `select browser_id from browsers where name=? and version=?`, name, version)
 	if zdb.ErrNoRows(err) {
 		err = zdb.Insert(ctx, b)
 	}
@@ -105,7 +105,7 @@ func (s *System) GetOrInsert(ctx context.Context, name, version string) error {
 
 	s.Name, s.Version = name, version
 
-	err := zdb.Get(ctx, &s.ID, `select system_id from systems where name=$1 and version=$2`, name, version)
+	err := zdb.Get(ctx, &s.ID, `select system_id from systems where name=? and version=?`, name, version)
 	if zdb.ErrNoRows(err) {
 		err = zdb.Insert(ctx, s)
 	}
