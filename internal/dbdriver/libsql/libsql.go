@@ -105,9 +105,11 @@ func (driver) Name() string    { return "libsql" }
 func (driver) Dialect() string { return "sqlite" }
 
 func (driver) Connect(ctx context.Context, connect string, create bool) (*sql.DB, any, error) {
-	if path, local, err := localPath(connect); err != nil {
+	path, local, err := localPath(connect)
+	if err != nil {
 		return nil, nil, err
-	} else if local {
+	}
+	if local {
 		if err := prepareLocal(path, connect, create); err != nil {
 			return nil, nil, err
 		}
@@ -116,6 +118,12 @@ func (driver) Connect(ctx context.Context, connect string, create bool) (*sql.DB
 	db, err := sql.Open("libsql", connect)
 	if err != nil {
 		return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+	}
+	if !local && !strings.HasPrefix(connect, ":memory:") {
+		// Remote Hrana streams expire after a short period of inactivity. The
+		// driver doesn't report an expired stream as driver.ErrBadConn, so
+		// database/sql would otherwise keep handing it out from the idle pool.
+		db.SetMaxIdleConns(0)
 	}
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
