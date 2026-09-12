@@ -41,7 +41,7 @@ func readAssetPaths(fsys fs.FS) (map[string]string, error) {
 	paths := make(map[string]string, len(manifest))
 	for source, asset := range manifest {
 		if asset.File == "" {
-			return nil, fmt.Errorf("Vite manifest entry %q has no file", source)
+			return nil, fmt.Errorf("vite manifest entry %q has no file", source)
 		}
 		paths[source] = asset.File
 	}
