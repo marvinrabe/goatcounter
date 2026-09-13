@@ -7,6 +7,12 @@
 	const endpoint = script.dataset.endpoint || counter.endpoint || new URL('count', script.src).href
 
 	counter.count = (options = {}) => {
+		const site = options.site ?? script.dataset.site
+		if (!site) {
+			console.error('GoatCounter: missing site; set data-site on the tracking script or pass site to count()')
+			return
+		}
+
 		if (document.prerendering || document.visibilityState === 'prerender')
 			return
 		if (!counter.allow_frame && window.self !== window.top)
@@ -17,14 +23,14 @@
 
 		const url = new URL(endpoint, document.baseURI)
 		const data = {
-			site: options.site ?? script.dataset.site ?? '',
+			site,
 			p: options.path ?? location.pathname + location.search,
 			r: options.referrer ?? document.referrer,
 			e: !!options.event,
 			ns: !!options.no_session,
 			s: window.screen.width,
 			b: navigator.webdriver ? 153 : 0,
-			q: location.search,
+			// Cache-bust the image fallback; some browsers ignore cache headers.
 			rnd: Math.random().toString(36).slice(2),
 		}
 		for (const [key, value] of Object.entries(data))

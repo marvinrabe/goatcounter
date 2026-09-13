@@ -8,6 +8,7 @@ const source = readFileSync(new URL('./count.js', import.meta.url), 'utf8')
 function load({page = 'https://example.com/docs?ref=newsletter#intro', dataset = {},
 	settings = {}, visibility = 'visible', frame = false, beacon = true, webdriver = false} = {}) {
 	const requests = []
+	const errors = []
 	const document = Object.assign(new EventTarget(), {
 		currentScript: {src: 'https://stats.example.com/analytics/count.js?v=2',
 			dataset: {site: 'example.com', ...dataset}},
@@ -32,14 +33,26 @@ function load({page = 'https://example.com/docs?ref=newsletter#intro', dataset =
 		set src(url) { requests.push({type: 'image', url: new URL(url)}) }
 	}
 	const location = new URL(page)
-	runInNewContext(source, {window, document, navigator, location, URL, Image})
-	return {requests, counter: window.goatcounter, location, document,
+	runInNewContext(source, {window, document, navigator, location, URL, Image,
+		console: {error: (...args) => errors.push(args)}})
+	return {requests, errors, counter: window.goatcounter, location, document,
 		show(state) {
 			document.visibilityState = state
 			document.prerendering = state === 'prerender'
 			document.dispatchEvent(new Event('visibilitychange'))
 		}}
 }
+
+test('logs an error and sends nothing when no site can be determined', () => {
+	const tracker = load({dataset: {site: ''}})
+	assert.equal(tracker.requests.length, 0)
+	assert.equal(tracker.errors.length, 1)
+	assert.match(tracker.errors[0][0], /missing site/)
+
+	tracker.counter.count({site: 'manual.example'})
+	assert.equal(tracker.requests.length, 1)
+	assert.equal(tracker.requests[0].url.searchParams.get('site'), 'manual.example')
+})
 
 test('counts a pageview with the collection fields and script-relative endpoint', () => {
 	const {requests} = load()
@@ -53,7 +66,7 @@ test('counts a pageview with the collection fields and script-relative endpoint'
 	assert.deepEqual(data, {
 		site: 'example.com', p: '/docs?ref=newsletter',
 		r: 'https://search.example/query?q=docs', e: 'false', ns: 'false',
-		s: '1440', b: '0', q: '?ref=newsletter',
+		s: '1440', b: '0',
 	})
 })
 
@@ -82,7 +95,7 @@ test('manual events and pageviews use current values without leaking previous op
 	counter.count()
 	const page = requests[1].url.searchParams
 	assert.equal(page.get('p'), '/next?ref=next')
-	assert.equal(page.get('q'), '?ref=next')
+	assert.equal(page.has('q'), false)
 	assert.equal(page.get('e'), 'false')
 	assert.equal(page.get('ns'), 'false')
 	assert.equal(page.get('site'), 'example.com')

@@ -32,7 +32,6 @@ type Hit struct {
 	Ref       string `db:"-" json:"r,omitempty"`
 	Event     bool   `db:"-" json:"e,omitempty"`
 	Size      Floats `db:"-" json:"s,omitempty"`
-	Query     string `db:"-" json:"q,omitempty"`
 	Bot       int    `db:"-" json:"b,omitempty"`
 	NoSession bool   `db:"-" json:"ns,omitempty"`
 
@@ -177,6 +176,12 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 	if h.CreatedAt.IsZero() {
 		h.CreatedAt = datetime.Now(ctx)
 	}
+	query := ""
+	if !h.Event {
+		if u, err := url.Parse(h.Path); err == nil {
+			query = u.RawQuery
+		}
+	}
 
 	if h.Event {
 		h.Path = strings.TrimLeft(h.Path, "/")
@@ -189,11 +194,8 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 	}
 
 	// Set campaign.
-	if !h.Event && h.Query != "" {
-		if h.Query[0] != '?' {
-			h.Query = "?" + h.Query
-		}
-		u, err := url.Parse(h.Query)
+	if query != "" {
+		u, err := url.Parse("?" + query)
 		if err != nil {
 			return fmt.Errorf("Hit.Defaults: %w", err)
 		}

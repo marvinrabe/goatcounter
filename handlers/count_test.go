@@ -119,12 +119,7 @@ func TestBackendCount(t *testing.T) {
 			Width:     new(int16(40)),
 		}},
 
-		{"campaign", url.Values{"p": {"/foo.html"}, "q": {"ref=AAA"}}, nil, 200, goatcounter.Hit{
-			Path:      "/foo.html",
-			Ref:       "AAA",
-			RefScheme: "c",
-		}},
-		{"campaign_override", url.Values{"p": {"/foo.html?ref=AAA"}, "q": {"ref=AAA"}}, nil, 200, goatcounter.Hit{
+		{"campaign", url.Values{"p": {"/foo.html?ref=AAA"}}, nil, 200, goatcounter.Hit{
 			Path:      "/foo.html",
 			Ref:       "AAA",
 			RefScheme: "c",
