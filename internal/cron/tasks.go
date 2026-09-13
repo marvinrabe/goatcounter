@@ -3,7 +3,6 @@ package cron
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/database"
@@ -12,7 +11,7 @@ import (
 func oldBot(ctx context.Context) error {
 	err := database.Exec(ctx, `delete from bots where created_at < datetime('now', '-30 days')`)
 	if err != nil {
-		slog.With("module", "cron").ErrorContext(ctx, err.Error())
+		return fmt.Errorf("expire bots: %w", err)
 	}
 	return nil
 }

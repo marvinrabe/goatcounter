@@ -95,7 +95,8 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 
 	code, userErr := httpx.UserError(reported)
 	if code >= 500 {
-		slog.With("module", "http-500").ErrorContext(r.Context(), reported.Error(), requestAttrs(r))
+		slog.With("module", "http-500").ErrorContext(r.Context(), "HTTP request failed",
+			"error", reported, requestAttrs(r))
 	}
 
 	ct := strings.ToLower(r.Header.Get("Content-Type"))
@@ -123,7 +124,7 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			j, err = json.Marshal(map[string]string{"error": userErr.Error()})
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), err.Error(), requestAttrs(r))
+			slog.ErrorContext(r.Context(), "marshal error response", "error", err, requestAttrs(r))
 		}
 		w.Write(j)
 
@@ -151,13 +152,14 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			Path  string
 		}{code, userErr, goatcounter.Config(r.Context()).BasePath, r.URL.Path})
 		if err != nil {
-			slog.ErrorContext(r.Context(), err.Error(), requestAttrs(r))
+			slog.ErrorContext(r.Context(), "render error page", "error", err, requestAttrs(r))
 		}
 	}
 }
 
-// Keep request details alongside errors without logging request bodies.
+// Keep request details alongside errors without logging request bodies or query
+// parameters, which may contain credentials or other sensitive values.
 func requestAttrs(r *http.Request) slog.Attr {
-	return slog.Group("http", "method", r.Method, "url", r.URL.String(),
+	return slog.Group("http", "method", r.Method, "path", r.URL.Path,
 		"host", r.Host, "ua", r.UserAgent())
 }

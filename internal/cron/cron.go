@@ -45,7 +45,8 @@ func Start(ctx context.Context, interval time.Duration) *Runner {
 					return
 				case <-timer.C:
 					if err := task.run(ctx); err != nil && ctx.Err() == nil {
-						slog.With("module", "cron").ErrorContext(ctx, err.Error(), "task", task.name)
+						slog.With("module", "cron").ErrorContext(ctx, "background task failed",
+							"error", err, "task", task.name)
 					}
 					timer.Reset(task.period)
 				}

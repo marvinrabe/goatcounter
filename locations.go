@@ -146,7 +146,7 @@ func findGeoName(ctx context.Context, country, region string) (string, string) {
 		}
 		err := iter.Data(&r)
 		if err != nil {
-			slog.ErrorContext(context.Background(), err.Error())
+			slog.ErrorContext(ctx, "decode GeoIP record", "error", err)
 			return "", ""
 		}
 

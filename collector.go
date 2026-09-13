@@ -193,7 +193,8 @@ func processHit(ctx context.Context, h *Hit) (bool, error) {
 	err := h.Defaults(ctx, false)
 	if err != nil {
 		if errors.As(err, new(&validation.Validator{})) {
-			slog.With("module", "collector").DebugContext(ctx, err.Error(), "hit", h)
+			slog.With("module", "collector").DebugContext(ctx, "discard invalid hit",
+				"error", err, "hit", h)
 		} else {
 			return false, err
 		}
@@ -217,7 +218,8 @@ func processHit(ctx context.Context, h *Hit) (bool, error) {
 
 	err = h.Validate(ctx, false)
 	if err != nil {
-		slog.With("module", "collector").ErrorContext(ctx, err.Error(), "hit", h)
+		slog.With("module", "collector").ErrorContext(ctx, "discard invalid normalized hit",
+			"error", err, "hit", h)
 		return false, nil
 	}
 	return true, nil

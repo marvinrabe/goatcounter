@@ -99,7 +99,8 @@ func Ratelimit(withUA bool, getStore func(r *http.Request) ([]limiter.Store, str
 				if err != nil {
 					// The memorystore only returns an error if Close() was called.
 					// But log just to be sure.
-					slog.With("module", "ratelimit").ErrorContext(r.Context(), err.Error(), "key", key)
+					slog.With("module", "ratelimit").ErrorContext(r.Context(), "check rate limit",
+						"error", err, "key", key)
 					ok = false
 				}
 				if !ok {

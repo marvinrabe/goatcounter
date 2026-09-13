@@ -374,7 +374,7 @@ func watchTemplates(dir string) {
 		if m := templatesModified(dir); !m.Equal(last) {
 			last = m
 			if err := handlers.LoadTemplates(os.DirFS(dir)); err != nil {
-				slog.ErrorContext(context.Background(), err.Error())
+				slog.ErrorContext(context.Background(), "reload templates", "error", err)
 			} else {
 				slog.Info("reloaded templates")
 			}
@@ -466,7 +466,7 @@ func setupTpl(ctx context.Context, dev bool) error {
 		if !dev {
 			return err
 		}
-		slog.ErrorContext(ctx, err.Error())
+		slog.ErrorContext(ctx, "load development templates", "error", err)
 	}
 	return nil
 }

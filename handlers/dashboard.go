@@ -77,7 +77,8 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		}
 		tpl, err := renderTemplate(tplName, tplData)
 		if err != nil {
-			slog.With("module", "dashboard").ErrorContext(r.Context(), err.Error(), requestAttrs(r))
+			slog.With("module", "dashboard").ErrorContext(r.Context(), "render dashboard widget",
+				"error", err, "widget", w.Name(), requestAttrs(r))
 			w.SetHTML(template.HTML("template rendering error: " + template.HTMLEscapeString(err.Error())))
 			return
 		}
@@ -161,9 +162,12 @@ func (h backend) loadDashboardWidgets(r *http.Request, list widgets.List, args w
 			_, err := widget.GetData(ctx, args)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
+					slog.With("module", "dashboard").WarnContext(r.Context(), "dashboard widget timed out",
+						"error", err, "widget", widget.Name(), requestAttrs(r))
 					err = httpx.Error(http.StatusGatewayTimeout, "server timed out loading data")
 				} else if !errors.Is(err, context.Canceled) {
-					slog.With("module", "dashboard").ErrorContext(ctx, err.Error(), "widget", widget.Name(), requestAttrs(r))
+					slog.With("module", "dashboard").ErrorContext(r.Context(), "load dashboard widget",
+						"error", err, "widget", widget.Name(), requestAttrs(r))
 					_, err = httpx.UserError(err)
 				}
 				widget.SetErr(err)
@@ -287,7 +291,8 @@ func timeRange(ctx context.Context, r string, tz *time.Location, sundayStartsWee
 		// Keep rounding here for views that were saved like that.
 		days, err := strconv.ParseFloat(r, 32)
 		if err != nil {
-			slog.ErrorContext(ctx, fmt.Errorf("timeRange: %w", err).Error(), "rng", r)
+			slog.WarnContext(ctx, "invalid dashboard time range; using default",
+				"error", err, "range", r)
 			return timeRange(ctx, "week", tz, sundayStartsWeek)
 		}
 		rng.Start = datetime.AddPeriod(rng.Start, -int(math.Round(days)), datetime.Day)
