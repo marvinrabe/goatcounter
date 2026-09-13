@@ -126,7 +126,7 @@ func TestPathChangesInvalidateFilters(t *testing.T) {
 func TestCachedFiltersAreScopedBySite(t *testing.T) {
 	ctx := testenv.DB(t)
 	second := Site{Key: "second.example", LinkDomain: "second.example"}
-	second.Defaults(ctx)
+	second.Defaults()
 	Config(ctx).Sites = append(Config(ctx).Sites, second)
 	sites := Config(ctx).Sites
 

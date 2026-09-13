@@ -23,30 +23,19 @@ import (
 
 func TestBackendCountLanguage(t *testing.T) {
 	tests := []struct {
-		name    string
-		collect bool
-		header  string
-		want    string
+		name   string
+		header string
+		want   string
 	}{
-		{"always collected", false, "nl-BE,nl;q=0.9", "nld"},
-		{"collected", true, "nl-BE,nl;q=0.9", "nld"},
-		{"no header", true, "", ""},
-		{"unknown language", true, "xx", ""},
+		{"collected", "nl-BE,nl;q=0.9", "nld"},
+		{"no header", "", ""},
+		{"unknown language", "xx", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testenv.DB(t)
 			ctx = ztime.WithNow(ctx, ztime.FromString("2019-06-18 14:42:00"))
-
-			site := Site(ctx)
-			site.Settings.Collect.Set(goatcounter.CollectHits)
-			if tt.collect {
-				site.Settings.Collect.Set(goatcounter.CollectLanguage)
-			}
-			if err := site.Update(ctx); err != nil {
-				t.Fatal(err)
-			}
 
 			r, rr := newTest(ctx, "GET", "/count?p=/foo.html", nil)
 			if tt.header != "" {
@@ -56,7 +45,7 @@ func TestBackendCountLanguage(t *testing.T) {
 			newBackend(ctx).ServeHTTP(rr, r)
 			ztest.Code(t, rr, 200)
 
-			if _, err := goatcounter.Memstore.Persist(ctx); err != nil {
+			if _, err := goatcounter.PersistHits(ctx, nil); err != nil {
 				t.Fatal(err)
 			}
 
@@ -187,12 +176,6 @@ func TestBackendCount(t *testing.T) {
 			ctx := testenv.DB(t)
 			ctx = ztime.WithNow(ctx, ztime.FromString("2019-06-18 14:42:00"))
 
-			site := Site(ctx)
-			site.Settings.Collect.Set(goatcounter.CollectHits)
-			if err := site.Update(ctx); err != nil {
-				t.Fatal(err)
-			}
-
 			r, rr := newTest(ctx, "GET", "/count?"+tt.query.Encode(), nil)
 			if tt.set != nil {
 				tt.set(r)
@@ -209,7 +192,7 @@ func TestBackendCount(t *testing.T) {
 				return
 			}
 
-			_, err := goatcounter.Memstore.Persist(ctx)
+			_, err := goatcounter.PersistHits(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -253,7 +236,7 @@ func TestBackendCount(t *testing.T) {
 
 			tt.hit.ID = h.ID
 			tt.hit.CreatedAt = ztime.Now(ctx)
-			tt.hit.Session = goatcounter.TestSeqSession // Should all be the same session.
+			tt.hit.Session = h.Session // Should all be the same session.
 			h.CreatedAt = h.CreatedAt.In(time.UTC)
 			if d := ztest.Diff(string(zjson.MustMarshal(h)), string(zjson.MustMarshal(tt.hit)), ztest.DiffJSON); d != "" {
 				t.Error(d)
@@ -266,12 +249,6 @@ func TestBackendCountSessions(t *testing.T) {
 	ctx := testenv.DB(t)
 	ctx = ztime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 0, 0, time.UTC))
 
-	site := Site(ctx)
-	site.Settings.Collect.Set(goatcounter.CollectHits)
-	if err := site.Update(ctx); err != nil {
-		t.Fatal(err)
-	}
-
 	send := func(ctx context.Context, ua string) {
 		query := url.Values{"p": {"/" + zcrypto.Secret64()}}
 
@@ -283,7 +260,7 @@ func TestBackendCountSessions(t *testing.T) {
 		}
 		ztest.Code(t, rr, 200)
 
-		_, err := goatcounter.Memstore.Persist(ctx)
+		_, err := goatcounter.PersistHits(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -318,13 +295,6 @@ func TestBackendCountSessions(t *testing.T) {
 	checkSess := func(hits goatcounter.Hits, wantInt []int) {
 		t.Helper()
 
-		first := zint.Uint128{goatcounter.TestSession[0], goatcounter.TestSession[1] + 1}
-		want := make([]zint.Uint128, len(wantInt))
-		for i := range wantInt {
-			want[i] = first
-			want[i][1] += uint64(wantInt[i])
-		}
-
 		var got []zint.Uint128
 		for _, h := range hits {
 			got = append(got, h.Session)
@@ -333,19 +303,31 @@ func TestBackendCountSessions(t *testing.T) {
 			}
 		}
 
-		sort.Slice(want, func(i, j int) bool { return want[i][1] < want[j][1] })
-		sort.Slice(got, func(i, j int) bool { return got[i][1] < got[j][1] })
+		// Assert session equivalence and multiplicity, without depending on UUIDs.
+		wantCounts := map[int]int{}
+		for _, id := range wantInt {
+			wantCounts[id]++
+		}
+		gotCounts := map[zint.Uint128]int{}
+		for _, id := range got {
+			if id.IsZero() {
+				t.Fatal("zero session")
+			}
+			gotCounts[id]++
+		}
+		var want, have []int
+		for _, n := range wantCounts {
+			want = append(want, n)
+		}
+		for _, n := range gotCounts {
+			have = append(have, n)
+		}
+		sort.Ints(want)
+		sort.Ints(have)
+		if fmt.Sprint(want) != fmt.Sprint(have) {
+			t.Errorf("session visit counts: %v; want %v", have, want)
+		}
 
-		var w, g strings.Builder
-		for _, ww := range want {
-			w.WriteString(ww.Format(16) + " ")
-		}
-		for _, gg := range got {
-			g.WriteString(gg.Format(16) + " ")
-		}
-		if w.String() != g.String() {
-			t.Errorf("wrong session\nwant: %s\ngot:  %s", w.String(), g.String())
-		}
 	}
 
 	var (
@@ -360,14 +342,33 @@ func TestBackendCountSessions(t *testing.T) {
 	checkSess(checkHits(ctx, 4), []int{1, 1, 2, 1})
 
 	// Should still use the same sessions.
+	previousLifetime := goatcounter.SessionTime
+	t.Cleanup(func() { goatcounter.SessionTime = previousLifetime })
 	goatcounter.SessionTime = 1 * time.Second
-	goatcounter.Memstore.EvictSessions(ctx)
+	goatcounter.EvictSessions(ctx)
 	send(ctx, ua1)
 	checkSess(checkHits(ctx, 5), []int{1, 1, 2, 1, 1})
 
 	// Should use new sessions from now on.
 	ctx = ztime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 2, 0, time.UTC))
-	goatcounter.Memstore.EvictSessions(ctx)
+	goatcounter.EvictSessions(ctx)
 	send(ctx, ua1)
 	checkSess(checkHits(ctx, 6), []int{1, 1, 2, 1, 1, 3})
+}
+
+func TestCollectorDoesNotAcknowledgeFailedEnqueue(t *testing.T) {
+	ctx := testenv.DB(t)
+	if err := zdb.Exec(ctx, `create trigger reject_enqueue before insert on hit_queue
+        begin select raise(abort, 'queue unavailable'); end`); err != nil {
+		t.Fatal(err)
+	}
+	r, w := newTest(ctx, "GET", "/count?p=/must-not-ack", nil)
+	newBackend(ctx).ServeHTTP(w, r)
+	if w.Code < 500 {
+		t.Fatalf("failed durable enqueue returned HTTP %d", w.Code)
+	}
+	var n int
+	if err := zdb.Get(ctx, &n, `select count(*) from hit_queue`); err != nil || n != 0 {
+		t.Fatalf("queued=%d, error=%v", n, err)
+	}
 }

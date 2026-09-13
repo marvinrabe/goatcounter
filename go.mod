@@ -5,10 +5,11 @@ go 1.27.0
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.3.2
-	github.com/libsql/sqlite-antlr4-parser v0.0.0-20240327125255-dbf53b6cbf06
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/monoculum/formam/v3 v3.6.1-0.20221106124510-6a93f49ac1f8
 	github.com/sethvargo/go-limiter v1.2.0
-	github.com/tursodatabase/go-libsql v0.0.0-20260424063416-3051e37e6e04
+	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60
+	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.37.0
 	zgo.at/errors v1.6.0
 	zgo.at/gadget v1.0.0
@@ -26,6 +27,7 @@ require (
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
+	github.com/coder/websocket v1.8.12 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
-	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc // indirect
+	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
 )

@@ -20,7 +20,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/handlers"
-	"github.com/marvinrabe/goatcounter/internal/bgrun"
 	"github.com/marvinrabe/goatcounter/internal/cron"
 	"github.com/marvinrabe/goatcounter/internal/geo"
 	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
@@ -70,7 +69,7 @@ Environment:
 Flags:
 
   -db          Local database path or remote libSQL URL.
-               Default: libsql+file:/data/goatcounter.db
+               Required; no implicit local database.
                Remote example: libsql://your-database.turso.io?authToken=TOKEN
                An empty database is initialized automatically on startup.
 
@@ -79,14 +78,12 @@ Flags:
                There is no maximum if max_open is -1, and idle connections are
                not retained if max_idle is -1 The default is 4,2.
 
-               SQLite keeps a page cache per connection, so raising this also
-               raises memory use; with WAL there is only ever one writer.
+               Local SQLite files use one connection to avoid
+               write contention. Remote databases honor max_open and disable
+               idle reuse because remote streams expire.
 
-  -listen      Address to listen on. Default: "*:8080". See "goatcounter help
+  -listen      Address to listen on. Default: ":8080". See "goatcounter help
                listen" for detailed documentation.
-
-  -public-port Port your site is publicly accessible on. Only needed if it's
-               not 80 or 443.
 
   -base-path   Path under which GoatCounter is available. Usually GoatCounter
                runs on its own domain or subdomain ("stats.example.com"), but
@@ -97,40 +94,25 @@ Flags:
   -static      Serve static files from a different domain, such as a CDN or
                cookieless domain. Default: not set.
 
-  -geodb       Path to mmdb GeoIP database; can be either the City or Country
-               version, but regional information is only recorded with the City
-               version.
+  -geodb       Explicit path to a City or Country mmdb GeoIP database.
+               Defaults to the bundled Country database. No files are
+               discovered and no downloads are performed during startup.
+               Use geodb-update separately to download a newer Cities file.
 
-               GoatCounter will automatically use the first .mmdb file in
-               ./goatcounter-data, if any exists. GoatCounter comes with a
-               Countries version built-in, and will use that if this flag isn't
-               given and there is no file in ./goatcounter-data. You only need
-               this if you want to use a newer/different version, or if you
-               want to record regions.
+  -shutdown-timeout
+               Total HTTP/worker shutdown deadline in seconds. Default: 25.
 
-               This can also be a MaxMind account ID and license key, in which
-               case GoatCounter will automatically download a Cities database
-               from MaxMind and update it every week. The format for this is:
-
-                   maxmind:account_id:license[:path]
-
-               :path may be omitted and defaults to goatcounter-data/auto.mmdb.
-
-               For example:
-
-                   -geodb maxmind:123456:abcdef
-                   -geodb maxmind:123456:abcdef:/home/goatcounter/cities.mmdb
-
-               Updates are only done on restarts.
+  -drain-delay Seconds to keep serving after becoming unready, giving a load
+               balancer time to remove this replica. Default: 0; Kubernetes: 5.
 
   -ratelimit   Limit requests to /count. Syntax: count:num-requests/seconds.
                Default: count:4/1 (4 requests per second).
                Use count:none to disable the collector limit.
                Only the count limit is supported.
 
-  -store-every How often to persist pageviews to the database, in seconds.
-               Higher values will give better performance, but it will take a
-               bit longer for pageviews to show. The default is 10 seconds.
+  -store-every How often to process durable queued pageviews, in seconds.
+               Pageviews are saved before acknowledgement; processing makes them
+               visible in the dashboard. The default is 10 seconds.
 
   -sites       Comma-separated site names accepted by the collector and shown
                in the dashboard selector. The site name itself is stored
@@ -150,9 +132,8 @@ Flags:
                URL must end in /auth/callback. The session secret must contain
                at least 32 bytes.
 
-  -dev         Start in "dev mode".
-
-  -json        Output logs as JSON instead of aligned text.
+  -dev         Load assets from disk and use readable text logs.
+               Normal operation writes structured JSON logs to stdout.
 
   -debug       Modules to debug, comma-separated or 'all' for all modules.
                See "goatcounter help debug" for a list of modules.
@@ -160,7 +141,6 @@ Flags:
 
 func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	var (
-		port         = f.Int(0, "public-port", "port") // -port is a deprecated alias, for compat with <2.0
 		basePath     = f.String("", "base-path")
 		domainStatic = f.String("", "static")
 		dbConnect    = f.String(defaultDB(), "db")
@@ -181,7 +161,8 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		oidcRedirect = f.String("", "oidc-redirect-url")
 		oidcSession  = f.String("", "oidc-session-secret")
 		oidcScopes   = f.String("", "oidc-scopes")
-		json         = f.Bool(false, "json")
+		shutdown     = f.Int(25, "shutdown-timeout")
+		drain        = f.Int(0, "drain-delay")
 	)
 	if err := f.Parse(zli.FromEnv("GOATCOUNTER")); err != nil {
 		return err
@@ -189,7 +170,7 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 
 	v := zvalidate.New()
 
-	setupLog(dev.Bool(), json.Bool(), debugFlag.StringsSplit(","))
+	setupLog(dev.Bool(), debugFlag.StringsSplit(","))
 
 	if dev.Bool() {
 		zhttp.DefaultDecoder = zhttp.NewDecoder(true, false) // Log unknown fields
@@ -203,17 +184,22 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	domainCount, urlStatic := setupDomains(&v, dev.Bool(), domainStatic.Pointer(), basePath.Pointer())
 
 	v.Range("-store-every", int64(storeEvery.Int()), 1, 0)
-	cron.SetPersistInterval(time.Duration(storeEvery.Int()) * time.Second)
+	v.Range("-shutdown-timeout", int64(shutdown.Int()), 1, 0)
+	v.Range("-drain-delay", int64(drain.Int()), 0, int64(shutdown.Int()-1))
+	if dbConnect.String() == "" {
+		v.Append("-db", "a database URL or path is required")
+	}
 
 	if v.HasErrors() {
 		return v
 	}
 
+	defer geodb.Close()
 	db, ctx, err := connectDB(dbConnect.String(), dbConn.String(), dev.Bool())
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer closeDB(db)
 
 	ctx = geo.With(ctx, geodb)
 
@@ -222,10 +208,6 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	}
 
 	zhttp.ErrPage = handlers.ErrPage
-
-	if err := goatcounter.Memstore.Init(db); err != nil {
-		return err
-	}
 
 	c := goatcounter.Config(ctx)
 	seenSites := make(map[string]bool)
@@ -240,7 +222,7 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		}
 		seenSites[key] = true
 		s := goatcounter.Site{Key: name, LinkDomain: name}
-		s.Defaults(ctx)
+		s.Defaults()
 		c.Sites = append(c.Sites, s)
 	}
 	if len(c.Sites) == 0 {
@@ -256,12 +238,6 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	c.URLStatic = urlStatic
 	c.Dev = dev.Bool()
 	c.BasePath = basePath.String()
-
-	if port.Int() > 0 {
-		c.Port = fmt.Sprintf(":%d", port.Int())
-	}
-
-	cron.Start(context.WithoutCancel(ctx))
 
 	timeout := 60
 	auth := handlers.Auth{Mode: handlers.AuthMode(authMode.String())}
@@ -311,10 +287,12 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 		hosts[znet.RemovePort(domainStatic.String())] = handlers.NewStatic(chi.NewRouter(), dev.Bool(), c.BasePath)
 	}
 
-	ch, err := zhttp.Serve(0, stop, &http.Server{
-		Addr:        listen.String(),
-		Handler:     zhttp.HostRoute(hosts),
-		BaseContext: func(net.Listener) context.Context { return ctx },
+	server := &http.Server{
+		Addr:              listen.String(),
+		Handler:           zhttp.HostRoute(hosts),
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second,
+		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,
 		Protocols: func() *http.Protocols {
 			p := &http.Protocols{}
 			p.SetHTTP1(true)
@@ -322,64 +300,57 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 			p.SetUnencryptedHTTP2(true)
 			return p
 		}(),
-	})
+	}
+	ln, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		return err
 	}
-
-	<-ch // Server is set up
-
+	defer ln.Close()
+	sig, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGTERM, os.Interrupt)
+	defer stopSignals()
+	runner := cron.Start(ctx, time.Duration(storeEvery.Int())*time.Second)
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(ln) }()
 	log.Module("startup").Info(ctx, "GoatCounter ready",
-		startupAttr(geodb, listen.String(), dev.Bool(), "timezone", c.Timezone.String())...)
-
+		startupAttr(geodb, ln.Addr().String(), dev.Bool(), "timezone", c.Timezone.String())...)
 	ready <- struct{}{}
-
-	<-ch // Shutdown
-
-	sig := make(chan os.Signal, 1)
-	go func() {
-		signal.Notify(sig, syscall.SIGHUP, syscall.SIGTERM, os.Interrupt /*SIGINT*/)
-		<-sig
-		zli.Colorln("One more to kill…", zli.Bold)
-		<-sig
-		zli.Colorln("Force killing", zli.Bold)
-		os.Exit(99)
-	}()
-
-	bgrun.RunFunction("shutdown", func() {
-		err := cron.TaskPersistAndStat()
-		if err != nil {
-			log.Error(ctx, err)
-		}
-		goatcounter.Memstore.StoreSessions(db)
-	})
-
-	time.Sleep(200 * time.Millisecond) // Only show message if it doesn't exit in 200ms.
-
-	first := true
-	for r := bgrun.Running(); len(r) > 0; r = bgrun.Running() {
-		if first {
-			log.Info(ctx, "Waiting for background tasks; send HUP, TERM, or INT twice to force kill")
-			first = false
-		}
-		time.Sleep(100 * time.Millisecond)
-
-		zli.Erase()
-		fmt.Fprintf(zli.Stdout, "\r%d tasks: ", len(r))
-		for i, t := range r {
-			if i > 0 {
-				fmt.Fprint(zli.Stdout, ", ")
-			}
-			fmt.Fprintf(zli.Stdout, "%s (%s)", t.Task, time.Since(t.Started).Round(time.Second))
+	var serveErr error
+	select {
+	case <-sig.Done():
+	case <-stop:
+	case serveErr = <-served:
+	}
+	c.Draining.Store(true)
+	log.Info(ctx, "Draining HTTP requests", "delay_seconds", drain.Int())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(shutdown.Int())*time.Second)
+	defer cancel()
+	if drain.Int() > 0 {
+		timer := time.NewTimer(time.Duration(drain.Int()) * time.Second)
+		select {
+		case <-timer.C:
+		case <-shutdownCtx.Done():
+			timer.Stop()
 		}
 	}
-	fmt.Fprintln(zli.Stdout)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		server.Close()
+	}
+	workerErr := runner.Stop(shutdownCtx)
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return serveErr
+	}
+	if shutdownErr != nil {
+		return fmt.Errorf("HTTP shutdown: %w", shutdownErr)
+	}
+	if workerErr != nil {
+		return fmt.Errorf("worker shutdown: %w", workerErr)
+	}
+	log.Info(ctx, "Shutdown complete; pending pageviews remain in the shared database")
 	return nil
 }
 
-func defaultDB() string {
-	return "libsql+file:/data/goatcounter.db"
-}
+func defaultDB() string { return "" }
 
 func setupReload() error {
 	if !zio.Exists("db/schema.gotxt") || !zio.Exists("tpl") || !zio.Exists("public") {
@@ -454,15 +425,6 @@ func templatesModified(dir string) time.Time {
 }
 
 func setupGeo(v *zvalidate.Validator, geodbFlag string) *geoip2.Reader {
-	if geodbFlag == "" {
-		ls, _ := os.ReadDir("goatcounter-data")
-		for _, f := range ls {
-			if strings.HasSuffix(f.Name(), ".mmdb") {
-				geodbFlag = "goatcounter-data/" + f.Name()
-				break
-			}
-		}
-	}
 	geodb, err := geo.Open(geodbFlag)
 	if err != nil {
 		v.Append("-geodb", fmt.Sprintf("loading GeoIP database: %s", err))

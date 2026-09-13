@@ -13,7 +13,7 @@ func TestHelp(t *testing.T) {
 	{
 		runCmd(t, exit, "help", "serve")
 		wantExit(t, exit, out, 0)
-		if !strings.Contains(out.String(), "libsql+file:/data/goatcounter.db") {
+		if !strings.Contains(out.String(), "Required; no implicit local database.") {
 			t.Error()
 		}
 		out.Reset()

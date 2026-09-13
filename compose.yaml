@@ -1,5 +1,5 @@
-# Simple compose for testing with a local libSQL database and no TLS (put a
-# reverse proxy in front for that).
+# Compose test setup: app processes use a shared libSQL service. Put a
+# reverse proxy in front of the app when exposing it outside localhost.
 #
 # Sites are configured with GOATCOUNTER_SITES. The dashboard is public by
 # default; README.md documents Basic authentication and OIDC. Track pageviews
@@ -12,17 +12,23 @@ services:
   goatcounter:
     build: .
     ports:
-      - '8080:8080'
-    volumes:
-      - 'goatcounter-data:/data'
+      - '127.0.0.1:8080:8080'
+    depends_on:
+      libsql:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    stop_grace_period: 30s
     environment:
       GOATCOUNTER_LISTEN: ':8080'
+      GOATCOUNTER_DB: 'http://libsql:8080'
       # Comma-separated site names. Each name is stored as the stable key with
       # collected data, so entries can be reordered, added, or removed.
       GOATCOUNTER_SITES: 'example.com,foobar.net'
       # Enables /api for JSON and MCP clients. Remove or empty this value to
       # disable the endpoint; dashboard authentication never grants API access.
-      GOATCOUNTER_API_TOKEN: 'sample-api-token'
+      GOATCOUNTER_API_TOKEN: '${GOATCOUNTER_API_TOKEN:-}'
       # Timezone the dashboard is displayed in; applies to the whole
       # installation. Defaults to UTC.
       TZ: 'UTC'
@@ -33,15 +39,38 @@ services:
       GOGC: '50'
       # Soft limit on the Go heap: as usage approaches it the GC runs more
       # aggressively rather than growing. It is not a reservation, so a low
-      # value costs nothing when the app is idle. Native libSQL allocations and
-      # the memory-mapped GeoIP database sit outside this, which is what
-      # mem_limit below accounts for.
+      # value costs nothing when the app is idle. The memory-mapped GeoIP
+      # database sits outside this, which is what mem_limit below accounts for.
       GOMEMLIMIT: '96MiB'
 
-    # Hard backstop for the Go heap, native libSQL allocations, and the mmapped
+    # Hard backstop for the Go heap and the mmapped
     # GeoIP database (reclaimable page cache rather than anonymous memory).
     mem_limit: 256m
     memswap_limit: 256m
 
+  # This database has its own lifetime and storage. It is reachable only on
+  # the Compose network; application replicas have no persistent local files.
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+    environment:
+      SQLD_NODE: primary
+      SQLD_DB_PATH: /data
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+    volumes:
+      - libsql-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - /bin/bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3;
+          read -r status <&3;
+          [[ "$$status" == *" 200 "* ]]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
 volumes:
-  goatcounter-data: {}
+  libsql-data: {}

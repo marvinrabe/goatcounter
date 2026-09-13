@@ -1,4 +1,4 @@
-// Package libsql integrates github.com/tursodatabase/go-libsql with zdb.
+// Package libsql integrates remote libSQL and local SQLite with zdb.
 package libsql
 
 import (
@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/libsql/sqlite-antlr4-parser/sqliteparserutils"
-	_ "github.com/tursodatabase/go-libsql"
+	_ "github.com/mattn/go-sqlite3"
+	remotelibsql "github.com/tursodatabase/libsql-client-go/libsql"
+	"github.com/tursodatabase/libsql-client-go/sqliteparserutils"
 	"zgo.at/zdb"
 	"zgo.at/zdb/drivers"
 )
@@ -28,10 +30,16 @@ func FileConnect(path string) string {
 }
 
 // Open connects to a libSQL database and initializes an empty database from
-// the supplied schema. go-libsql executes one statement at a time, so the
+// the supplied schema. The remote client executes one statement at a time, so the
 // rendered baseline is split and applied in a transaction before reconnecting
 // with Files enabled for zdb's query loader.
 func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
+	// A local SQLite file has one writer. Keep one connection to avoid
+	// self-contention; shared deployments use a remote libSQL endpoint.
+	if !isRemote(opt.Connect) {
+		opt.MaxOpenConns = 1
+		opt.MaxIdleConns = 1
+	}
 	files := opt.Files
 	opt.Files = nil
 	db, err := zdb.Connect(ctx, opt)
@@ -73,9 +81,9 @@ func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
 }
 
 // configureRemotePool disables idle connection reuse for remote databases.
-// Remote Hrana streams expire after a short period of inactivity, and
-// go-libsql does not translate that response to driver.ErrBadConn. It therefore
-// cannot ask database/sql to retry with a fresh connection.
+// Remote Hrana streams expire after a short period of inactivity. Opening a
+// fresh stream avoids expired-stream errors across supported server versions;
+// the HTTP transport still reuses its underlying connections.
 //
 // This must run after zdb.Connect: zdb applies its own pool settings after the
 // driver's Connect method returns, so configuring this in driver.Connect gets
@@ -107,7 +115,30 @@ func createSchema(ctx context.Context, db zdb.DB, files fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("libsql.Open: render schema: %w", err)
 	}
-	err = execStatements(ctx, db, string(rendered))
+	for {
+		err = db.TX(ctx, func(ctx context.Context) error {
+			// Serialize simultaneous first starts before checking the schema.
+			if err := zdb.Exec(ctx, `create table if not exists init_lock(id integer primary key)`); err != nil {
+				return err
+			}
+			var tables int
+			if err := zdb.Get(ctx, &tables, `select count(*) from sqlite_schema where type='table' and name not in ('init_lock','version')`); err != nil {
+				return err
+			}
+			if tables > 0 {
+				return nil
+			}
+			return execStatements(ctx, zdb.MustGetDB(ctx), string(rendered))
+		})
+		if err == nil || !strings.Contains(err.Error(), "database is locked") {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("libsql.Open: create schema: %w", err)
 	}
@@ -117,7 +148,7 @@ func createSchema(ctx context.Context, db zdb.DB, files fs.FS) error {
 // execStatements splits and executes a SQL script in one transaction.
 func execStatements(ctx context.Context, db zdb.DB, script string) error {
 	statements, _ := sqliteparserutils.SplitStatement(script)
-	return db.TX(ctx, func(txctx context.Context) error {
+	return zdb.TX(zdb.WithDB(ctx, db), func(txctx context.Context) error {
 		for _, statement := range statements {
 			if strings.TrimSpace(statement) == "" {
 				continue
@@ -146,9 +177,18 @@ func (driver) Connect(ctx context.Context, connect string, create bool) (*sql.DB
 		}
 	}
 
-	db, err := sql.Open("libsql", connect)
-	if err != nil {
-		return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+	var db *sql.DB
+	if isRemote(connect) {
+		connector, err := remotelibsql.NewConnector(connect)
+		if err != nil {
+			return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+		}
+		db = sql.OpenDB(&remoteConnector{Connector: connector})
+	} else {
+		db, err = sql.Open("sqlite3", connect)
+		if err != nil {
+			return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+		}
 	}
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()

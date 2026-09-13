@@ -41,13 +41,9 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 		CreatedAt:       ztime.Now(r.Context()),
 		RemoteAddr:      r.RemoteAddr,
 	}
-	if site.Settings.Collect.Has(goatcounter.CollectLocation) {
-		var l goatcounter.Location
-		hit.Location = l.LookupIP(r.Context(), r.RemoteAddr)
-	}
-	if site.Settings.Collect.Has(goatcounter.CollectLanguage) {
-		hit.Language = goatcounter.AcceptLanguage(r.Header.Get("Accept-Language"))
-	}
+	var l goatcounter.Location
+	hit.Location = l.LookupIP(r.Context(), r.RemoteAddr)
+	hit.Language = goatcounter.AcceptLanguage(r.Header.Get("Accept-Language"))
 
 	err := formam.NewDecoder(&formam.DecoderOptions{
 		TagName:           "json",
@@ -80,6 +76,8 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 		return zhttp.Bytes(w, gif)
 	}
 
-	goatcounter.Memstore.Append(hit)
+	if err := goatcounter.EnqueueHits(r.Context(), hit); err != nil {
+		return fmt.Errorf("durable collector queue: %w", err)
+	}
 	return zhttp.Bytes(w, gif)
 }

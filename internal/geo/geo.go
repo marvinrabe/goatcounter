@@ -36,55 +36,25 @@ func Get(ctx context.Context) *geoip2.Reader {
 	return db
 }
 
-// Open a geoDB database located at the given path.
-//
-// The database can be the "Countries" or "Cities" version.
-//
-// It will use the embeded "Countries" database if path is an empty string.
-//
-// It will download a database if the path starts with "maxmind:". This needs to
-// be as "maxmind:accountID:licenseKey[:path]", where :path is optional and
-// detaults to goatcounter-data/auto.mmdb.
+// Open uses the bundled database unless an explicit file path is configured.
+// Network updates are a separate one-off operation, never part of startup.
 func Open(path string) (*geoip2.Reader, error) {
-	// Use built-in
 	if path == "" {
 		return openBundled()
 	}
-
-	bundle = nil // Not using it; save some memory.
-
-	// Download update
 	if strings.HasPrefix(path, "maxmind:") {
-		s := strings.Split(path[8:], ":")
-		if l := len(s); l != 2 && l != 3 {
-			return nil, fmt.Errorf("invalid format for MaxMind GeoIP update: %q", path)
-		}
-		accountID, key, dst := s[0], s[1], "goatcounter-data/auto.mmdb"
-		if len(s) == 3 {
-			dst = s[2]
-		}
-		st, err := os.Stat(dst)
-		if err != nil || st.ModTime().Before(time.Now().Add(-24*time.Hour*7)) {
-			log.Module("startup").Info(context.Background(), "downloading GeoDB database; might take a few seconds")
-			err = fetchDB(accountID, key, dst)
-			if err != nil {
-				return nil, err
-			}
-		}
-		path = dst
+		return nil, fmt.Errorf("automatic downloads during startup are unsupported; run geodb-update and configure its output path")
 	}
-
-	// From FS
 	return geoip2.Open(path)
 }
 
-// CacheDir is where the extracted copy of the embedded database is kept. It's a
-// subdirectory so that the "any .mmdb in goatcounter-data" detection in the
-// serve command doesn't mistake it for a database the user supplied.
-//
-// It's relative, so it resolves against the working directory. Tests should
-// point it somewhere outside the source tree; see internal/testenv.
-var CacheDir = filepath.Join("goatcounter-data", "cache")
+// CacheDir contains only disposable copies of the embedded asset.
+var CacheDir = filepath.Join(os.TempDir(), "goatcounter-geoip")
+
+// Update downloads a Cities database explicitly, outside the web lifecycle.
+func Update(ctx context.Context, accountID, key, path string) error {
+	return fetchDB(ctx, accountID, key, path)
+}
 
 // openBundled extracts the embedded database to disk (once) and memory-maps it,
 // so that the ~10M of data lives in the page cache – where the kernel can
@@ -121,14 +91,6 @@ func extractBundle(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
-	}
-
-	// Clean up copies extracted by older builds.
-	old, _ := filepath.Glob(filepath.Join(dir, "bundled-*.mmdb"))
-	for _, o := range old {
-		if o != path {
-			os.Remove(o)
-		}
 	}
 
 	gz, err := gzip.NewReader(bytes.NewReader(bundle))
@@ -171,10 +133,10 @@ func bundleFromMemory() (*geoip2.Reader, error) {
 	return geoip2.FromBytes(d)
 }
 
-func fetch(accountID, key, p string) ([]byte, error) {
+func fetch(ctx context.Context, accountID, key, p string) ([]byte, error) {
 	var (
 		c    = http.Client{Timeout: 10 * time.Second}
-		r, _ = http.NewRequest("GET", p, nil)
+		r, _ = http.NewRequestWithContext(ctx, "GET", p, nil)
 	)
 	r.SetBasicAuth(accountID, key)
 	r.Header.Add("User-Agent", "GoatCounter/1.0 (+https://github.com/arp242/goatcounter)")
@@ -193,9 +155,9 @@ func fetch(accountID, key, p string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func fetchHash(accountID, key string) (string, error) {
+func fetchHash(ctx context.Context, accountID, key string) (string, error) {
 	p := "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256"
-	b, err := fetch(accountID, key, p)
+	b, err := fetch(ctx, accountID, key, p)
 	if err != nil {
 		return "", err
 	}
@@ -207,8 +169,8 @@ func fetchHash(accountID, key string) (string, error) {
 	return f[0], nil
 }
 
-func fetchDB(accountID, key, path string) error {
-	hash, err := fetchHash(accountID, key)
+func fetchDB(ctx context.Context, accountID, key, path string) error {
+	hash, err := fetchHash(ctx, accountID, key)
 	if err != nil {
 		return err
 	}
@@ -228,7 +190,7 @@ func fetchDB(accountID, key, path string) error {
 	}()
 
 	p := "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz"
-	b, err := fetch(accountID, key, p)
+	b, err := fetch(ctx, accountID, key, p)
 	if err != nil {
 		return err
 	}

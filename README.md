@@ -29,7 +29,7 @@ Running it:
 - English only: the `i18n/` translations, the translation UI, and the
   per-user locale are gone. Dates, numbers, and times use international formats
   (ISO dates, 24-hour clock, thin-space thousands separator).
-- Only four commands: `serve`, `healthcheck`, `help`, and `version`. Use external
+- Commands: `serve`, `healthcheck`, `help`, `version`, and `geodb-update`. Use external
   SQLite/libSQL tools for database administration. Empty databases are initialized
   automatically by `serve`.
 - No runtime metrics collection and no admin ("bosmang") pages for cache,
@@ -115,11 +115,13 @@ as documented in the section below.
 ### Running
 You can start a server with:
 
-    % goatcounter serve
+    % GOATCOUNTER_DB=libsql+file:./goatcounter-data/goatcounter.db goatcounter serve
 
-This will start a server on `*:8080`. The default is to use a local database at
-`/data/goatcounter.db`, which will be created if it doesn't exist yet. Set
-`GOATCOUNTER_DB` to a `libsql://` URL to use a remote libSQL service.
+This starts a standalone server on `*:8080` with an explicitly selected local
+database. `GOATCOUNTER_DB` is required. For multiple replicas, point every
+instance at the same primary libSQL service, for example
+`GOATCOUNTER_DB=libsql://your-database.turso.io?authToken=TOKEN`.
+Application replicas must not have separate local database files.
 
 Set the sites before starting the server:
 
@@ -181,15 +183,77 @@ upstream's, with everything listed above still in them. Build it yourself:
     % docker build -t goatcounter .
     % docker run \
         -p 8080:8080 \
-        -v goatcounter-data:/data \
+        -e GOATCOUNTER_DB=libsql://your-database.turso.io?authToken=TOKEN \
         -e GOATCOUNTER_SITES=example.com,foobar.net \
         goatcounter
 
-This uses a named volume, which is recommended as this stores the SQLite
-database and anonymous volumes can be easy to accidentally delete.
+`compose.yaml` starts a shared libSQL service with its own named volume and
+an app container with a read-only filesystem. It binds the test dashboard to
+localhost. The API is disabled unless you supply `GOATCOUNTER_API_TOKEN`.
+For local sample data, generate a token in an untracked `.env` file:
 
-`compose.yaml` has a ready-to-run example, including the memory limits and
-`GOGC`/`GOMEMLIMIT` settings this fork is tuned for.
+    % printf 'GOATCOUNTER_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+    % chmod 600 .env
+    % docker compose up -d --build
+    % set -a
+    % . ./.env
+    % set +a
+    % ./sample-data.sh -y
+
+The `.env` file is excluded from both Git and Docker build contexts.
+
+### Replicas, durability, and rolling updates
+
+The collector commits every accepted pageview to a shared database inbox before
+returning HTTP 200. Replicas process bounded batches: claiming queue entries,
+resolving shared visitor sessions, saving raw hits, updating statistics, and
+removing queue entries are one transaction. Failed batches roll back and are
+retried; a killed pod leaves its work for another replica. Requests that cannot
+be durably accepted return an error. A client retry after an ambiguous network
+failure can still record a duplicate; there is no client event-ID protocol.
+
+`GOATCOUNTER_STORE_EVERY` controls processing frequency (default 10 seconds),
+not durability. Visitor state is database-backed, so load balancing and pod
+replacement do not require sticky sessions or shutdown snapshots. Rate limits
+are per replica; configure a shared limit at the ingress if a cluster-wide
+quota is required.
+
+`/status` is a readiness check that verifies database connectivity and reports
+503 while draining. It is the only health endpoint. Kubernetes checks the HTTP
+listener with a TCP liveness probe independently of database readiness.
+On SIGTERM, the app becomes unready, waits `GOATCOUNTER_DRAIN_DELAY` seconds
+(default 0), drains requests, and stops workers within
+`GOATCOUNTER_SHUTDOWN_TIMEOUT` seconds (default 25). Pending work stays in the
+shared inbox. Logs, including shutdown messages, are JSON on stdout by default;
+`-dev` uses readable text logs. No logging-format environment variable is needed.
+Remote database calls honor cancellation and have a ten-second timeout,
+including transaction commits; initial database setup has a 30-second deadline.
+
+[deploy/kubernetes/app.yaml](deploy/kubernetes/app.yaml) configures three
+replicas, readiness/liveness probes, a five-second drain delay, a 30-second
+termination grace period, and rolling updates with no unavailable replicas.
+Provide a `goatcounter-config` Secret with the shared `GOATCOUNTER_DB`, then
+select your release image and site names. Database high availability and backups
+remain responsibilities of the chosen backing service.
+
+For a repeatable local Kubernetes demonstration, see
+[deploy/kubernetes/README.md](deploy/kubernetes/README.md).
+
+### GeoIP data
+
+Startup always uses the bundled Country database unless `GOATCOUNTER_GEODB`
+explicitly names a file. Files in the working directory are never selected
+automatically. The bundled database may be extracted to a disposable temporary
+cache; a read-only or unavailable cache falls back to memory.
+
+To download an updated Cities database separately from web startup:
+
+    % GOATCOUNTER_MAXMIND_ACCOUNT_ID=123456 \
+      GOATCOUNTER_MAXMIND_LICENSE=your-license \
+      GOATCOUNTER_GEODB=/path/to/cities.mmdb goatcounter geodb-update
+
+Mount that resulting file read-only in every replica and set
+`GOATCOUNTER_GEODB=/path/to/cities.mmdb`. A restart never downloads an update.
 
 ### Management
 A status URL is available at `/status`, which can be used for health monitors.

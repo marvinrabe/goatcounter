@@ -20,7 +20,6 @@ import (
 	"zgo.at/zhttp"
 	"zgo.at/zstd/zint"
 	"zgo.at/zstd/zstrconv"
-	"zgo.at/zstd/zsync"
 	"zgo.at/zstd/ztime"
 	"zgo.at/ztpl"
 	"zgo.at/zvalidate"
@@ -53,68 +52,25 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	var allowGroups goatcounter.Groups
 	group, allowGroups := getGroup(r, 0, rng)
 
-	// Get path IDs to filter first, as they're used by the widgets.
-	var (
-		pathFilter = make(chan (struct {
-			Filter goatcounter.PathFilter
-			Err    error
-		}))
-	)
-	go func() {
-		defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "filter", filter, log.AttrHTTP(r)) })
-
-		var (
-			f     goatcounter.PathFilter
-			start = ztime.Now(r.Context())
-			err   error
-		)
-		if filter != "" {
-			f, err = goatcounter.PathFilterFromQuery(r.Context(), filter)
+	args := widgets.NewArgs(r.Context(), rng, group, allowGroups, showRefs)
+	if filter != "" {
+		start := time.Now()
+		args.PathFilter, err = goatcounter.PathFilterFromQuery(r.Context(), filter)
+		if err != nil {
+			return err
 		}
-		pathFilter <- struct {
-			Filter goatcounter.PathFilter
-			Err    error
-		}{f, err}
-		log.Module("dashboard").Debug(r.Context(), "pathfilter",
-			"took", time.Since(start).Round(time.Millisecond))
-	}()
+		log.Module("dashboard").Debug(r.Context(), "pathfilter", "took", time.Since(start))
+	}
 
 	cd := goatcounter.Config(r.Context()).DomainCount
 	if cd == "" {
-		cd = Site(r.Context()).SchemelessURL(r.Context())
-	}
-
-	args := widgets.NewArgs(r.Context(), rng, group, allowGroups, showRefs)
-
-	f := <-pathFilter
-	args.PathFilter, err = f.Filter, f.Err
-	if err != nil {
-		return err
+		cd = site.SchemelessURL(r.Context())
 	}
 
 	// Load widgets data from the database.
 	wid := widgets.NewList(r.Context())
 	shared := widgets.SharedData{Args: args, Site: site}
 
-	getData := func(w widgets.Widget, start time.Time) {
-		// Create context for every goroutine, so we know which timed out.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()),
-			time.Duration(h.dashTimeout)*time.Second)
-		defer cancel()
-
-		l := log.Module("dashboard")
-		_, err := w.GetData(ctx, args)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				err = guru.New(http.StatusGatewayTimeout, "server timed out loading data")
-			} else {
-				l.Error(ctx, err, log.AttrHTTP(r))
-				_, err = zhttp.UserError(err)
-			}
-			w.SetErr(err)
-		}
-		l.Debug(r.Context(), w.Name(), "took", time.Since(start))
-	}
 	getHTML := func(w widgets.Widget) {
 		tplName, tplData := w.RenderHTML(r.Context(), shared)
 		if tplName == "" { // Some data doesn't have a template.
@@ -130,33 +86,22 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		w.SetHTML(template.HTML(tpl))
 	}
 
-	func() {
-		var wg sync.WaitGroup
-		for _, w := range wid {
-			wg.Go(func() {
-				defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "data widget", w, log.AttrHTTP(r)) })
-				getData(w, ztime.Now(r.Context()))
-			})
-		}
-		zsync.Wait(r.Context(), &wg)
-	}()
+	if err := h.loadDashboardWidgets(r, wid, args); err != nil {
+		return err
+	}
 
 	// Set shared params.
 	tc := wid.GetOne("totalcount").(*widgets.TotalCount)
 	shared.Total, shared.TotalUTC, shared.TotalEvents = tc.Total, tc.TotalUTC, tc.TotalEvents
 	shared.Metrics = tc.Metrics
 
-	// Render widget templates.
-	func() {
-		var wg sync.WaitGroup
-		for _, w := range wid {
-			wg.Go(func() {
-				defer log.Recover(r.Context(), func(err error) { log.Error(r.Context(), err, "tpl widget", w, log.AttrHTTP(r)) })
-				getHTML(w)
-			})
+	// All queries are finished before their results are read or rendered.
+	for _, widget := range wid {
+		if err := r.Context().Err(); err != nil {
+			return err
 		}
-		zsync.Wait(r.Context(), &wg)
-	}()
+		getHTML(widget)
+	}
 
 	rng = rng.In(goatcounter.Config(r.Context()).Timezone.Loc()).Locale(ztime.RangeLocale{
 		Today:     func() string { return "Today" },
@@ -202,6 +147,40 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	}{newGlobals(w, r), cd, showRefs, rng,
 		args.PathFilter, allowGroups, wid, period, group, filter,
 		shared.Total, shared.TotalUTC})
+}
+
+// loadDashboardWidgets owns the query goroutines for this request. Cancellation
+// reaches every query, and joining them prevents rendering partially written data.
+func (h backend) loadDashboardWidgets(r *http.Request, list widgets.List, args widgets.Args) error {
+	if err := r.Context().Err(); err != nil {
+		return err
+	}
+	var wg sync.WaitGroup
+	for _, widget := range list {
+		wg.Go(func() {
+			defer log.Recover(r.Context(), func(err error) {
+				log.Error(r.Context(), err, "widget", widget.Name(), log.AttrHTTP(r))
+				_, userErr := zhttp.UserError(err)
+				widget.SetErr(userErr)
+			})
+			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(h.dashTimeout)*time.Second)
+			defer cancel()
+			start := time.Now()
+			_, err := widget.GetData(ctx, args)
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = guru.New(http.StatusGatewayTimeout, "server timed out loading data")
+				} else if !errors.Is(err, context.Canceled) {
+					log.Module("dashboard").Error(ctx, err, "widget", widget.Name(), log.AttrHTTP(r))
+					_, err = zhttp.UserError(err)
+				}
+				widget.SetErr(err)
+			}
+			log.Module("dashboard").Debug(r.Context(), widget.Name(), "took", time.Since(start))
+		})
+	}
+	wg.Wait()
+	return r.Context().Err()
 }
 
 func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {

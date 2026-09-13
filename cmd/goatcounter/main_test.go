@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/cron"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
 	"zgo.at/zli"
 )
@@ -29,8 +27,6 @@ func startTest(t *testing.T) (
 ) {
 	t.Helper()
 
-	goatcounter.Memstore.Reset()
-
 	ctx = testenv.DBFile(t)
 
 	exit, in, out = zli.Test(t)
@@ -39,7 +35,6 @@ func startTest(t *testing.T) (
 
 func runCmdStop(t *testing.T, exit *zli.TestExit, ready chan<- struct{}, stop chan struct{}, cmd string, args ...string) {
 	defer exit.Recover()
-	defer cron.Stop()
 	cmdMain(zli.NewFlags(append([]string{"goatcounter", cmd}, args...)), ready, stop)
 }
 

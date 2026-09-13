@@ -48,7 +48,7 @@ func TestDashboard(t *testing.T) {
 func TestDashboardTrackingCode(t *testing.T) {
 	ctx := testenv.DB(t)
 	second := goatcounter.Site{Key: "second.example", LinkDomain: "second.example"}
-	second.Defaults(ctx)
+	second.Defaults()
 	goatcounter.Config(ctx).Sites = append(goatcounter.Config(ctx).Sites, second)
 	goatcounter.Config(ctx).BasePath = "/stats"
 	router := NewBackend(zdb.MustGetDB(ctx), true, "", "/stats", 10, Ratelimits{}, "", Auth{Mode: AuthPublic})

@@ -27,7 +27,7 @@ func cmdHelp(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 			continue
 		}
 		if a == "all" {
-			topics = []string{"help", "version", "serve", "healthcheck", "listen", "debug"}
+			topics = []string{"help", "version", "serve", "healthcheck", "geodb-update", "listen", "debug"}
 			break
 		}
 		topics = append(topics, strings.ToLower(a))
@@ -61,12 +61,13 @@ func cmdHelp(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 }
 
 var usage = map[string]string{
-	"":            usageTop,
-	"help":        usageHelp,
-	"serve":       usageServe,
-	"listen":      helpListen,
-	"debug":       helpDebug,
-	"healthcheck": cmdHealthcheck,
+	"":             usageTop,
+	"help":         usageHelp,
+	"serve":        usageServe,
+	"listen":       helpListen,
+	"debug":        helpDebug,
+	"healthcheck":  cmdHealthcheck,
+	"geodb-update": usageGeoDB,
 
 	"version": `
 Show version and build information. This is printed as key=value, separated by
@@ -87,6 +88,7 @@ Commands:
   help         Show help; use "help <topic>" or "help all" for more details.
   version      Show version and build information and exit.
   serve        Start HTTP server.
+  geodb-update Download a GeoIP database as a one-off operation.
   healthcheck  Check a running instance is healthy; for Docker HEALTHCHECK.
 
 Extra help topics:
@@ -100,8 +102,8 @@ all" to display everything.
 `
 
 const helpListen = `
-You can change the main port GoatCounter listens on with the -listen flag. This
-works like most applications, for example:
+Use -listen or GOATCOUNTER_LISTEN to set the server's address and port. The
+default is :8080; there is no separate public-port setting. For example:
 
     -listen localhost:8081     Listen on localhost:8081
     -listen :8081              Listen on :8081 for all addresses
@@ -119,7 +121,7 @@ commas.
     cron           Background "cron" jobs, including vacuuming old pageviews
     dashboard      Dashboard view
     geo            Loading of the GeoIP database
-    memstore       Storing of pageviews in the database
+    collector      Processing durable pageviews in the database
     refspam        Pageviews blocked due to being in the refspam list
     req            HTTP requests (all except /count and /robots.txt)
     session        Internal "session" generation to track visitors

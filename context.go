@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/geo"
@@ -65,6 +66,7 @@ var (
 )
 
 type GlobalConfig struct {
+	Draining     atomic.Bool
 	Timezone     Timezone
 	Domain       string
 	DomainStatic string
@@ -72,7 +74,6 @@ type GlobalConfig struct {
 	BasePath     string
 	URLStatic    string
 	Dev          bool
-	Port         string
 	Sites        []Site
 }
 
@@ -134,6 +135,18 @@ func NewCache(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, keyCacheRefs, zcache.New[string, Ref](1*time.Hour, 5*time.Minute))
 	ctx = context.WithValue(ctx, keyCacheLoc, zcache.New[string, *Location](zcache.NoExpiration, zcache.NoExpiration))
 	ctx = context.WithValue(ctx, keyCacheCampaigns, zcache.New[string, *Campaign](24*time.Hour, 15*time.Minute))
+	return ctx
+}
+
+// NewBatchCache isolates dimension IDs to the lifetime of one transaction.
+func NewBatchCache(ctx context.Context) context.Context {
+	ctx = context.WithValue(ctx, keyCacheUA, zcache.New[string, UserAgent](zcache.NoExpiration, zcache.NoExpiration))
+	ctx = context.WithValue(ctx, keyCacheBrowsers, zcache.New[string, Browser](zcache.NoExpiration, zcache.NoExpiration))
+	ctx = context.WithValue(ctx, keyCacheSystems, zcache.New[string, System](zcache.NoExpiration, zcache.NoExpiration))
+	ctx = context.WithValue(ctx, keyCachePaths, zcache.New[string, Path](zcache.NoExpiration, zcache.NoExpiration))
+	ctx = context.WithValue(ctx, keyCacheRefs, zcache.New[string, Ref](zcache.NoExpiration, zcache.NoExpiration))
+	ctx = context.WithValue(ctx, keyCacheLoc, zcache.New[string, *Location](zcache.NoExpiration, zcache.NoExpiration))
+	ctx = context.WithValue(ctx, keyCacheCampaigns, zcache.New[string, *Campaign](zcache.NoExpiration, zcache.NoExpiration))
 	return ctx
 }
 

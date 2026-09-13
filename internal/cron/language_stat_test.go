@@ -14,12 +14,6 @@ import (
 func TestLanguageStats(t *testing.T) {
 	ctx := testenv.DB(t)
 
-	site := goatcounter.MustGetSite(ctx)
-	site.Settings.Collect.Set(goatcounter.CollectLanguage)
-	if err := site.Update(ctx); err != nil {
-		t.Fatal(err)
-	}
-
 	now := time.Date(2019, 8, 31, 14, 42, 0, 0, time.UTC)
 
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
@@ -62,12 +56,12 @@ func TestLanguageStats(t *testing.T) {
 	}
 }
 
-func TestLanguageStatsNoCollect(t *testing.T) {
+func TestLanguageStatsAlwaysCollected(t *testing.T) {
 	ctx := testenv.DB(t)
 
 	now := time.Date(2019, 8, 31, 14, 42, 0, 0, time.UTC)
 
-	// CollectLanguage is off by default, so the language is dropped.
+	// Language is collected without enabling a site setting.
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
 		{CreatedAt: now, Language: ztype.Ptr("nld"), FirstVisit: true},
 	}...)

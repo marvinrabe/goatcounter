@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -99,4 +100,30 @@ func TestServe(t *testing.T) {
 
 	stop <- struct{}{}
 	mainDone.Wait()
+}
+
+func TestGeoDBSelectionIsExplicit(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.Mkdir("goatcounter-data", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("goatcounter-data/first.mmdb", []byte("invalid hidden database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v := zvalidate.New()
+	db := setupGeo(&v, "")
+	if v.HasErrors() {
+		t.Fatal(v)
+	}
+	db.Close()
+	v = zvalidate.New()
+	setupGeo(&v, "goatcounter-data/first.mmdb")
+	if !v.HasErrors() {
+		t.Fatal("an explicitly configured invalid file must fail startup")
+	}
+	v = zvalidate.New()
+	setupGeo(&v, "maxmind:account:license")
+	if !v.HasErrors() || !strings.Contains(v.Error(), "geodb-update") {
+		t.Fatalf("startup download was not rejected: %v", v)
+	}
 }

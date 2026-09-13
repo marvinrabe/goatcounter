@@ -16,7 +16,7 @@ seed=1
 visits=45
 yes=0
 api_url=${GOATCOUNTER_SAMPLE_API_URL:-http://localhost:8080/api}
-api_token=${GOATCOUNTER_API_TOKEN:-sample-api-token}
+api_token=${GOATCOUNTER_API_TOKEN:-}
 
 usage() {
 	cat <<EOF
@@ -29,7 +29,7 @@ Usage: ${0##*/} [-d days] [-n visits] [-s seed] [-u api-url] [-t token] [-y]
   -s  Seed for the random generator; the same seed gives the same data.
       Default $seed.
   -u  API endpoint; default $api_url.
-  -t  API bearer token; default GOATCOUNTER_API_TOKEN or $api_token.
+  -t  API bearer token; required unless GOATCOUNTER_API_TOKEN is set.
   -y  Don't ask for confirmation.
 EOF
 }
@@ -54,6 +54,8 @@ for n in "d:$days" "n:$visits" "s:$seed"; do
 done
 [ "$days" -gt 0 ] && [ "$visits" -gt 0 ] || {
 	echo "${0##*/}: -d and -n must be at least 1" >&2; exit 1; }
+
+[ -n "$api_token" ] || { echo "${0##*/}: set GOATCOUNTER_API_TOKEN or pass -t" >&2; exit 1; }
 
 target=$api_url
 command -v curl >/dev/null || { echo "${0##*/}: curl not found" >&2; exit 1; }
@@ -287,7 +289,7 @@ BEGIN {
 
 			# A pageview is a "first visit" the first time a session sees
 			# that path, which is what the statistics count; see
-			# memstore.go:session().
+			# collector.go:session().
 			delete seen
 
 			npv = pick(vcum, npages_in_visit)

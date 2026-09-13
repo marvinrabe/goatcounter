@@ -53,7 +53,7 @@ func selectSite(requireName bool) func(http.Handler) http.Handler {
 				zhttp.ErrPage(w, r, guru.New(http.StatusBadRequest, "Unknown or missing site"))
 				return
 			}
-			s.Defaults(ctx)
+			s.Defaults()
 			next.ServeHTTP(w, r.WithContext(goatcounter.WithSite(ctx, &s)))
 		})
 	}

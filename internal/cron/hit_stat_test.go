@@ -96,23 +96,15 @@ func TestHitStats(t *testing.T) {
 		}]}`)
 }
 
-func TestHitStatsNoCollect(t *testing.T) {
-	t.Skip("collection settings were removed")
+func TestHitStatsWithoutSessions(t *testing.T) {
 	ctx := testenv.DB(t)
-
-	site := goatcounter.MustGetSite(ctx)
-	site.Settings.Collect ^= goatcounter.CollectSession
-	err := site.Update(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	now := time.Date(2019, 8, 31, 14, 42, 0, 0, time.UTC)
 
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
-		{CreatedAt: now, Path: "/asd"},
-		{CreatedAt: now, Path: "/asd"},
-		{CreatedAt: now, Path: "/zxc"},
+		{NoSession: true, CreatedAt: now, Path: "/asd"},
+		{NoSession: true, CreatedAt: now, Path: "/asd"},
+		{NoSession: true, CreatedAt: now, Path: "/zxc"},
 	}...)
 
 	check := func(wantT, want0, want1 string) {

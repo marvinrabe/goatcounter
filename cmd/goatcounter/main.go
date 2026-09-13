@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	_ "time/tzdata"
 
 	"github.com/marvinrabe/goatcounter"
@@ -43,7 +44,7 @@ func main() {
 		ready = make(chan struct{}, 1)
 		stop  = make(chan struct{}, 1)
 	)
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	setupLog(false, nil)
 	cmdMain(f, ready, stop)
 }
 
@@ -53,7 +54,7 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 	mainDone.Add(1)
 	defer mainDone.Done()
 
-	cmd, err := f.ShiftCommand("help", "version", "serve", "healthcheck")
+	cmd, err := f.ShiftCommand("help", "version", "serve", "healthcheck", "geodb-update")
 	if zslice.ContainsAny(f.Args, "-h", "-help", "--help") {
 		f.Args = append([]string{cmd}, f.Args...)
 		cmd = "help"
@@ -101,6 +102,8 @@ func cmdMain(f zli.Flags, ready chan<- struct{}, stop chan struct{}) {
 		zli.Exit(0)
 		return
 
+	case "geodb-update":
+		run = cmdGeoDB
 	case "healthcheck":
 		run = runHealthcheck
 	case "serve":
@@ -169,7 +172,9 @@ func connectDB(connect, dbConn string, dev bool) (zdb.DB, context.Context, error
 		return nil, nil, err
 	}
 
-	db, err := libsqldriver.Open(context.Background(), zdb.ConnectOptions{
+	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelConnect()
+	db, err := libsqldriver.Open(connectCtx, zdb.ConnectOptions{
 		Connect:      connect,
 		Files:        fsys,
 		Create:       true,
@@ -198,7 +203,7 @@ func normalizeDBConnect(connect string) string {
 	return connect
 }
 
-func setupLog(dev, asJSON bool, debug []string) {
+func setupLog(dev bool, debug []string) {
 	o := &slog.HandlerOptions{
 		// Our log package takes care of suppressing debug logs.
 		Level:     slog.LevelDebug,
@@ -211,22 +216,23 @@ func setupLog(dev, asJSON bool, debug []string) {
 		},
 	}
 	var handler slog.Handler
-	if asJSON {
-		handler = slog.NewJSONHandler(os.Stdout, o)
-	} else {
-		if !dev {
-			// Shorter, syslog-ish timestamps rather than full RFC 3339.
-			replace := o.ReplaceAttr
-			o.ReplaceAttr = func(groups []string, a slog.Attr) slog.Attr {
-				if len(groups) == 0 && a.Key == slog.TimeKey {
-					a.Value = slog.StringValue(a.Value.Time().Format("Jan _2 15:04:05"))
-				}
-				return replace(groups, a)
-			}
-		}
+	if dev {
 		handler = slog.NewTextHandler(os.Stdout, o)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, o)
 	}
 
 	log.SetDebug(debug)
 	slog.SetDefault(slog.New(handler))
+}
+
+// Bound final cleanup even if a driver is still closing a connection.
+func closeDB(db zdb.DB) {
+	done := make(chan struct{})
+	go func() { db.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		log.Info(context.Background(), "Database close timed out; exiting with durable work left for another replica")
+	}
 }

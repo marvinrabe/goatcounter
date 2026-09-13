@@ -1,0 +1,60 @@
+# Local verification fixture. Production uses a managed/shared primary from
+# the GOATCOUNTER_DB Secret, with authentication and durable backed-up storage.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: libsql
+spec:
+  serviceName: libsql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: libsql
+  template:
+    metadata:
+      labels:
+        app: libsql
+    spec:
+      containers:
+        - name: libsql
+          image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+          env:
+            - name: SQLD_NODE
+              value: primary
+            - name: SQLD_DB_PATH
+              value: /data
+            - name: SQLD_HTTP_LISTEN_ADDR
+              value: 0.0.0.0:8080
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 2
+          volumeMounts:
+            - name: database
+              mountPath: /data
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: database
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: libsql
+spec:
+  selector:
+    app: libsql
+  ports:
+    - port: 8080

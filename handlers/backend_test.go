@@ -23,7 +23,11 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 	for _, base := range []string{"", "/stats"} {
 		ctx := goatcounter.NewConfig(context.Background())
 		goatcounter.Config(ctx).BasePath = base
-		auth := Auth{Mode: AuthBasic, BasicUsers: map[string]string{"admin": "password"}}
+		users, err := ParseBasicUsers("admin:password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := Auth{Mode: AuthBasic, BasicUsers: users}
 		router := NewBackend(nil, false, "", base, 10, Ratelimits{}, "secret", auth)
 		for _, tt := range []struct {
 			path, authorization string

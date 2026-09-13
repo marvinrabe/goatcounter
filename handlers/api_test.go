@@ -53,7 +53,11 @@ func TestAPIDisabledAndBearerAuth(t *testing.T) {
 	// dashboard Basic credentials.
 	r, rr = newTest(ctx, http.MethodGet, "/api", nil)
 	r.SetBasicAuth("dashboard", "password")
-	basic := Auth{Mode: AuthBasic, BasicUsers: map[string]string{"dashboard": "password"}}
+	users, err := ParseBasicUsers("dashboard:password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	basic := Auth{Mode: AuthBasic, BasicUsers: users}
 	NewBackend(zdb.MustGetDB(ctx), true, "example.com", "", 10, NewRatelimits(), "secret", basic).ServeHTTP(rr, r)
 	ztest.Code(t, rr, http.StatusUnauthorized)
 

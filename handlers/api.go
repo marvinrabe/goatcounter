@@ -387,7 +387,7 @@ func apiSiteContext(ctx context.Context, name string) (context.Context, goatcoun
 	if !ok {
 		return ctx, site, guru.Errorf(400, "unknown site %q", name)
 	}
-	site.Defaults(ctx)
+	site.Defaults()
 	return goatcounter.WithSite(ctx, &site), site, nil
 }
 
@@ -597,17 +597,19 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 		}
 		sites[site.Key] = site
 	}
-	if in.Replace {
-		for _, site := range sites {
-			sctx := goatcounter.WithSite(ctx, &site)
-			if err := site.DeleteAll(sctx); err != nil {
-				return nil, err
-			}
-		}
-	}
 
 	counts := make(map[string]int)
 	err := zdb.TX(ctx, func(txctx context.Context) error {
+		txctx = goatcounter.NewBatchCache(txctx)
+		if in.Replace {
+			for _, site := range sites {
+				sctx := goatcounter.WithSite(txctx, &site)
+				if err := site.DeleteAll(sctx); err != nil {
+					return err
+				}
+			}
+		}
+
 		ins, err := zdb.NewBulkInsert(txctx, "hits", []string{"site", "path_id", "ref_id", "browser_id", "system_id", "width", "location", "language", "created_at", "session", "first_visit", "campaign"})
 		if err != nil {
 			return err

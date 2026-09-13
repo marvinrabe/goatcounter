@@ -193,12 +193,6 @@ create unique index "languages#iso_639_3" on languages(iso_639_3);
 insert into languages (iso_639_3, name) values ('', '(unknown)'); -- Not sent, or a language we don't know.
 {{include "languages.sql"}}
 
-create table store (
-	key            varchar        not null,
-	value          text
-);
-create unique index "store#key" on store(key);
-
 create table filters (
 	filter_id     int        not null,
 	site          varchar    not null,
@@ -217,4 +211,22 @@ create table filter_paths (
 );
 create index "filter_paths#filter_id" on filter_paths(filter_id);
 
--- vim:ft=sql:tw=0
+create table hit_queue (
+    id integer primary key autoincrement,
+    site varchar not null,
+    payload blob not null
+);
+
+create table collector_sessions (
+    key varchar primary key,
+    site varchar not null,
+    session blob not null,
+    seen_at integer not null
+);
+create index "collector_sessions#seen_at" on collector_sessions(seen_at);
+
+create table collector_session_paths (
+    session blob not null,
+    path_id integer not null,
+    primary key(session, path_id)
+);

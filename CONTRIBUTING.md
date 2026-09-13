@@ -57,10 +57,10 @@ straightforward
 
 - HTTP handlers go in ./handlers/
 
-- The `/count` endpoint to records pageviews is dealt different than most other
-  requests: instead of persisting to the DB immediately it's added to memstore
-  first. The cron package will persist that to DB every 10 seconds, which also
-  regenerates various cached stats.
+- `/count` acknowledges a hit only after `collector.go` commits it to the
+  shared durable inbox. Periodic workers atomically process bounded batches,
+  including shared session state and statistics. Every replica can process
+  queued work; transactions prevent duplicate processing.
 
 - Hits ("pageviews") are stored in the `hits` table with minimal processing; for
   the most part, this table isn't queried directly for reasons of performance.

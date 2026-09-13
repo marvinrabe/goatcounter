@@ -4,3 +4,7 @@
 goatcounter-data/
 /public/
 /node_modules/
+
+.env
+.test-results/
+__pycache__/

@@ -15,19 +15,16 @@ func TestSiteFromConfig(t *testing.T) {
 	if !ok {
 		t.Fatal("configured site not found")
 	}
-	s.Defaults(ctx)
+	s.Defaults()
 	if s.Key != "example.com" || s.LinkDomain != "example.com" {
 		t.Fatalf("wrong site: %#v", s)
-	}
-	if s.Settings.Public != "private" || s.Settings.DataRetention != 0 || s.Settings.Collect != CollectAll {
-		t.Errorf("fixed settings not applied: %#v", s.Settings)
 	}
 }
 
 func TestSitesAreIsolatedByStableName(t *testing.T) {
 	ctx := testenv.DB(t)
 	second := Site{Key: "foobar.net", LinkDomain: "foobar.net"}
-	second.Defaults(ctx)
+	second.Defaults()
 	Config(ctx).Sites = append(Config(ctx).Sites, second)
 
 	now := ztime.Now(ctx)

@@ -23,22 +23,21 @@ run --mount=type=cache,target=/go/pkg/mod \
 	-tags='osusergo,netgo' \
 	./cmd/goatcounter
 
-# The final image is "from scratch", which has no shell to create the user and
-# data directory with, so assemble that filesystem here instead. copy --from
-# preserves ownership, so the data directory arrives writable.
+# The final image is "from scratch", so assemble its user and temporary
+# directories here. Persistent state belongs to the shared database service.
 run <<EOF
 	set -euC
 
-	mkdir -p /rootfs/data /rootfs/home/goatcounter /rootfs/etc /rootfs/tmp
+	mkdir -p /rootfs/home/goatcounter /rootfs/etc /rootfs/tmp
 
 	echo 'goatcounter:x:1000:1000::/home/goatcounter:/sbin/nologin' > /rootfs/etc/passwd
 	echo 'goatcounter:x:1000:'                                      > /rootfs/etc/group
 
-	# Only needed for -geodb=maxmind:..., which fetches over HTTPS.
+	# Required for remote libSQL, OIDC, and explicit GeoIP updates.
 	cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/
 
 	chmod 1777 /rootfs/tmp
-	chown -R 1000:1000 /rootfs/data /rootfs/home/goatcounter
+	chown -R 1000:1000 /rootfs/home/goatcounter
 EOF
 
 ### Build container
@@ -54,6 +53,5 @@ expose     8080
 healthcheck cmd ["/bin/goatcounter", "healthcheck"]
 workdir    /home/goatcounter
 user       1000:1000
-volume     ["/data"]
 entrypoint ["/bin/goatcounter"]
 cmd        ["serve"]

@@ -15,6 +15,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"zgo.at/guru"
 	"zgo.at/zhttp"
@@ -30,7 +31,7 @@ const (
 
 type Auth struct {
 	Mode       AuthMode
-	BasicUsers map[string]string
+	BasicUsers map[string][]byte
 	OIDC       *OIDCAuth
 }
 
@@ -123,8 +124,7 @@ func (a Auth) basic(next http.Handler) http.Handler {
 		parseForm(r)
 		username, password, ok := r.BasicAuth()
 		expected, exists := a.BasicUsers[username]
-		have, want := sha256.Sum256([]byte(password)), sha256.Sum256([]byte(expected))
-		if ok && exists && hmac.Equal(have[:], want[:]) {
+		if ok && exists && bcrypt.CompareHashAndPassword(expected, []byte(password)) == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -269,8 +269,8 @@ func (a *OIDCAuth) decode(value string, dst any) bool {
 	return err == nil && json.Unmarshal(b, dst) == nil
 }
 
-func ParseBasicUsers(value string) (map[string]string, error) {
-	users := make(map[string]string)
+func ParseBasicUsers(value string) (map[string][]byte, error) {
+	users := make(map[string][]byte)
 	for _, entry := range strings.Split(value, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
@@ -284,7 +284,11 @@ func ParseBasicUsers(value string) (map[string]string, error) {
 		if _, exists := users[username]; exists {
 			return nil, fmt.Errorf("duplicate basic-auth user %q", username)
 		}
-		users[username] = password
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, fmt.Errorf("hash password for basic-auth user %q: %w", username, err)
+		}
+		users[username] = hash
 	}
 	if len(users) == 0 {
 		return nil, fmt.Errorf("basic authentication requires at least one user")

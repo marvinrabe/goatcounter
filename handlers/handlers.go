@@ -34,7 +34,6 @@ type Globals struct {
 	Domain          string
 	Version         string
 	Dev             bool
-	Port            string
 	TZName          string
 	TZOffset        int
 	TZOffsetDisplay string
@@ -82,7 +81,6 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 		Domain:  goatcounter.Config(ctx).Domain,
 		Version: goatcounter.Version,
 		Dev:     goatcounter.Config(ctx).Dev,
-		Port:    goatcounter.Config(ctx).Port,
 
 		TZName:          goatcounter.Config(ctx).Timezone.Abbr(),
 		TZOffset:        goatcounter.Config(ctx).Timezone.Offset(),

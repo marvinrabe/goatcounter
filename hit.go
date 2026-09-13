@@ -46,12 +46,9 @@ type Hit struct {
 	RefURL *url.URL `db:"-" json:"-"`   // Parsed Ref
 	Random string   `db:"-" json:"rnd"` // Browser cache buster, as they don't always listen to Cache-Control
 
-	// Some values we need to pass from the HTTP handler to memstore
+	// Some values we need to pass from the HTTP handler to the durable collector
 	RemoteAddr    string `db:"-" json:"-"`
 	UserSessionID string `db:"-" json:"-"`
-
-	NoStore   bool `db:"-" json:"-"` // Don't store in hits (still store in stats).
-	noProcess bool `db:"-" json:"-"` // Don't process in memstore; for merging paths.
 }
 
 func (Hit) Table() string { return "hits" }
@@ -282,15 +279,13 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 		h.RefID = ref.ID
 
 		// Get or insert browser and system.
-		if site.Settings.Collect.Has(CollectUserAgent) {
-			ua := UserAgent{UserAgent: h.UserAgentHeader}
-			err = ua.GetOrInsert(ctx)
-			if err != nil {
-				return errors.Wrap(err, "Hit.Defaults")
-			}
-			h.BrowserID = ua.BrowserID
-			h.SystemID = ua.SystemID
+		ua := UserAgent{UserAgent: h.UserAgentHeader}
+		err = ua.GetOrInsert(ctx)
+		if err != nil {
+			return errors.Wrap(err, "Hit.Defaults")
 		}
+		h.BrowserID = ua.BrowserID
+		h.SystemID = ua.SystemID
 	}
 
 	return nil
@@ -324,10 +319,8 @@ func (h *Hit) Validate(ctx context.Context, initial bool) error {
 	} else if h.Bot == 0 {
 		v.Required("path_id", h.PathID)
 
-		if MustGetSite(ctx).Settings.Collect.Has(CollectUserAgent) {
-			v.Required("browser_id", h.BrowserID)
-			v.Required("system_id", h.SystemID)
-		}
+		v.Required("browser_id", h.BrowserID)
+		v.Required("system_id", h.SystemID)
 	}
 
 	return v.ErrorOrNil()

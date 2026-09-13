@@ -1,119 +1,65 @@
-// Package cron schedules jobs.
+// Package cron schedules cancellable, sequential jobs in each replica.
+// Database transactions coordinate durable work across replicas.
 package cron
 
 import (
 	"context"
-	"math/rand/v2"
-	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
-	"github.com/marvinrabe/goatcounter/internal/bgrun"
 	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/zstd/zruntime"
-	"zgo.at/zstd/zsync"
 )
 
-type Task struct {
-	Desc   string
-	Fun    func(context.Context) error
-	Period time.Duration
+type Runner struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
-func (t Task) ID() string {
-	return strings.Replace(zruntime.FuncName(t.Fun), "github.com/marvinrabe/goatcounter/internal/cron.", "", 1)
-}
-
-var Tasks = []Task{
-	{"vacuum pageviews (old bot)", oldBot, 24 * time.Hour},
-	{"cycle sessions", sessions, 1 * time.Minute},
-	{"persist hits", persistAndStat, time.Duration(persistInterval.Load())},
-	{"vacuum filters", oldFilters, 1 * time.Hour},
-}
-
-var (
-	stopped         = zsync.NewAtomicInt(0)
-	started         = zsync.NewAtomicInt(0)
-	persistInterval = func() *atomic.Int64 {
-		var d atomic.Int64
-		d.Store(int64(10 * time.Second))
-		return &d
-	}()
-)
-
-func SetPersistInterval(d time.Duration) {
-	persistInterval.Store(int64(d))
-}
-
-// Start running tasks in the background.
-func Start(ctx context.Context) {
-	if started.Value() == 1 {
-		return
-	}
-	started.Set(1)
-
-	// Nothing displays the job history, so don't retain it.
-	bgrun.History(-1)
-
-	l := log.Module("cron")
-
-	for _, t := range Tasks {
-		f := t.ID()
-		bgrun.NewTask("cron:"+f, 1, func(context.Context) error {
-			err := t.Fun(ctx)
-			if err != nil {
-				l.Error(ctx, err, "task", f)
-			}
-			return nil
-		})
-	}
-
-	for _, t := range Tasks {
-		go func(t Task) {
+func Start(ctx context.Context, interval time.Duration) *Runner {
+	ctx, cancel := context.WithCancel(ctx)
+	r := &Runner{cancel: cancel, done: make(chan struct{})}
+	var wg sync.WaitGroup
+	for _, task := range []struct {
+		name   string
+		period time.Duration
+		run    func(context.Context) error
+	}{
+		{"persist hits", interval, PersistAndStat},
+		{"expire sessions", time.Minute, sessions},
+		{"expire bots", 24 * time.Hour, oldBot},
+		{"expire filters", time.Hour, oldFilters},
+	} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			defer log.Recover(ctx)
-
-			id := t.ID()
+			timer := time.NewTimer(task.period)
+			defer timer.Stop()
 			for {
-				if id == "persistAndStat" {
-					time.Sleep(time.Duration(persistInterval.Load()))
-				} else {
-					p := t.Period
-					// Add some random jitter to prevent jobs from running at
-					// the same time.
-					if t.Period > time.Minute {
-						m := t.Period / 50
-						if t.Period >= time.Hour*12 {
-							m = t.Period / 100
-						}
-						rnd := time.Duration(rand.Int64N(int64(m))).Round(time.Second)
-						if rand.IntN(2) == 1 {
-							rnd = -rnd
-						}
-						p += rnd
-					}
-					time.Sleep(p)
-				}
-				if stopped.Value() == 1 {
+				select {
+				case <-ctx.Done():
 					return
-				}
-
-				err := bgrun.RunTask("cron:" + id)
-				if err != nil {
-					log.Error(ctx, err)
+				case <-timer.C:
+					if err := task.run(ctx); err != nil && ctx.Err() == nil {
+						log.Module("cron").Error(ctx, err, "task", task.name)
+					}
+					timer.Reset(task.period)
 				}
 			}
-		}(t)
+		}()
+	}
+	go func() { wg.Wait(); close(r.done) }()
+	return r
+}
+
+// Stop cancels active transactions. Uncommitted inbox entries remain durable
+// and can be processed by another replica; shutdown needs no final snapshot.
+func (r *Runner) Stop(ctx context.Context) error {
+	r.cancel()
+	select {
+	case <-r.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
-
-func Stop() error {
-	stopped.Set(1)
-	started.Set(0)
-	bgrun.Wait("")
-	bgrun.Reset()
-	return nil
-}
-
-func TaskSessions() error       { return bgrun.RunTask("cron:sessions") }
-func TaskPersistAndStat() error { return bgrun.RunTask("cron:persistAndStat") }
-func WaitSessions()             { bgrun.Wait("cron:sessions") }

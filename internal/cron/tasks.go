@@ -2,14 +2,11 @@ package cron
 
 import (
 	"context"
-	"log/slog"
-	"time"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/log"
 	"zgo.at/errors"
 	"zgo.at/zdb"
-	"zgo.at/zstd/ztime"
 )
 
 func oldBot(ctx context.Context) error {
@@ -20,45 +17,18 @@ func oldBot(ctx context.Context) error {
 	return nil
 }
 
-func persistAndStat(ctx context.Context) error {
-	l := log.Module("cron")
-	l.Debug(ctx, "persistAndStat started")
-
-	// Pick up final session snapshots from an old process after a rolling
-	// replacement. The new process may already have started before the old one
-	// was asked to shut down, so startup restoration alone is not sufficient.
-	goatcounter.Memstore.RestoreSessions(zdb.MustGetDB(ctx))
-
-	start := ztime.Now(ctx)
-	hits, err := goatcounter.Memstore.Persist(ctx)
-	if err != nil {
-		return err
-	}
-	tookMemstore := time.Since(start).Round(time.Millisecond)
-
-	startStats := ztime.Now(ctx)
-	stat := make([]goatcounter.Hit, 0, len(hits))
-	for _, h := range hits {
-		if h.Bot > 0 {
-			continue
+// PersistAndStat drains bounded batches, with a transaction per batch.
+func PersistAndStat(ctx context.Context) error {
+	for range 16 {
+		hits, err := goatcounter.PersistHits(ctx, UpdateStats)
+		if err != nil {
+			return err
 		}
-		stat = append(stat, h)
-	}
-	if len(stat) > 0 {
-		if err := UpdateStats(ctx, stat); err != nil {
-			l.Error(ctx, err, "paths", stat)
+		if len(hits) < goatcounter.HitBatchSize {
+			return nil
 		}
 	}
-
-	if len(hits) > 0 {
-		l.Debug(ctx, "persisted hits",
-			"num", len(hits),
-			slog.Group("took",
-				"memstore", tookMemstore,
-				"stats", time.Since(startStats).Round(time.Millisecond),
-			))
-	}
-	return err
+	return nil
 }
 
 // UpdateStats updates all the stats tables.
@@ -133,6 +103,5 @@ func oldFilters(ctx context.Context) error {
 }
 
 func sessions(ctx context.Context) error {
-	goatcounter.Memstore.EvictSessions(ctx)
-	return nil
+	return goatcounter.EvictSessions(ctx)
 }

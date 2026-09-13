@@ -45,6 +45,14 @@ func TestStatus(t *testing.T) {
 			}
 			check(http.MethodGet, http.StatusOK, "OK")
 			check(http.MethodHead, http.StatusOK, "")
+			goatcounter.Config(ctx).Draining.Store(true)
+			check(http.MethodGet, http.StatusServiceUnavailable, "draining\n")
+			live := httptest.NewRecorder()
+			router.ServeHTTP(live, httptest.NewRequest(http.MethodGet, base+"/live", nil).WithContext(ctx))
+			if live.Code != http.StatusNotFound {
+				t.Errorf("removed /live route = %d; want 404", live.Code)
+			}
+			goatcounter.Config(ctx).Draining.Store(false)
 
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, base+"/status", nil).WithContext(ctx))

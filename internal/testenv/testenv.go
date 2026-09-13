@@ -32,7 +32,7 @@ func Context(db zdb.DB) context.Context {
 
 	goatcounter.Config(ctx).Domain = "test"
 	s := goatcounter.Site{Key: "example.com", LinkDomain: "example.com"}
-	s.Defaults(ctx)
+	s.Defaults()
 	goatcounter.Config(ctx).Sites = []goatcounter.Site{s}
 	return ctx
 }
@@ -73,21 +73,17 @@ func db(t testing.TB, storeFile bool, queries *QueryCounts) context.Context {
 	}
 
 	ctx := Context(db)
-	goatcounter.Memstore.TestInit(db)
 	site := goatcounter.Config(ctx).Sites[0]
 	ctx = goatcounter.WithSite(ctx, &site)
-	cron.Start(ctx)
 
 	t.Cleanup(func() {
-		goatcounter.Memstore.Reset()
-		cron.Stop()
 		db.Close()
 	})
 
 	return ctx
 }
 
-// StoreHits is a convenient helper to store hits in the DB via Memstore and
+// StoreHits is a convenient helper to store hits in the DB via the durable collector and
 // cron.UpdateStats().
 func StoreHits(ctx context.Context, t *testing.T, wantFail bool, hits ...goatcounter.Hit) []goatcounter.Hit {
 	t.Helper()
@@ -101,21 +97,26 @@ func StoreHits(ctx context.Context, t *testing.T, wantFail bool, hits ...goatcou
 		}
 	}
 
-	goatcounter.Memstore.Append(hits...)
-	hits, err := goatcounter.Memstore.Persist(ctx)
-	if !wantFail && err != nil {
-		t.Fatalf("testenv.StoreHits failed: %s", err)
+	if err := goatcounter.EnqueueHits(ctx, hits...); err != nil {
+		t.Fatal(err)
 	}
-	if wantFail && err == nil {
-		t.Fatal("testenv.StoreHits: no error while wantError is true")
-	}
-
-	if len(hits) > 0 {
-		err = cron.UpdateStats(ctx, hits)
+	var stored []goatcounter.Hit
+	var persistErr error
+	for range (len(hits) / goatcounter.HitBatchSize) + 1 {
+		batch, err := goatcounter.PersistHits(ctx, cron.UpdateStats)
 		if err != nil {
-			t.Fatal(err)
+			persistErr = err
+			break
 		}
+		stored = append(stored, batch...)
 	}
+	if !wantFail && persistErr != nil {
+		t.Fatalf("StoreHits: %v", persistErr)
+	}
+	if wantFail && persistErr == nil {
+		t.Fatal("StoreHits: expected error")
+	}
+	hits = stored
 
 	return hits
 }

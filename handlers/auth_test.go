@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
 
@@ -15,8 +16,9 @@ func TestParseBasicUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if users["alice"] != "one" || users["bob"] != "two:with-colon" {
-		t.Fatalf("unexpected users: %#v", users)
+	if bcrypt.CompareHashAndPassword(users["alice"], []byte("one")) != nil ||
+		bcrypt.CompareHashAndPassword(users["bob"], []byte("two:with-colon")) != nil {
+		t.Fatalf("passwords were not hashed correctly: %#v", users)
 	}
 	for _, value := range []string{"", "missing-password:", ":missing-username", "same:one,same:two"} {
 		if _, err := ParseBasicUsers(value); err == nil {
@@ -35,7 +37,11 @@ func TestAuthMiddleware(t *testing.T) {
 		t.Fatalf("public status: %d", rr.Code)
 	}
 
-	basic := Auth{Mode: AuthBasic, BasicUsers: map[string]string{"alice": "secret"}}.Middleware(next)
+	users, err := ParseBasicUsers("alice:secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	basic := Auth{Mode: AuthBasic, BasicUsers: users}.Middleware(next)
 	for _, tc := range []struct {
 		user, password string
 		want           int

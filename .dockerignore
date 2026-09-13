@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.test-results
+goatcounter-data
+node_modules
+public
+goatcounter
+goatcounter.test
+.DS_Store
+**/__pycache__
