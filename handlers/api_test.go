@@ -127,7 +127,7 @@ func TestAPIMCP(t *testing.T) {
 
 func TestAPIImportAndDashboard(t *testing.T) {
 	ctx := testenv.DB(t)
-	created := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	created := ztime.Now(ctx).UTC().Truncate(24 * time.Hour).Format(time.RFC3339)
 	callAPI(t, ctx, "secret", "import_raw", map[string]any{
 		"replace": true,
 		"hits": []map[string]any{
