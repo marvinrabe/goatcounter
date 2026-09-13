@@ -24,6 +24,11 @@ func persistAndStat(ctx context.Context) error {
 	l := log.Module("cron")
 	l.Debug(ctx, "persistAndStat started")
 
+	// Pick up final session snapshots from an old process after a rolling
+	// replacement. The new process may already have started before the old one
+	// was asked to shut down, so startup restoration alone is not sufficient.
+	goatcounter.Memstore.RestoreSessions(zdb.MustGetDB(ctx))
+
 	start := ztime.Now(ctx)
 	hits, err := goatcounter.Memstore.Persist(ctx)
 	if err != nil {

@@ -26,6 +26,39 @@ func TestPersistDoesNotReadSiteMetadata(t *testing.T) {
 	}
 }
 
+func TestStoreSessionsUsesIndependentSnapshots(t *testing.T) {
+	ctx := testenv.DB(t)
+	db := zdb.MustGetDB(ctx)
+
+	// These stand in for two processes shutting down in either order. Both
+	// snapshots must survive instead of contending for one singleton row.
+	Memstore.StoreSessions(db)
+	Memstore.StoreSessions(db)
+	// Keep accepting the singleton written by versions before snapshots gained
+	// unique keys, so deployments can roll forward without a migration.
+	if err := zdb.Exec(ctx, `insert into store (key, value) values ('session', '{"sessions":{},"hashes":{},"paths":{},"seen":{}}')`); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := zdb.Get(ctx, &count, `select count(*) from store where key like 'session:%'`); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("stored snapshots = %d; want 2", count)
+	}
+
+	// A replacement process also checks while running, because the old process
+	// may only write its final snapshot after the replacement has started.
+	Memstore.RestoreSessions(db)
+	if err := zdb.Get(ctx, &count, `select count(*) from store where key = 'session' or key like 'session:%'`); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("claimed snapshots remaining = %d; want 0", count)
+	}
+}
+
 func TestMemstore(t *testing.T) {
 	ctx := testenv.DB(t)
 	site := MustGetSite(ctx)

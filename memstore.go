@@ -3,6 +3,7 @@ package goatcounter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"strings"
@@ -55,6 +56,11 @@ type storedSession struct {
 	Seen     map[zint.Uint128]int64               `json:"seen"`
 }
 
+type storedSessionRow struct {
+	Key   string `db:"key"`
+	Value []byte `db:"value"`
+}
+
 func (m *ms) Reset() {
 	m.sessionMu.Lock()
 	defer m.sessionMu.Unlock()
@@ -78,51 +84,112 @@ func (m *ms) Init(db zdb.DB) error {
 	defer m.hitMu.Unlock()
 
 	m.Reset()
+	m.RestoreSessions(db)
+	return nil
+}
+
+// RestoreSessions loads shutdown snapshots written by other processes. It is
+// used both at startup and by the regular persistence job: in a rolling update
+// the replacement process often starts before the old process gets a chance to
+// write its final snapshot.
+func (m *ms) RestoreSessions(db zdb.DB) {
+	// A session snapshot is stored under a unique key. There may be more than
+	// one when processes overlap (for example during a Kubernetes rolling
+	// update), so load and merge every available snapshot. Deleting the exact
+	// selected keys means a process which shuts down concurrently cannot have
+	// its new snapshot deleted here. Multiple processes may restore the same
+	// snapshot, which is desirable while they temporarily serve in parallel.
+	var rows []storedSessionRow
+	err := db.Select(context.Background(), &rows, `select key, value from store
+		where key = 'session' or key like 'session:%'
+		order by key`)
+	if err != nil {
+		memlog.Errorf(context.Background(), "load from DB store: %s", err)
+		return
+	}
+	if len(rows) == 0 {
+		memlog.Debugf(context.Background(), "no sessions stored in DB")
+		return
+	}
+
+	stored := make([]storedSession, 0, len(rows))
+	keys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		keys = append(keys, row.Key)
+		var snapshot storedSession
+		if err := json.Unmarshal(row.Value, &snapshot); err != nil {
+			memlog.Errorf(context.Background(), "unmarshal DB store %q: %s", row.Key, err)
+			continue
+		}
+		stored = append(stored, snapshot)
+	}
+	if err := db.Exec(context.Background(), `delete from store where key in (:keys)`, map[string]any{"keys": keys}); err != nil {
+		memlog.Errorf(context.Background(), "delete restored DB store: %s", err)
+	}
+
 	m.sessionMu.Lock()
 	defer m.sessionMu.Unlock()
-	defer func() {
-		err := db.Exec(context.Background(), `delete from store where key='session'`)
-		if err != nil {
-			log.Errorf(context.Background(), "Memstore.Init: delete DB store: %s", err)
-		}
-	}()
-
-	var s []byte
-	err := db.Get(context.Background(), &s, `select value from store where key='session'`)
-	if err != nil {
-		if zdb.ErrNoRows(err) {
-			memlog.Debugf(context.Background(), "no sessions stored in DB")
-			return nil
-		}
-		memlog.Errorf(context.Background(), "load from DB store: %s", err)
-		return nil
-	}
-
-	var stored storedSession
-	err = json.Unmarshal(s, &stored)
-	if err != nil {
-		memlog.Errorf(context.Background(), "unmarshal from DB store: %s", err)
-		return nil
-	}
-
-	if stored.Sessions != nil {
-		m.sessions = stored.Sessions
-	}
-	if stored.Hashes != nil {
-		m.sessionHashes = stored.Hashes
-	}
-	if stored.Paths != nil {
-		m.sessionPaths = stored.Paths
-	}
-	if stored.Seen != nil {
-		m.sessionSeen = stored.Seen
+	for _, snapshot := range stored {
+		m.mergeSessions(snapshot)
 	}
 	memlog.Debug(context.Background(), "restored sessions from DB",
+		"snapshots", len(stored),
 		"sessions", len(m.sessions),
 		"sessionHashes", len(m.sessionHashes),
 		"sessionPaths", len(m.sessionPaths),
 		"sessionSeen", len(m.sessionSeen))
-	return nil
+}
+
+// mergeSessions merges a shutdown snapshot into the in-memory session set.
+// Overlapping processes can contain the same session under different IDs. The
+// most recently seen ID wins, while paths from both copies are retained so a
+// path is never incorrectly counted as a first visit after a restart.
+//
+// m.sessionMu must be held by the caller.
+func (m *ms) mergeSessions(stored storedSession) {
+	for key, id := range stored.Sessions {
+		seen := stored.Seen[id]
+		paths := stored.Paths[id]
+		if paths == nil {
+			paths = make(map[PathID]struct{})
+		}
+
+		current, ok := m.sessions[key]
+		if !ok {
+			m.sessions[key] = id
+			m.sessionHashes[id] = key
+			m.sessionSeen[id] = seen
+			m.sessionPaths[id] = paths
+			continue
+		}
+
+		currentPaths := m.sessionPaths[current]
+		if currentPaths == nil {
+			currentPaths = make(map[PathID]struct{})
+		}
+		for path := range paths {
+			currentPaths[path] = struct{}{}
+		}
+
+		currentSeen := m.sessionSeen[current]
+		useStored := seen > currentSeen ||
+			(seen == currentSeen && id.Format(16) > current.Format(16))
+		if current == id || !useStored {
+			m.sessionPaths[current] = currentPaths
+			if seen > currentSeen {
+				m.sessionSeen[current] = seen
+			}
+			continue
+		}
+
+		delete(m.sessionHashes, current)
+		delete(m.sessionPaths, current)
+		delete(m.sessionSeen, current)
+		m.sessions[key] = id
+		m.sessionHashes[id] = key
+		m.sessionPaths[id] = currentPaths
+		m.sessionSeen[id] = seen
+	}
 }
 
 func (m *ms) StoreSessions(db zdb.DB) {
@@ -140,8 +207,12 @@ func (m *ms) StoreSessions(db zdb.DB) {
 		return
 	}
 
+	// Each process writes its own immutable snapshot. A singleton key races
+	// during rolling deployments: the replacement can consume the row before
+	// the old process writes it, after which its own shutdown insert conflicts.
+	key := fmt.Sprintf("session:%s", UUID().Format(16))
 	err = db.Exec(context.Background(),
-		`insert into store (key, value) values ('session', ?)`, d)
+		`insert into store (key, value) values (?, ?)`, key, d)
 	if err != nil {
 		memlog.Error(context.Background(), err)
 	}
