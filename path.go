@@ -3,57 +3,62 @@ package goatcounter
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
-	"zgo.at/errors"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zbool"
-	"zgo.at/zstd/zreflect"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 type PathID int32
 
 type Path struct {
-	ID    PathID     `db:"path_id,id" json:"id"` // Path ID
-	Site  string     `db:"site" json:"site"`
-	Path  string     `db:"path" json:"path"`   // Path name
-	Event zbool.Bool `db:"event" json:"event"` // Is this an event?
+	ID    PathID `db:"path_id,id" json:"id"` // Path ID
+	Site  string `db:"site" json:"site"`
+	Path  string `db:"path" json:"path"`   // Path name
+	Event bool   `db:"event" json:"event"` // Is this an event?
 }
 
 func (Path) Table() string { return "paths" }
 
-var _ zdb.Defaulter = &Path{}
+var _ database.Defaulter = &Path{}
 
 func (p *Path) Defaults(ctx context.Context) { p.Site = MustGetSite(ctx).Key }
 
-var _ zdb.Validator = &Path{}
+var _ database.Validator = &Path{}
 
 func (p *Path) Validate(ctx context.Context) error {
-	v := NewValidate(ctx)
+	v := validation.New()
 	v.UTF8("path", p.Path)
 	v.Len("path", p.Path, 1, 2048)
 	return v.ErrorOrNil()
 }
 
 func (p *Path) ByID(ctx context.Context, id PathID) error {
-	err := zdb.Get(ctx, p,
+	err := database.Get(ctx, p,
 		`/* Path.ByID */ select * from paths where path_id=? and site=?`, id, MustGetSite(ctx).Key)
-	return errors.Wrapf(err, "Path.ByID(%d)", id)
+	if err != nil {
+		err = fmt.Errorf("Path.ByID(%d): %w", id, err)
+	}
+	return err
 }
 
 func (p *Path) ByPath(ctx context.Context, path string) error {
-	err := zdb.Get(ctx, p,
+	err := database.Get(ctx, p,
 		`/* Path.ByPath */ select * from paths where lower(path) = lower(?) and site=?`, path, MustGetSite(ctx).Key)
-	return errors.Wrapf(err, "Path.ByPath(%q)", path)
+	if err != nil {
+		err = fmt.Errorf("Path.ByPath(%q): %w", path, err)
+	}
+	return err
 }
 
 func (p *Path) GetOrInsert(ctx context.Context) error {
 	k := MustGetSite(ctx).Key + ":" + p.Path
-	c, ok := cachePaths(ctx).Get(k)
+	cache := batchCacheFor(ctx).paths
+	c, ok := cache[k]
 	if ok {
 		*p = c
-		cachePaths(ctx).Touch(k)
 
 		return nil
 	}
@@ -61,32 +66,34 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 	p.Defaults(ctx)
 	err := p.Validate(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Path.GetOrInsert")
+		return fmt.Errorf("Path.GetOrInsert: %w", err)
 	}
 
-	err = zdb.Get(ctx, p, `/* Path.GetOrInsert */
+	err = database.Get(ctx, p, `/* Path.GetOrInsert */
 		select * from paths
 		where lower(path) = lower(?) and site = ?
 		limit 1`, p.Path, MustGetSite(ctx).Key)
-	if err != nil && !zdb.ErrNoRows(err) {
-		return errors.Errorf("Path.GetOrInsert select: %w", err)
+	if err != nil && !database.ErrNoRows(err) {
+		return fmt.Errorf("Path.GetOrInsert select: %w", err)
 	}
 	if err == nil {
-		cachePaths(ctx).Set(k, *p)
+		if cache != nil {
+			cache[k] = *p
+		}
 		return nil
 	}
 
 	// Insert new path.
-	err = zdb.Insert(ctx, p)
+	err = database.Insert(ctx, p)
 	if err != nil {
-		return errors.Wrap(err, "Path.GetOrInsert insert")
+		return fmt.Errorf("Path.GetOrInsert insert: %w", err)
 	}
 
 	// Make sure to update any filters.
 	var f Filters
 	err = f.List(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Path.GetOrInsert insert")
+		return fmt.Errorf("Path.GetOrInsert insert: %w", err)
 	}
 	for _, ff := range f {
 		m := ff.Match(p.Path, bool(p.Event))
@@ -96,12 +103,14 @@ func (p *Path) GetOrInsert(ctx context.Context) error {
 		if m {
 			err := ff.Append(ctx, p.ID)
 			if err != nil {
-				return errors.Wrap(err, "Path.GetOrInsert append filter")
+				return fmt.Errorf("Path.GetOrInsert append filter: %w", err)
 			}
 		}
 	}
 
-	cachePaths(ctx).Set(k, *p)
+	if cache != nil {
+		cache[k] = *p
+	}
 	return nil
 }
 
@@ -115,12 +124,13 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 		pathIDs = append(pathIDs, pp.ID)
 	}
 
-	err := zdb.TX(ctx, func(ctx context.Context) error {
+	err := database.TX(ctx, func(ctx context.Context) error {
 		if err := clearFilters(ctx, MustGetSite(ctx).Key); err != nil {
 			return err
 		}
 		// Update stats and counts tables
-		for _, tt := range zreflect.Values(Tables, "", "") {
+		for i := 0; i < reflect.ValueOf(Tables).NumField(); i++ {
+			tt := reflect.ValueOf(Tables).Field(i).Interface()
 			var (
 				t      = tt.(tbl)
 				i      = slices.Index(t.Columns, "path_id")
@@ -138,7 +148,7 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 			group = slices.Delete(group, i, i+1)
 			group = group[:len(group)-1]
 
-			err := zdb.Exec(ctx, `load:paths.Merge`, map[string]any{
+			err := database.Exec(ctx, `load:paths.Merge`, map[string]any{
 				"Table":      t.Table,
 				"SelectCTE":  strings.Join(selCTE, ", "),
 				"Select":     strings.Join(sel, ", "),
@@ -151,10 +161,10 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 			if err != nil {
 				return err
 			}
-			err = zdb.Exec(ctx, `/* Path.Merge */
+			err = database.Exec(ctx, `/* Path.Merge */
 				delete from :tbl where path_id in (:paths)`,
 				map[string]any{
-					"tbl":   zdb.SQL(t.Table),
+					"tbl":   database.SQL(t.Table),
 					"paths": pathIDs,
 				})
 			if err != nil {
@@ -163,7 +173,7 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 		}
 
 		// Update hits and delete old paths.
-		err := zdb.Exec(ctx, `/* Path.Merge */
+		err := database.Exec(ctx, `/* Path.Merge */
 			update hits set path_id=:path_id where path_id in (:paths)`,
 			map[string]any{
 				"path_id": p.ID,
@@ -172,26 +182,29 @@ func (p Path) Merge(ctx context.Context, paths Paths) error {
 		if err != nil {
 			return err
 		}
-		return zdb.Exec(ctx, `/* Path.Merge */
+		return database.Exec(ctx, `/* Path.Merge */
 			delete from paths where path_id in (:paths)`,
 			map[string]any{
 				"paths": pathIDs,
 			})
 	})
-	return errors.Wrapf(err, "Path.Merge(%d, %v)", p.ID, pathIDs)
+	if err != nil {
+		err = fmt.Errorf("Path.Merge(%d, %v): %w", p.ID, pathIDs, err)
+	}
+	return err
 }
 
 type Paths []Path
 
 // List all paths.
 func (p *Paths) List(ctx context.Context, after PathID, limit int) (bool, error) {
-	err := zdb.Select(ctx, p, "load:paths.List", map[string]any{
+	err := database.Select(ctx, p, "load:paths.List", map[string]any{
 		"site":  MustGetSite(ctx).Key,
 		"after": after,
 		"limit": limit + 1,
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "Paths.List")
+		return false, fmt.Errorf("Paths.List: %w", err)
 	}
 
 	more := len(*p) > limit

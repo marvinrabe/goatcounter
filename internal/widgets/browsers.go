@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
 )
 
 type Browsers struct {
@@ -21,8 +20,8 @@ type Browsers struct {
 
 func (w Browsers) Name() string { return "browsers" }
 func (w Browsers) Type() string { return "hchart" }
-func (w Browsers) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/browser-stats|Browser stats")
+func (w Browsers) Label() string {
+	return "Browser stats"
 }
 func (w *Browsers) SetHTML(h template.HTML) { w.html = h }
 func (w Browsers) HTML() template.HTML      { return w.html }
@@ -56,6 +55,6 @@ func (w Browsers) RenderHTML(ctx context.Context, shared SharedData) (string, an
 		Stats      goatcounter.HitStats
 		Detail     string
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
-		i18n.T(ctx, "header/browsers|Browsers"),
+		"Browsers",
 		shared.TotalUTC, w.Stats, w.Detail}
 }

@@ -17,7 +17,7 @@ body       { overflow-y: scroll; padding-bottom: 1.25rem; }
 .page      { padding: var(--page-padding);
              border-radius: var(--dashboard-radius); overflow: hidden; }
 
-#js-settings, #js-csrf, #js-i18n { display: none; }
+#js-settings, #js-csrf { display: none; }
 
 .page, .center {
     /* .note has a width of 76mm plus 5mm margin on either side, so 86mm total

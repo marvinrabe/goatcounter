@@ -16,5 +16,5 @@ select
 	refs.ref        as name
 from x
 left join refs using (ref_id)
-{{:has_domain where refs.ref not like :ref}}
+{{if .has_domain}}where refs.ref not like :ref{{end}}
 limit :limit offset :offset

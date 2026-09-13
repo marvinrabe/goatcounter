@@ -3,12 +3,12 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/marvinrabe/goatcounter/internal/log"
 	"github.com/sethvargo/go-limiter"
 	"github.com/sethvargo/go-limiter/memorystore"
 )
@@ -99,7 +99,7 @@ func Ratelimit(withUA bool, getStore func(r *http.Request) ([]limiter.Store, str
 				if err != nil {
 					// The memorystore only returns an error if Close() was called.
 					// But log just to be sure.
-					log.Module("ratelimit").Error(r.Context(), err, "key", key)
+					slog.With("module", "ratelimit").ErrorContext(r.Context(), err.Error(), "key", key)
 					ok = false
 				}
 				if !ok {

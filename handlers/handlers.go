@@ -2,25 +2,21 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	_ "github.com/marvinrabe/goatcounter/internal/tpl" // Registers template functions.
-	"zgo.at/json"
-	"zgo.at/zhttp"
-	"zgo.at/ztpl"
+	"github.com/marvinrabe/goatcounter/internal/httpx"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 // Site calls goatcounter.MustGetSite; it's just shorter :-)
 func Site(ctx context.Context) *goatcounter.Site { return goatcounter.MustGetSite(ctx) }
-
-var T = i18n.T
 
 type Globals struct {
 	Context         context.Context
@@ -28,23 +24,15 @@ type Globals struct {
 	Sites           []goatcounter.Site
 	Path            string
 	Base            string
-	Flash           *zhttp.FlashMessage
 	Static          string
 	StaticDomain    string
-	Domain          string
-	Version         string
 	Dev             bool
 	TZName          string
 	TZOffset        int
 	TZOffsetDisplay string
-	JSTranslations  map[string]string
 	HideUI          bool
 	assetPaths      map[string]string
 	assetErr        error
-}
-
-func (g Globals) T(msg string, data ...any) template.HTML {
-	return template.HTML(i18n.T(g.Context, msg, data...))
 }
 
 // Asset resolves a source asset to its Vite-generated, content-hashed URL.
@@ -63,9 +51,10 @@ func (g Globals) Asset(name string) (string, error) {
 	return g.Static + "/" + file, nil
 }
 
-func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
+func newGlobals(r *http.Request) Globals {
 	ctx := r.Context()
-	base := goatcounter.Config(ctx).BasePath
+	cfg := goatcounter.Config(ctx)
+	base := cfg.BasePath
 	path := strings.TrimPrefix(r.URL.Path, base)
 	if path == "" {
 		path = "/"
@@ -73,46 +62,28 @@ func newGlobals(w http.ResponseWriter, r *http.Request) Globals {
 	g := Globals{
 		Context: ctx,
 		Site:    goatcounter.GetSite(ctx),
-		Sites:   goatcounter.Config(ctx).Sites,
+		Sites:   cfg.Sites,
 		Path:    path,
 		Base:    base,
-		Flash:   zhttp.ReadFlash(w, r),
-		Static:  goatcounter.Config(ctx).URLStatic,
-		Domain:  goatcounter.Config(ctx).Domain,
-		Version: goatcounter.Version,
-		Dev:     goatcounter.Config(ctx).Dev,
+		Static:  base,
+		Dev:     cfg.Dev,
 
-		TZName:          goatcounter.Config(ctx).Timezone.Abbr(),
-		TZOffset:        goatcounter.Config(ctx).Timezone.Offset(),
-		TZOffsetDisplay: goatcounter.Config(ctx).Timezone.OffsetDisplay(),
+		TZName:          cfg.Timezone.Abbr(),
+		TZOffset:        cfg.Timezone.Offset(),
+		TZOffsetDisplay: cfg.Timezone.OffsetDisplay(),
+		StaticDomain:    r.Host,
 		HideUI:          r.URL.Query().Get("hideui") != "",
-		JSTranslations: map[string]string{
-			"error/date-mismatch":       T(ctx, "error/date-mismatch|end date is before start date"),
-			"error/load-url":            T(ctx, "error/load-url|Could not load %(url): %(error)", i18n.P{"url": "%(url)", "error": "%(error)"}),
-			"notify/saved":              T(ctx, "notify/saved|Saved!"),
-			"datepicker/keyboard":       T(ctx, "datepicker/keyboard|Use the arrow keys to pick a date"),
-			"datepicker/month-prev":     T(ctx, "datepicker/month-prev|Previous month"),
-			"datepicker/month-next":     T(ctx, "datepicker/month-next|Next month"),
-			"nav-dash/filter-more-help": T(ctx, "nav-dash/filter-more-help|More help"),
-			"nav-fash/filter-less-help": T(ctx, "nav-fash/filter-less-help|Less help"),
-		},
 	}
 	g.assetPaths, g.assetErr = goatcounter.AssetPaths(ctx)
-	if goatcounter.Config(r.Context()).DomainStatic == "" {
-		s := goatcounter.GetSite(r.Context())
-		if s != nil {
-			g.StaticDomain = s.Domain(r.Context())
-		} else {
-			g.StaticDomain = "/"
-		}
-	} else {
-		g.StaticDomain = goatcounter.Config(r.Context()).DomainStatic
+	if cfg.DomainStatic != "" {
+		g.Static = "//" + cfg.DomainStatic
+		g.StaticDomain = cfg.DomainStatic
 	}
 
 	return g
 }
 
-// Identical to the default errpage, but replaces slog calls with our log calls.
+// ErrPage logs internal errors and renders a safe response for the client.
 func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 	if reported == nil {
 		return
@@ -122,17 +93,9 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 		hasStatus = false
 	}
 
-	code, userErr := zhttp.UserError(reported)
+	code, userErr := httpx.UserError(reported)
 	if code >= 500 {
-		l := log.Module("http-500")
-		l = l.With("code", zhttp.UserErrorCode(reported))
-
-		sErr := new(interface{ StackTrace() string })
-		if errors.As(reported, sErr) {
-			reported = errors.Unwrap(reported)
-			l = l.With("stacktrace", "\n"+(*sErr).StackTrace())
-		}
-		l.Error(r.Context(), reported, log.AttrHTTP(r))
+		slog.With("module", "http-500").ErrorContext(r.Context(), reported.Error(), requestAttrs(r))
 	}
 
 	ct := strings.ToLower(r.Header.Get("Content-Type"))
@@ -148,15 +111,19 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			err error
 		)
 
-		if jErr, ok := userErr.(json.Marshaler); ok {
+		var validationPtr *validation.Validator
+		var validationValue validation.Validator
+		if errors.As(userErr, &validationPtr) {
+			j, err = json.Marshal(validationPtr)
+		} else if errors.As(userErr, &validationValue) {
+			j, err = json.Marshal(validationValue)
+		} else if jErr, ok := userErr.(json.Marshaler); ok {
 			j, err = jErr.MarshalJSON()
-		} else if jErr, ok := userErr.(interface{ ErrorJSON() ([]byte, error) }); ok {
-			j, err = jErr.ErrorJSON()
 		} else {
 			j, err = json.Marshal(map[string]string{"error": userErr.Error()})
 		}
 		if err != nil {
-			log.Error(r.Context(), err, log.AttrHTTP(r))
+			slog.ErrorContext(r.Context(), err.Error(), requestAttrs(r))
 		}
 		w.Write(j)
 
@@ -166,30 +133,31 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 		}
 		fmt.Fprintf(w, "Error %d: %s", code, userErr)
 
-	case (!hasStatus && r.Referer() != "" &&
-		(ct == "application/x-www-form-urlencoded" || ctresp == "application/x-www-form-urlencoded")) ||
-		(strings.HasPrefix(ct, "multipart/") || strings.HasPrefix(ctresp, "multipart/")):
-		zhttp.FlashError(w, r, userErr.Error())
-		zhttp.SeeOther(w, r.Referer())
-
 	default:
 		if !hasStatus {
 			w.WriteHeader(code)
 		}
 
-		if !ztpl.HasTemplate("error.gohtml") {
-			fmt.Fprintf(w, "<pre>Error %d: %s</pre>", code, userErr)
+		t := pageTemplates.Load()
+		if t == nil || t.Lookup("error.gohtml") == nil {
+			fmt.Fprintf(w, "<pre>Error %d: %s</pre>", code, template.HTMLEscapeString(userErr.Error()))
 			return
 		}
 
-		err := ztpl.Execute(w, "error.gohtml", struct {
+		err := t.ExecuteTemplate(w, "error.gohtml", struct {
 			Code  int
 			Error error
 			Base  string
 			Path  string
-		}{code, userErr, zhttp.BasePath, r.URL.Path})
+		}{code, userErr, goatcounter.Config(r.Context()).BasePath, r.URL.Path})
 		if err != nil {
-			log.Error(r.Context(), err, log.AttrHTTP(r))
+			slog.ErrorContext(r.Context(), err.Error(), requestAttrs(r))
 		}
 	}
+}
+
+// Keep request details alongside errors without logging request bodies.
+func requestAttrs(r *http.Request) slog.Attr {
+	return slog.Group("http", "method", r.Method, "url", r.URL.String(),
+		"host", r.Host, "ua", r.UserAgent())
 }

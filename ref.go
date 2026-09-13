@@ -2,12 +2,13 @@ package goatcounter
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 
-	"zgo.at/errors"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 // ref_scheme column
@@ -90,14 +91,14 @@ type Ref struct {
 
 func (Ref) Table() string { return "refs" }
 
-var _ zdb.Defaulter = &Ref{}
+var _ database.Defaulter = &Ref{}
 
 func (r *Ref) Defaults(ctx context.Context) {}
 
-var _ zdb.Validator = &Ref{}
+var _ database.Validator = &Ref{}
 
 func (r *Ref) Validate(ctx context.Context) error {
-	v := NewValidate(ctx)
+	v := validation.New()
 
 	//v.Required("ref", r.Ref)
 	//v.Required("ref_scheme", r.RefScheme)
@@ -114,31 +115,38 @@ func (r *Ref) GetOrInsert(ctx context.Context) error {
 		r.ID = 1
 		return nil
 	}
-	c, ok := cacheRefs(ctx).Get(k)
+	cache := batchCacheFor(ctx).refs
+	c, ok := cache[k]
 	if ok {
 		*r = c
-		cacheRefs(ctx).Touch(k)
 		return nil
 	}
 
-	err := zdb.Get(ctx, r, `/* Ref.GetOrInsert */
+	err := database.Get(ctx, r, `/* Ref.GetOrInsert */
 		select * from refs
 		where lower(ref) = lower(?) and ref_scheme = ?
 		limit 1`, r.Ref, r.RefScheme)
 	if err == nil {
-		cacheRefs(ctx).Set(k, *r)
+		if cache != nil {
+			cache[k] = *r
+		}
 		return nil
 	}
-	if !zdb.ErrNoRows(err) {
-		return errors.Wrapf(err, "Ref.GetOrInsert(%q, %q): %w", r.Ref, r.RefScheme, err)
+	if !database.ErrNoRows(err) {
+		if err != nil {
+			err = fmt.Errorf("Ref.GetOrInsert(%q, %q): %w", r.Ref, r.RefScheme, err)
+		}
+		return err
 	}
 
-	err = zdb.Insert(ctx, r)
+	err = database.Insert(ctx, r)
 	if err != nil {
-		return errors.Wrapf(err, "Ref.GetOrInsert(%q, %q): %w", r.Ref, r.RefScheme, err)
+		return fmt.Errorf("Ref.GetOrInsert(%q, %q): %w", r.Ref, r.RefScheme, err)
 	}
 
-	cacheRefs(ctx).Set(k, *r)
+	if cache != nil {
+		cache[k] = *r
+	}
 	return nil
 }
 
@@ -252,8 +260,8 @@ func cleanRefURL(ref string, refURL *url.URL) (string, bool) {
 }
 
 // ListRefsByPath lists all references for a pathID.
-func (h *HitStats) ListRefsByPathID(ctx context.Context, pathID PathID, rng ztime.Range, limit, offset int) error {
-	err := zdb.Select(ctx, &h.Stats, "load:ref.ListRefsByPathID.sql", map[string]any{
+func (h *HitStats) ListRefsByPathID(ctx context.Context, pathID PathID, rng datetime.Range, limit, offset int) error {
+	err := database.Select(ctx, &h.Stats, "load:ref.ListRefsByPathID.sql", map[string]any{
 		"site":   MustGetSite(ctx).Key,
 		"start":  rng.Start,
 		"end":    rng.End,
@@ -266,5 +274,8 @@ func (h *HitStats) ListRefsByPathID(ctx context.Context, pathID PathID, rng ztim
 		h.More = true
 		h.Stats = h.Stats[:len(h.Stats)-1]
 	}
-	return errors.Wrap(err, "HitStats.ListRefsByPathID")
+	if err != nil {
+		err = fmt.Errorf("HitStats.ListRefsByPathID: %w", err)
+	}
+	return err
 }

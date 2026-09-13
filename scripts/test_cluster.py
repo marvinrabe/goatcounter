@@ -99,7 +99,7 @@ assert all(p['restarts'] == 0 for p in report['initial_pods']), report['initial_
 assert len({p['node'] for p in report['initial_pods']}) >= 2, 'replicas must span nodes'
 for pod in pods:
     logs = [json.loads(line) for line in k('logs', pod['metadata']['name']).splitlines() if line.strip()]
-    assert any(item.get('msg') == 'startup: GoatCounter ready' for item in logs), logs
+    assert any(item.get('msg') == 'GoatCounter ready' for item in logs), logs
 report['default_json_logs'] = True
 probe('configuration')
 # Readiness must withdraw traffic during an outage; liveness must not turn a

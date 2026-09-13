@@ -2,14 +2,14 @@ package goatcounter
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 
+	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/geo"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/errors"
-	"zgo.at/zdb"
 )
 
 type LocationID int32
@@ -34,23 +34,23 @@ func (l Location) String() string {
 
 // ByCode gets a location by ISO-3166-2 code; e.g. "US" or "US-TX".
 func (l *Location) ByCode(ctx context.Context, code string) error {
-	if ll, ok := cacheLoc(ctx).Get(code); ok {
-		*l = *ll
+	if ll, ok := cachedLocation(ctx, code); ok {
+		*l = ll
 		return nil
 	}
 
-	err := zdb.Get(ctx, l, `select * from locations where iso_3166_2 = ?`, code)
-	if zdb.ErrNoRows(err) {
+	err := database.Get(ctx, l, `select * from locations where iso_3166_2 = ?`, code)
+	if database.ErrNoRows(err) {
 		l.ISO3166_2 = code
 		l.Country, l.Region, _ = strings.Cut(code, "-")
 		l.CountryName, l.RegionName = findGeoName(ctx, l.Country, l.Region)
 		err = l.insert(ctx)
 	}
 	if err != nil {
-		return errors.Wrap(err, "Location.ByCode")
+		return fmt.Errorf("Location.ByCode: %w", err)
 	}
 
-	cacheLoc(ctx).Set(l.ISO3166_2, l)
+	l.cache(ctx)
 	return nil
 }
 
@@ -65,7 +65,7 @@ func (l *Location) Lookup(ctx context.Context, ip string) error {
 
 	loc, err := geodb.City(net.ParseIP(ip))
 	if err != nil {
-		return errors.Wrap(err, "Location.Lookup")
+		return fmt.Errorf("Location.Lookup: %w", err)
 	}
 	l.Country = loc.Country.IsoCode
 	l.CountryName = loc.Country.Names["en"]
@@ -77,22 +77,22 @@ func (l *Location) Lookup(ctx context.Context, ip string) error {
 	if l.Region != "" {
 		l.ISO3166_2 += "-" + l.Region
 	}
-	if ll, ok := cacheLoc(ctx).Get(l.ISO3166_2); ok {
-		*l = *ll
+	if ll, ok := cachedLocation(ctx, l.ISO3166_2); ok {
+		*l = ll
 		return nil
 	}
 
-	err = zdb.Get(ctx, l,
+	err = database.Get(ctx, l,
 		`select * from locations where country = ? and region = ?`,
 		l.Country, l.Region)
-	if zdb.ErrNoRows(err) {
+	if database.ErrNoRows(err) {
 		err = l.insert(ctx)
 	}
 	if err != nil {
-		return errors.Wrap(err, "Location.Lookup")
+		return fmt.Errorf("Location.Lookup: %w", err)
 	}
 
-	cacheLoc(ctx).Set(l.ISO3166_2, l)
+	l.cache(ctx)
 	return nil
 }
 
@@ -106,7 +106,7 @@ func (l Location) LookupIP(ctx context.Context, ip string) string {
 }
 
 func (l *Location) insert(ctx context.Context) (err error) {
-	err = zdb.Insert(ctx, l)
+	err = database.Insert(ctx, l)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func findGeoName(ctx context.Context, country, region string) (string, string) {
 		}
 		err := iter.Data(&r)
 		if err != nil {
-			log.Error(context.Background(), err)
+			slog.ErrorContext(context.Background(), err.Error())
 			return "", ""
 		}
 

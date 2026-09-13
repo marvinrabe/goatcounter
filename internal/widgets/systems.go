@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
 )
 
 type Systems struct {
@@ -21,8 +20,8 @@ type Systems struct {
 
 func (w Systems) Name() string { return "systems" }
 func (w Systems) Type() string { return "hchart" }
-func (w Systems) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/system-stats|System stats")
+func (w Systems) Label() string {
+	return "System stats"
 }
 func (w *Systems) SetHTML(h template.HTML) { w.html = h }
 func (w Systems) HTML() template.HTML      { return w.html }
@@ -56,6 +55,6 @@ func (w Systems) RenderHTML(ctx context.Context, shared SharedData) (string, any
 		Stats      goatcounter.HitStats
 		Detail     string
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
-		i18n.T(ctx, "header/systems|Systems"),
+		"Systems",
 		shared.TotalUTC, w.Stats, w.Detail}
 }

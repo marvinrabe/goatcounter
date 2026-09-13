@@ -7,41 +7,41 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"uuid"
 
-	"zgo.at/errors"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zbool"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 type HitID int64
+type SessionID = uuid.UUID
 
 type Hit struct {
-	ID         HitID        `db:"hit_id,id" json:"-"`
-	Site       string       `db:"site" json:"-"`
-	PathID     PathID       `db:"path_id" json:"-"`
-	RefID      RefID        `db:"ref_id" json:"-"`
-	BrowserID  BrowserID    `db:"browser_id" json:"-"`
-	SystemID   SystemID     `db:"system_id" json:"-"`
-	CampaignID *CampaignID  `db:"campaign" json:"-"`
-	Session    zint.Uint128 `db:"session" json:"-"`
-	Width      *int16       `db:"width" json:"width"`
+	ID         HitID       `db:"hit_id,id" json:"-"`
+	Site       string      `db:"site" json:"-"`
+	PathID     PathID      `db:"path_id" json:"-"`
+	RefID      RefID       `db:"ref_id" json:"-"`
+	BrowserID  BrowserID   `db:"browser_id" json:"-"`
+	SystemID   SystemID    `db:"system_id" json:"-"`
+	CampaignID *CampaignID `db:"campaign" json:"-"`
+	Session    SessionID   `db:"session" json:"-"`
+	Width      *int16      `db:"width" json:"width"`
 
-	Path      string     `db:"-" json:"p,omitempty"`
-	Ref       string     `db:"-" json:"r,omitempty"`
-	Event     zbool.Bool `db:"-" json:"e,omitempty"`
-	Size      Floats     `db:"-" json:"s,omitempty"`
-	Query     string     `db:"-" json:"q,omitempty"`
-	Bot       int        `db:"-" json:"b,omitempty"`
-	NoSession zbool.Bool `db:"-" json:"ns,omitempty"`
+	Path      string `db:"-" json:"p,omitempty"`
+	Ref       string `db:"-" json:"r,omitempty"`
+	Event     bool   `db:"-" json:"e,omitempty"`
+	Size      Floats `db:"-" json:"s,omitempty"`
+	Query     string `db:"-" json:"q,omitempty"`
+	Bot       int    `db:"-" json:"b,omitempty"`
+	NoSession bool   `db:"-" json:"ns,omitempty"`
 
-	RefScheme       string     `db:"ref_scheme" json:"-"`
-	UserAgentHeader string     `db:"-" json:"-"`
-	Location        string     `db:"location" json:"-"`
-	Language        *string    `db:"language" json:"-"`
-	FirstVisit      zbool.Bool `db:"first_visit" json:"-"`
-	CreatedAt       time.Time  `db:"created_at" json:"-"`
+	RefScheme       string    `db:"ref_scheme" json:"-"`
+	UserAgentHeader string    `db:"-" json:"-"`
+	Location        string    `db:"location" json:"-"`
+	Language        *string   `db:"language" json:"-"`
+	FirstVisit      bool      `db:"first_visit" json:"-"`
+	CreatedAt       time.Time `db:"created_at" json:"-"`
 
 	RefURL *url.URL `db:"-" json:"-"`   // Parsed Ref
 	Random string   `db:"-" json:"rnd"` // Browser cache buster, as they don't always listen to Cache-Control
@@ -175,7 +175,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 	}
 
 	if h.CreatedAt.IsZero() {
-		h.CreatedAt = ztime.Now(ctx)
+		h.CreatedAt = datetime.Now(ctx)
 	}
 
 	if h.Event {
@@ -195,7 +195,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 		}
 		u, err := url.Parse(h.Query)
 		if err != nil {
-			return errors.Wrap(err, "Hit.Defaults")
+			return fmt.Errorf("Hit.Defaults: %w", err)
 		}
 		q := u.Query()
 
@@ -221,14 +221,17 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 
 			c := Campaign{Name: v}
 			err := c.ByName(ctx, c.Name)
-			if err != nil && !zdb.ErrNoRows(err) {
-				return errors.Wrap(err, "Hit.Defaults")
+			if err != nil && !database.ErrNoRows(err) {
+				if err != nil {
+					err = fmt.Errorf("Hit.Defaults: %w", err)
+				}
+				return err
 			}
 
-			if zdb.ErrNoRows(err) {
+			if database.ErrNoRows(err) {
 				err := c.Insert(ctx)
 				if err != nil {
-					return errors.Wrap(err, "Hit.Defaults")
+					return fmt.Errorf("Hit.Defaults: %w", err)
 				}
 			}
 			h.CampaignID = &c.ID
@@ -266,7 +269,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 		path := Path{Path: h.Path, Event: h.Event}
 		err := path.GetOrInsert(ctx)
 		if err != nil {
-			return errors.Wrap(err, "Hit.Defaults")
+			return fmt.Errorf("Hit.Defaults: %w", err)
 		}
 		h.PathID = path.ID
 
@@ -274,7 +277,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 		ref := Ref{Ref: h.Ref, RefScheme: h.RefScheme}
 		err = ref.GetOrInsert(ctx)
 		if err != nil {
-			return errors.Wrap(err, "Hit.Defaults")
+			return fmt.Errorf("Hit.Defaults: %w", err)
 		}
 		h.RefID = ref.ID
 
@@ -282,7 +285,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 		ua := UserAgent{UserAgent: h.UserAgentHeader}
 		err = ua.GetOrInsert(ctx)
 		if err != nil {
-			return errors.Wrap(err, "Hit.Defaults")
+			return fmt.Errorf("Hit.Defaults: %w", err)
 		}
 		h.BrowserID = ua.BrowserID
 		h.SystemID = ua.SystemID
@@ -293,7 +296,7 @@ func (h *Hit) Defaults(ctx context.Context, initial bool) error {
 
 // Validate the object.
 func (h *Hit) Validate(ctx context.Context, initial bool) error {
-	v := NewValidate(ctx)
+	v := validation.New()
 
 	//v.Required("session", h.Session)
 	v.Required("created_at", h.CreatedAt)
@@ -301,7 +304,7 @@ func (h *Hit) Validate(ctx context.Context, initial bool) error {
 	v.Len("ref", h.Ref, 0, 2048)
 
 	// Small margin as client's clocks may not be 100% accurate.
-	if h.CreatedAt.After(ztime.Now(ctx).Add(5 * time.Second)) {
+	if h.CreatedAt.After(datetime.Now(ctx).Add(5 * time.Second)) {
 		v.Append("created_at", "in the future")
 	}
 
@@ -334,14 +337,15 @@ type Hits []Hit
 func (h *Hits) TestList(ctx context.Context) error {
 	var hh []struct {
 		Hit
-		B BrowserID  `db:"browser_id"`
-		S SystemID   `db:"system_id"`
-		P string     `db:"path"`
-		E zbool.Bool `db:"event"`
-		R string     `db:"ref"`
+		Session []byte    `db:"session"`
+		B       BrowserID `db:"browser_id"`
+		S       SystemID  `db:"system_id"`
+		P       string    `db:"path"`
+		E       bool      `db:"event"`
+		R       string    `db:"ref"`
 	}
 
-	err := zdb.Select(ctx, &hh, `/* Hits.TestList */
+	err := database.Select(ctx, &hh, `/* Hits.TestList */
 		select
 			hits.*,
 			browser_id,
@@ -354,10 +358,11 @@ func (h *Hits) TestList(ctx context.Context) error {
 		left join refs  using (ref_id)
 		order by hit_id asc`)
 	if err != nil {
-		return errors.Wrap(err, "Hits.TestList")
+		return fmt.Errorf("Hits.TestList: %w", err)
 	}
 
 	for _, x := range hh {
+		copy(x.Hit.Session[:], x.Session)
 		x.Hit.BrowserID = x.B
 		x.Hit.SystemID = x.S
 		x.Hit.Path = x.P
@@ -370,23 +375,23 @@ func (h *Hits) TestList(ctx context.Context) error {
 
 // Purge the given paths.
 func (h *Hits) Purge(ctx context.Context, pathIDs []PathID) error {
-	return zdb.TX(ctx, func(ctx context.Context) error {
+	return database.TX(ctx, func(ctx context.Context) error {
 		if err := clearFilters(ctx, MustGetSite(ctx).Key); err != nil {
 			return err
 		}
 		for _, t := range append(statTables, "campaign_stats", "hit_counts", "ref_counts", "hits", "paths") {
-			err := zdb.Exec(ctx, `/* Hits.Purge */
+			err := database.Exec(ctx, `/* Hits.Purge */
 				delete from :tbl where path_id in (:paths)`,
 				map[string]any{
-					"tbl":   zdb.SQL(t),
+					"tbl":   database.SQL(t),
 					"paths": pathIDs,
 				})
 			if err != nil {
-				return errors.Wrapf(err, "Hits.Purge %s", t)
+				return fmt.Errorf("Hits.Purge %s: %w", t, err)
 			}
 		}
 
-		MustGetSite(ctx).ClearCache(ctx, true)
+		clear(batchCacheFor(ctx).paths)
 		return nil
 	})
 }

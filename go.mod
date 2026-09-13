@@ -5,24 +5,14 @@ go 1.27.0
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.3.2
+	github.com/jmoiron/sqlx v1.4.0
 	github.com/mattn/go-sqlite3 v1.14.52
+	github.com/mileusna/useragent v1.3.5
 	github.com/monoculum/formam/v3 v3.6.1-0.20221106124510-6a93f49ac1f8
 	github.com/sethvargo/go-limiter v1.2.0
 	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60
 	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.37.0
-	zgo.at/errors v1.6.0
-	zgo.at/gadget v1.0.0
-	zgo.at/guru v1.2.0
-	zgo.at/isbot v1.1.0
-	zgo.at/json v0.0.0-20221020004326-fe4f75bb278e
-	zgo.at/zcache/v2 v2.4.2-0.20260601222847-61659fd033bd
-	zgo.at/zdb v0.0.0-20260425145215-e580739daf43
-	zgo.at/zhttp v0.0.0-20260423154033-4733969d592d
-	zgo.at/zli v0.0.0-20251226224229-7bb9a5cf3265
-	zgo.at/zstd v0.0.0-20260819203842-7567984d0ee9
-	zgo.at/ztpl v0.0.0-20250628022642-3b2c314e8e05
-	zgo.at/zvalidate v0.0.0-20250622183046-6812c1c79e1a
 )
 
 require (

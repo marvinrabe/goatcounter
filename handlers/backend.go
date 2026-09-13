@@ -6,14 +6,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/guru"
-	"zgo.at/zdb"
-	"zgo.at/zhttp"
-	"zgo.at/zhttp/mware"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/httpx"
 )
 
-func NewBackend(db zdb.DB, dev bool,
+func NewBackend(db database.DB, dev bool,
 	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits, apiToken string, auth Auth,
 ) chi.Router {
 
@@ -36,29 +33,22 @@ type backend struct {
 	apiToken    string
 }
 
-func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic, basePath string, ratelimits Ratelimits, auth Auth) {
+func (h backend) Mount(r chi.Router, db database.DB, dev bool, domainStatic, basePath string, ratelimits Ratelimits, auth Auth) {
 	r.Use(
-		mware.RealIP(),
-		mware.WrapWriter(),
-		mware.Unpanic("github.com/marvinrabe/goatcounter/handlers.add"),
+		realIP,
+		wrapWriter,
+		middleware.Recoverer,
 		addcsp(domainStatic, basePath),
 		middleware.RedirectSlashes,
-		mware.NoStore(),
+		noStore,
 		middleware.Compress(5))
-	if log.HasDebug("req") {
-		opt := &mware.RequestLogOptions{}
-		if !dev {
-			opt.Host = true
-			opt.TimeFmt = time.DateTime
-		}
-		r.Use(mware.RequestLog(opt, nil, "/count", "/robots.txt"))
-	}
+	r.Use(requestLog)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		zhttp.ErrPage(w, r, guru.New(404, T(r.Context(), "error/not-found|Not Found")))
+		httpx.ErrPage(w, r, httpx.Error(404, "Not Found"))
 	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		zhttp.ErrPage(w, r, guru.New(405, "Method Not Allowed"))
+		httpx.ErrPage(w, r, httpx.Error(405, "Method Not Allowed"))
 	})
 
 	// Health checks do not require a site or dashboard authentication.
@@ -67,27 +57,27 @@ func (h backend) Mount(r chi.Router, db zdb.DB, dev bool, domainStatic, basePath
 	health.Head("/status", status(db))
 
 	{
-		rr := r.With(requestContext(3*time.Second), mware.Headers(nil))
-		rr.Post("/jserr", zhttp.HandlerJSErr())
-		rr.Post("/csp", zhttp.HandlerCSP())
+		rr := r.With(requestContext(3*time.Second), securityHeaders(nil))
+		rr.Post("/jserr", clientReport)
+		rr.Post("/csp", clientReport)
 
 		rate := rr.With(ratelimits.countMiddleware(dev), selectSite(true))
-		rate.Get("/count", zhttp.Wrap(h.count))
-		rate.Post("/count", zhttp.Wrap(h.count)) // to support navigator.sendBeacon (JS)
+		rate.Get("/count", httpx.Wrap(h.count))
+		rate.Post("/count", httpx.Wrap(h.count)) // to support navigator.sendBeacon (JS)
 	}
 
-	a := r.With(mware.Headers(http.Header{
+	a := r.With(securityHeaders(http.Header{
 		"Strict-Transport-Security": []string{"max-age=63072000"}, // 2 years
 		"X-Content-Type-Options":    []string{"nosniff"},
-		"X-Frame-Options":           []string{}, // Clear default from zhttp
+		"X-Frame-Options":           []string{}, // Clear the default frame header
 	}))
 	auth.Mount(a.With(requestContext(3 * time.Second)))
 
 	// Both the dashboard and its widget requests can run expensive queries.
 	// Authenticate before loading any site data.
 	af := a.With(requestContext(time.Duration(h.dashTimeout+1)*time.Second), auth.Middleware, selectSite(false))
-	af.Get("/", zhttp.Wrap(h.dashboard))
-	af.Get("/load-widget", zhttp.Wrap(h.loadWidget))
+	af.Get("/", httpx.Wrap(h.dashboard))
+	af.Get("/load-widget", httpx.Wrap(h.loadWidget))
 
 	// An empty token disables the API completely: no route is registered.
 	if h.apiToken != "" {

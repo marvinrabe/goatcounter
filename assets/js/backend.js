@@ -1,12 +1,11 @@
 import './dashboard.js'
-import {$$, $1, T, ajax, on} from './helper.js'
+import {$$, $1, ajax, on} from './helper.js'
 
 ;(function() {
 	'use strict';
 
 	document.addEventListener('DOMContentLoaded', function() {
 		let s = $1('#js-settings')
-		window.I18N              = JSON.parse($1('#js-i18n').textContent)
 		window.BASE_PATH         = s.getAttribute('data-base-path') || ""
 		window.CSRF              = s.getAttribute('data-csrf')
 		window.TZ_OFFSET         = parseInt(s.getAttribute('data-offset'), 10) || 0
@@ -30,7 +29,7 @@ import {$$, $1, T, ajax, on} from './helper.js'
 				return
 			if (url === BASE_PATH + '/load-widget')
 				return
-			let msg = T("error/load-url", {url: url, error: error})
+			let msg = `Could not load ${url}: ${error}`
 			console.error(msg)
 			on_error(`ajaxError: ${msg}`, url)
 			alert(msg)

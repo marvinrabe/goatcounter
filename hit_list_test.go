@@ -8,15 +8,14 @@ import (
 	"time"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestHitListsList(t *testing.T) {
-	rng := ztime.NewRange(time.Date(2019, 8, 10, 0, 0, 0, 0, time.UTC)).
+	rng := datetime.NewRange(time.Date(2019, 8, 10, 0, 0, 0, 0, time.UTC)).
 		To(time.Date(2019, 8, 17, 23, 59, 59, 0, time.UTC))
 	hit := rng.Start.Add(1 * time.Second)
 
@@ -161,13 +160,13 @@ func TestHitListsList(t *testing.T) {
 			have := fmt.Sprintf("%d %t %v", uniqueDisplay, more, err)
 			if have != tt.wantReturn {
 				t.Errorf("wrong return\nhave: %s\nwant: %s\n", have, tt.wantReturn)
-				zdb.Dump(ctx, os.Stdout, "select * from paths")
-				zdb.Dump(ctx, os.Stdout, "select * from hit_counts")
+				database.Dump(ctx, os.Stdout, "select * from paths")
+				database.Dump(ctx, os.Stdout, "select * from hit_counts")
 			}
 
 			out := strings.ReplaceAll(", ", ",\n", fmt.Sprintf("%+v", stats))
 			want := strings.ReplaceAll(", ", ",\n", fmt.Sprintf("%+v", tt.wantStats))
-			if d := ztest.Diff(out, want); d != "" {
+			if d := testutil.Diff(out, want); d != "" {
 				t.Fatal(d)
 			}
 
@@ -195,8 +194,8 @@ func TestHitListsList(t *testing.T) {
 		// Directly insert because it's much faster.
 		var (
 			ctx        = testenv.DB(t)
-			bPaths, _  = zdb.NewBulkInsert(ctx, "paths", []string{"site", "path"})
-			bCounts, _ = zdb.NewBulkInsert(ctx, "hit_counts", []string{"site", "path_id", "hour", "total"})
+			bPaths, _  = database.NewBulkInsert(ctx, "paths", []string{"site", "path"})
+			bCounts, _ = database.NewBulkInsert(ctx, "hit_counts", []string{"site", "path_id", "hour", "total"})
 		)
 		for i := range 70_000 {
 			bPaths.Values("example.com", fmt.Sprintf("/x-%d", i+1))
@@ -221,7 +220,7 @@ func TestHitListsList(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := 700_000
-		//if zdb.SQLDialect(ctx) == zdb.DialectSQLite {
+		// Historical query profile:
 		//	want = 100_000
 		//}
 
@@ -244,7 +243,7 @@ func TestSiteTotalUTCTimestampBounds(t *testing.T) {
 		{"example.com", "2026-09-11 00:00:00", 100},
 		{"another.example", "2026-09-10 12:00:00", 100},
 	} {
-		if err := zdb.Exec(ctx, `insert into hit_counts (site, path_id, hour, total) values (?, 1, ?, ?)`, row.site, row.hour, row.total); err != nil {
+		if err := database.Exec(ctx, `insert into hit_counts (site, path_id, hour, total) values (?, 1, ?, ?)`, row.site, row.hour, row.total); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -252,14 +251,14 @@ func TestSiteTotalUTCTimestampBounds(t *testing.T) {
 	end := start.Add(24*time.Hour - time.Second)
 	for _, tt := range []struct {
 		name string
-		rng  ztime.Range
+		rng  datetime.Range
 		want int
 	}{
-		{"single day", ztime.NewRange(start).To(end), 7},
-		{"offset bounds", ztime.NewRange(start.In(time.FixedZone("UTC+2", 7200))).To(end.In(time.FixedZone("UTC+2", 7200))), 7},
-		{"start only", ztime.Range{Start: start}, 107},
-		{"end only", ztime.Range{End: end}, 107},
-		{"unbounded", ztime.Range{}, 207},
+		{"single day", datetime.NewRange(start).To(end), 7},
+		{"offset bounds", datetime.NewRange(start.In(time.FixedZone("UTC+2", 7200))).To(end.In(time.FixedZone("UTC+2", 7200))), 7},
+		{"start only", datetime.Range{Start: start}, 107},
+		{"end only", datetime.Range{End: end}, 107},
+		{"unbounded", datetime.Range{}, 207},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var total HitList
@@ -275,8 +274,8 @@ func TestSiteTotalUTCTimestampBounds(t *testing.T) {
 
 func TestGetTotalCount(t *testing.T) {
 	ctx := testenv.DB(t)
-	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18 12:00:00"))
-	rng := ztime.NewRange(ztime.Now(ctx)).To(ztime.Now(ctx))
+	ctx = datetime.WithNow(ctx, datetime.FromString("2020-06-18 12:00:00"))
+	rng := datetime.NewRange(datetime.Now(ctx)).To(datetime.Now(ctx))
 
 	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/a", FirstVisit: true},
@@ -296,7 +295,7 @@ func TestGetTotalCount(t *testing.T) {
 			"total_events": 1,
 			"total_utc": 3
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}
@@ -304,7 +303,7 @@ func TestGetTotalCount(t *testing.T) {
 
 func TestHitListTotals(t *testing.T) {
 	ctx := testenv.DB(t)
-	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18 12:00:00"))
+	ctx = datetime.WithNow(ctx, datetime.FromString("2020-06-18 12:00:00"))
 
 	testenv.StoreHits(ctx, t, false,
 		Hit{Path: "/a", FirstVisit: true},
@@ -322,7 +321,7 @@ func TestHitListTotals(t *testing.T) {
 	)
 
 	t.Run("hourly", func(t *testing.T) {
-		rng := ztime.NewRange(ztime.Now(ctx)).To(ztime.Now(ctx))
+		rng := datetime.NewRange(datetime.Now(ctx)).To(datetime.Now(ctx))
 
 		want := []string{`
 			{
@@ -393,7 +392,7 @@ func TestHitListTotals(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if d := ztest.Diff(zjson.MustMarshalString(hs), want[i], ztest.DiffJSON); d != "" {
+				if d := testutil.Diff(testutil.MustMarshalString(hs), want[i], testutil.DiffJSON); d != "" {
 					t.Error(d)
 				}
 			})
@@ -401,7 +400,7 @@ func TestHitListTotals(t *testing.T) {
 	})
 
 	t.Run("daily", func(t *testing.T) {
-		rng := ztime.NewRange(ztime.Now(ctx)).To(ztime.Now(ctx))
+		rng := datetime.NewRange(datetime.Now(ctx)).To(datetime.Now(ctx))
 
 		want := []string{
 			`
@@ -475,7 +474,7 @@ func TestHitListTotals(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				if d := ztest.Diff(zjson.MustMarshalString(hs), want[i], ztest.DiffJSON); d != "" {
+				if d := testutil.Diff(testutil.MustMarshalString(hs), want[i], testutil.DiffJSON); d != "" {
 					t.Error(d)
 				}
 			})
@@ -485,23 +484,23 @@ func TestHitListTotals(t *testing.T) {
 
 func TestHitListsPathCount(t *testing.T) {
 	ctx := testenv.DB(t)
-	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18"))
+	ctx = datetime.WithNow(ctx, datetime.FromString("2020-06-18"))
 
 	testenv.StoreHits(ctx, t, false,
 		Hit{FirstVisit: true, Path: "/"},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-9 * 24 * time.Hour)},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-9 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-2 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-2 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-9 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-9 * 24 * time.Hour)},
 		Hit{FirstVisit: false, Path: "/"},
 
 		Hit{FirstVisit: true, Path: "/a"},
-		Hit{FirstVisit: true, Path: "/a", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/a", CreatedAt: datetime.Now(ctx).Add(-2 * 24 * time.Hour)},
 	)
 
 	{
 		var have HitList
-		err := have.PathCount(ctx, "/", ztime.Range{})
+		err := have.PathCount(ctx, "/", datetime.Range{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -514,16 +513,16 @@ func TestHitListsPathCount(t *testing.T) {
 			"path_id":       0,
 			"stats":         null
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}
 
 	{
 		var have HitList
-		err := have.PathCount(ctx, "/", ztime.NewRange(
-			ztime.Now(ctx).Add(-8*24*time.Hour)).
-			To(ztime.Now(ctx).Add(-1*24*time.Hour)))
+		err := have.PathCount(ctx, "/", datetime.NewRange(
+			datetime.Now(ctx).Add(-8*24*time.Hour)).
+			To(datetime.Now(ctx).Add(-1*24*time.Hour)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -536,7 +535,7 @@ func TestHitListsPathCount(t *testing.T) {
 			"path_id":       0,
 			"stats":         null
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}
@@ -544,23 +543,23 @@ func TestHitListsPathCount(t *testing.T) {
 
 func TestHitListSiteTotalUnique(t *testing.T) {
 	ctx := testenv.DB(t)
-	ctx = ztime.WithNow(ctx, ztime.FromString("2020-06-18"))
+	ctx = datetime.WithNow(ctx, datetime.FromString("2020-06-18"))
 
 	testenv.StoreHits(ctx, t, false,
 		Hit{FirstVisit: true, Path: "/"},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-9 * 24 * time.Hour)},
-		Hit{FirstVisit: true, Path: "/", CreatedAt: ztime.Now(ctx).Add(-9 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-2 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-2 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-9 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/", CreatedAt: datetime.Now(ctx).Add(-9 * 24 * time.Hour)},
 
 		Hit{FirstVisit: false, Path: "/"},
 		Hit{FirstVisit: true, Path: "/a"},
-		Hit{FirstVisit: true, Path: "/a", CreatedAt: ztime.Now(ctx).Add(-2 * 24 * time.Hour)},
+		Hit{FirstVisit: true, Path: "/a", CreatedAt: datetime.Now(ctx).Add(-2 * 24 * time.Hour)},
 	)
 
 	{
 		var have HitList
-		err := have.SiteTotalUTC(ctx, ztime.Range{})
+		err := have.SiteTotalUTC(ctx, datetime.Range{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -573,16 +572,16 @@ func TestHitListSiteTotalUnique(t *testing.T) {
 			"path_id":       0,
 			"stats":         null
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}
 
 	{
 		var have HitList
-		err := have.SiteTotalUTC(ctx, ztime.NewRange(
-			ztime.Now(ctx).Add(-8*24*time.Hour)).
-			To(ztime.Now(ctx).Add(-1*24*time.Hour)))
+		err := have.SiteTotalUTC(ctx, datetime.NewRange(
+			datetime.Now(ctx).Add(-8*24*time.Hour)).
+			To(datetime.Now(ctx).Add(-1*24*time.Hour)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -595,7 +594,7 @@ func TestHitListSiteTotalUnique(t *testing.T) {
 			"path_id":       0,
 			"stats":         null
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}

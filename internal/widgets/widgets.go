@@ -3,11 +3,11 @@ package widgets
 import (
 	"context"
 	"html/template"
+	"log/slog"
 	"sync"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 type (
@@ -28,11 +28,11 @@ type (
 
 		Name() string
 		Type() string // "full-width", "hchart"
-		Label(context.Context) string
+		Label() string
 	}
 
 	Args struct {
-		Rng         ztime.Range
+		Rng         datetime.Range
 		Offset      int
 		PathFilter  goatcounter.PathFilter
 		Group       goatcounter.Group
@@ -58,7 +58,7 @@ type List []Widget
 
 func NewArgs(
 	ctx context.Context,
-	rng ztime.Range, group goatcounter.Group, allowGroups goatcounter.Groups,
+	rng datetime.Range, group goatcounter.Group, allowGroups goatcounter.Groups,
 	showRefs goatcounter.PathID,
 ) Args {
 
@@ -69,13 +69,13 @@ func NewArgs(
 	// around. So don't update the UI and just "silently" include the extra date
 	// ranges.
 	if group.Weekly() {
-		w := ztime.Week(false)
-		rng.Start = ztime.StartOf(rng.Start.In(goatcounter.Config(ctx).Timezone.Loc()), w).UTC()
-		rng.End = ztime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), w).UTC()
+		w := datetime.Week(false)
+		rng.Start = datetime.StartOf(rng.Start.In(goatcounter.Config(ctx).Timezone.Loc()), w).UTC()
+		rng.End = datetime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), w).UTC()
 	}
 	if group.Monthly() {
-		rng.Start = ztime.StartOf(rng.Start.In(goatcounter.Config(ctx).Timezone.Loc()), ztime.Month).UTC()
-		rng.End = ztime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), ztime.Month).UTC()
+		rng.Start = datetime.StartOf(rng.Start.In(goatcounter.Config(ctx).Timezone.Loc()), datetime.Month).UTC()
+		rng.End = datetime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), datetime.Month).UTC()
 	}
 
 	return Args{Rng: rng, Group: group, AllowGroups: allowGroups, ShowRefs: showRefs, metrics: new(sharedMetrics)}
@@ -189,6 +189,6 @@ func NewWidget(ctx context.Context, name string, id int) Widget {
 	case "languages":
 		return &Languages{id: id, Limit: hchartSize}
 	}
-	log.Errorf(ctx, "unknown widget: %q", name)
+	slog.ErrorContext(ctx, "unknown widget", "name", name)
 	return nil
 }

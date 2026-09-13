@@ -4,10 +4,10 @@ package cron
 
 import (
 	"context"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
-
-	"github.com/marvinrabe/goatcounter/internal/log"
 )
 
 type Runner struct {
@@ -32,7 +32,11 @@ func Start(ctx context.Context, interval time.Duration) *Runner {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			defer log.Recover(ctx)
+			defer func() {
+				if p := recover(); p != nil {
+					slog.ErrorContext(ctx, "background task panic", "panic", p, "stack", string(debug.Stack()), "task", task.name)
+				}
+			}()
 			timer := time.NewTimer(task.period)
 			defer timer.Stop()
 			for {
@@ -41,7 +45,7 @@ func Start(ctx context.Context, interval time.Duration) *Runner {
 					return
 				case <-timer.C:
 					if err := task.run(ctx); err != nil && ctx.Err() == nil {
-						log.Module("cron").Error(ctx, err, "task", task.name)
+						slog.With("module", "cron").ErrorContext(ctx, err.Error(), "task", task.name)
 					}
 					timer.Reset(task.period)
 				}

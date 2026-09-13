@@ -2,7 +2,6 @@ package cron
 
 import (
 	"github.com/marvinrabe/goatcounter"
-	"zgo.at/zstd/ztype"
 )
 
 func groupLanguageStats(hits []goatcounter.Hit) statBatch {
@@ -18,7 +17,11 @@ func groupLanguageStats(hits []goatcounter.Hit) statBatch {
 			continue
 		}
 
-		grouped[key{h.Site, h.PathID, h.CreatedAt.Format("2006-01-02"), ztype.Deref(h.Language, "")}]++
+		language := ""
+		if h.Language != nil {
+			language = *h.Language
+		}
+		grouped[key{h.Site, h.PathID, h.CreatedAt.Format("2006-01-02"), language}]++
 	}
 	batch := statBatch{bulk: goatcounter.Tables.LanguageStats.Bulk}
 	for k, count := range grouped {

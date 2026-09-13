@@ -11,9 +11,7 @@ import (
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zhttp/mware"
-	"zgo.at/zstd/zmap"
-	"zgo.at/zstd/ztest"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func fmtCSP(h string) string {
@@ -24,7 +22,12 @@ func fmtCSP(h string) string {
 			csp[s[0]] = s[1:]
 		}
 	}
-	keys, l := zmap.LongestKey(csp)
+	keys := make([]string, 0, len(csp))
+	l := 0
+	for k := range csp {
+		keys = append(keys, k)
+		l = max(l, len(k))
+	}
 	slices.Sort(keys)
 	var s strings.Builder
 	for _, k := range keys {
@@ -61,15 +64,15 @@ func TestAddCSP(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(base+tt.path, func(t *testing.T) {
 				var (
-					r  = ztest.NewRequest("GET", base+tt.path, nil)
+					r  = testutil.NewRequest("GET", base+tt.path, nil)
 					rr = httptest.NewRecorder()
 				)
 
 				mw.ServeHTTP(rr, r)
 
-				tt.want = ztest.NormalizeIndent(tt.want)
+				tt.want = testutil.NormalizeIndent(tt.want)
 				have := fmtCSP(rr.Header().Get("Content-Security-Policy"))
-				if d := ztest.Diff(have, tt.want); d != "" {
+				if d := testutil.Diff(have, tt.want); d != "" {
 					t.Error(d)
 				}
 			})
@@ -81,10 +84,7 @@ func TestRequestContext(t *testing.T) {
 	for _, written := range []bool{false, true} {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		w := httptest.NewRecorder()
-		h := mware.WrapWriter()(requestContext(-time.Second)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if goatcounter.Host(r.Context()) != r.Host {
-				t.Error("request host missing from context")
-			}
+		h := wrapWriter(requestContext(-time.Second)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Context().Err() != context.DeadlineExceeded {
 				t.Error("request deadline was not applied")
 			}
@@ -149,7 +149,7 @@ func TestSelectSite(t *testing.T) {
 func BenchmarkAddCSP(b *testing.B) {
 	var (
 		ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
-		r   = ztest.NewRequest("GET", "/", nil).WithContext(ctx)
+		r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
 		rr  = httptest.NewRecorder()
 		mw  = addcsp("", "")(http.NewServeMux())
 	)
@@ -163,7 +163,7 @@ func BenchmarkRequestContext(b *testing.B) {
 	b.Run("without site", func(b *testing.B) {
 		var (
 			ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
-			r   = ztest.NewRequest("GET", "/", nil).WithContext(ctx)
+			r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
 			rr  = httptest.NewRecorder()
 			mw  = requestContext(10 * time.Second)(http.NewServeMux())
 		)
@@ -176,7 +176,7 @@ func BenchmarkRequestContext(b *testing.B) {
 	b.Run("with site", func(b *testing.B) {
 		var (
 			ctx = testenv.DB(b)
-			r   = ztest.NewRequest("GET", "/", nil).WithContext(ctx)
+			r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
 			rr  = httptest.NewRecorder()
 			mw  = requestContext(10 * time.Second)(selectSite(false)(http.NewServeMux()))
 		)

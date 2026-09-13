@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/zbool"
-	"zgo.at/zstd/ztime"
 )
 
 func TestDataRetentionForever(t *testing.T) {
@@ -18,10 +17,10 @@ func TestDataRetentionForever(t *testing.T) {
 	past := now.Add(-40 * 24 * time.Hour)
 
 	testenv.StoreHits(ctx, t, false, []goatcounter.Hit{
-		{CreatedAt: now, Path: "/a", FirstVisit: zbool.Bool(true)},
-		{CreatedAt: now, Path: "/a", FirstVisit: zbool.Bool(false)},
-		{CreatedAt: past, Path: "/a", FirstVisit: zbool.Bool(true)},
-		{CreatedAt: past, Path: "/a", FirstVisit: zbool.Bool(false)},
+		{CreatedAt: now, Path: "/a", FirstVisit: true},
+		{CreatedAt: now, Path: "/a", FirstVisit: false},
+		{CreatedAt: past, Path: "/a", FirstVisit: true},
+		{CreatedAt: past, Path: "/a", FirstVisit: false},
 	}...)
 
 	var hits goatcounter.Hits
@@ -35,7 +34,7 @@ func TestDataRetentionForever(t *testing.T) {
 
 	var stats goatcounter.HitLists
 	display, more, err := stats.List(ctx,
-		ztime.NewRange(past.Add(-1*24*time.Hour)).To(now),
+		datetime.NewRange(past.Add(-1*24*time.Hour)).To(now),
 		goatcounter.PathFilter{}, nil, 10, goatcounter.GroupHourly)
 	if err != nil {
 		t.Fatal(err)

@@ -6,10 +6,9 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestHitStats(t *testing.T) {
@@ -23,7 +22,7 @@ func TestHitStats(t *testing.T) {
 
 		var stats goatcounter.HitLists
 		display, more, err := stats.List(ctx,
-			ztime.NewRange(now.Add(-1*time.Hour)).To(now.Add(2*time.Hour)),
+			datetime.NewRange(now.Add(-1*time.Hour)).To(now.Add(2*time.Hour)),
 			goatcounter.PathFilter{}, nil, 10, goatcounter.GroupHourly)
 		if err != nil {
 			t.Fatal(err)
@@ -37,7 +36,7 @@ func TestHitStats(t *testing.T) {
 			t.Fatalf("len(stats) is not 1: %d", len(stats))
 		}
 
-		if d := ztest.Diff(string(zjson.MustMarshal(stats[0])), want0, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(string(testutil.MustMarshal(stats[0])), want0, testutil.DiffJSON); d != "" {
 			t.Error("first wrong\n" + d)
 		}
 	}
@@ -80,7 +79,7 @@ func TestHitStats(t *testing.T) {
 	//
 	// So the second is stored after the end.
 	// "now" is 14:42
-	// zdb.Dump(ctx, os.Stdout, `select * from hit_counts`)
+	// database.Dump(ctx, os.Stdout, `select * from hit_counts`)
 	check("2 false", `{
 			"count":  2,
 			"path_id":       1,
@@ -112,7 +111,7 @@ func TestHitStatsWithoutSessions(t *testing.T) {
 
 		var stats goatcounter.HitLists
 		display, more, err := stats.List(ctx,
-			ztime.NewRange(now.Add(-1*time.Hour)).To(now.Add(1*time.Hour)),
+			datetime.NewRange(now.Add(-1*time.Hour)).To(now.Add(1*time.Hour)),
 			goatcounter.PathFilter{}, nil, 10, goatcounter.GroupHourly)
 		if err != nil {
 			t.Fatal(err)
@@ -126,11 +125,11 @@ func TestHitStatsWithoutSessions(t *testing.T) {
 			t.Fatalf("len(stats) is not 2: %d", len(stats))
 		}
 
-		if d := ztest.Diff(string(zjson.MustMarshal(stats[0])), want0, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(string(testutil.MustMarshal(stats[0])), want0, testutil.DiffJSON); d != "" {
 			t.Error("first wrong\n" + d)
 		}
 
-		if d := ztest.Diff(string(zjson.MustMarshal(stats[1])), want1, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(string(testutil.MustMarshal(stats[1])), want1, testutil.DiffJSON); d != "" {
 			t.Error("second wrong\n" + d)
 		}
 	}

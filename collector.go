@@ -7,34 +7,28 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
+	"uuid"
 
-	"github.com/marvinrabe/goatcounter/internal/log"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/refspam"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zbool"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/ztime"
-	"zgo.at/zvalidate"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 // TestSession is a fixed session identifier used by data fixtures.
-var TestSession = zint.Uint128{0x11223344556677, 0x8899aabbccddeeff}
-
-var (
-	memlog     = log.Module("collector")
-	refspamlog = log.Module("refspam")
-)
+var TestSession = uuid.MustParse("00112233-4455-6677-8899-aabbccddeeff")
 
 // EnqueueHits durably accepts work before the collector returns success. There
 // is no process-local queue: any replica can process any committed entry.
 func EnqueueHits(ctx context.Context, hits ...Hit) error {
 	return retryBusy(ctx, func() error {
-		return zdb.TX(ctx, func(ctx context.Context) error {
-			ins, err := zdb.NewBulkInsert(ctx, "hit_queue", []string{"site", "payload"})
+		return database.TX(ctx, func(ctx context.Context) error {
+			ins, err := database.NewBulkInsert(ctx, "hit_queue", []string{"site", "payload"})
 			if err != nil {
 				return err
 			}
@@ -43,7 +37,7 @@ func EnqueueHits(ctx context.Context, hits ...Hit) error {
 					h.Site = Config(ctx).Sites[0].Key
 				}
 				if h.CreatedAt.IsZero() {
-					h.CreatedAt = ztime.Now(ctx)
+					h.CreatedAt = datetime.Now(ctx)
 				}
 				// Never put a raw client IP address in the durable inbox.
 				identity := h.UserSessionID
@@ -73,7 +67,7 @@ func PersistHits(ctx context.Context, updateStats func(context.Context, []Hit) e
 	var hits []Hit
 	err := retryBusy(ctx, func() error {
 		hits = nil
-		return zdb.TX(ctx, func(ctx context.Context) error {
+		return database.TX(ctx, func(ctx context.Context) error {
 			// A transaction must not publish uncommitted dimension IDs, or
 			// reuse IDs cached before a different replica deleted a path.
 			ctx = NewBatchCache(ctx)
@@ -87,7 +81,7 @@ func PersistHits(ctx context.Context, updateStats func(context.Context, []Hit) e
 			}
 			// The first statement takes the database write lock. DELETE's
 			// changes stay uncommitted until every derived record is saved.
-			err := zdb.Select(ctx, &rows, `delete from hit_queue where id in (
+			err := database.Select(ctx, &rows, `delete from hit_queue where id in (
                 select id from hit_queue where site in (:sites) order by id limit :limit
             ) returning id, payload`, map[string]any{"sites": sites, "limit": HitBatchSize})
 			if err != nil {
@@ -105,7 +99,7 @@ func PersistHits(ctx context.Context, updateStats func(context.Context, []Hit) e
 				}
 				return 0
 			})
-			ins, err := zdb.NewBulkInsert(ctx, "hits", []string{"site", "path_id", "ref_id", "browser_id", "system_id",
+			ins, err := database.NewBulkInsert(ctx, "hits", []string{"site", "path_id", "ref_id", "browser_id", "system_id",
 				"width", "location", "language", "created_at", "session", "first_visit", "campaign"})
 			if err != nil {
 				return err
@@ -116,7 +110,7 @@ func PersistHits(ctx context.Context, updateStats func(context.Context, []Hit) e
 					return err
 				}
 				if h.Bot > 0 {
-					if err := zdb.Exec(ctx, `insert into bots(site,path,bot,user_agent,created_at) values(?,?,?,?,?)`,
+					if err := database.Exec(ctx, `insert into bots(site,path,bot,user_agent,created_at) values(?,?,?,?,?)`,
 						h.Site, h.Path, h.Bot, h.UserAgentHeader, h.CreatedAt); err != nil {
 						return err
 					}
@@ -184,37 +178,37 @@ func processHit(ctx context.Context, h *Hit) (bool, error) {
 	h.RefURL, _ = url.Parse(h.Ref)
 	if h.RefURL != nil {
 		if refspam.Is(h.RefURL.Host) {
-			refspamlog.Debugf(ctx, "refspam ignored: %q", h.RefURL.Host)
+			slog.With("module", "refspam").DebugContext(ctx, "refspam ignored", "host", h.RefURL.Host)
 			return false, nil
 		}
 	}
 
 	site, ok := Config(ctx).Site(h.Site)
 	if !ok {
-		memlog.Error(ctx, "unknown site", "site", h.Site, "hit", h)
+		slog.With("module", "collector").ErrorContext(ctx, "unknown site", "site", h.Site, "hit", h)
 		return false, nil
 	}
 	site.Defaults()
 	ctx = WithSite(ctx, &site)
 	err := h.Defaults(ctx, false)
 	if err != nil {
-		if errors.As(err, new(&zvalidate.Validator{})) {
-			memlog.Debug(ctx, err.Error(), "hit", h)
+		if errors.As(err, new(&validation.Validator{})) {
+			slog.With("module", "collector").DebugContext(ctx, err.Error(), "hit", h)
 		} else {
 			return false, err
 		}
 		return false, nil
 	}
 
-	if h.Session.IsZero() && !h.NoSession.Bool() {
+	if h.Session == uuid.Nil() && !h.NoSession {
 		h.Session, h.FirstVisit, err = session(ctx, h.PathID, h.UserSessionID)
 		if err != nil {
 			return false, err
 		}
 	}
 
-	if h.NoSession.Bool() {
-		h.Session, h.FirstVisit = zint.Uint128{}, true
+	if h.NoSession {
+		h.Session, h.FirstVisit = SessionID{}, true
 	}
 
 	if h.Ignore() {
@@ -223,7 +217,7 @@ func processHit(ctx context.Context, h *Hit) (bool, error) {
 
 	err = h.Validate(ctx, false)
 	if err != nil {
-		memlog.Error(ctx, err, "hit", h)
+		slog.With("module", "collector").ErrorContext(ctx, err.Error(), "hit", h)
 		return false, nil
 	}
 	return true, nil
@@ -234,43 +228,45 @@ var SessionTime = 8 * time.Hour
 
 // session runs inside the batch's write transaction, serializing the lookup
 // and first-path decision across all collectors sharing the database.
-func session(ctx context.Context, pathID PathID, key string) (zint.Uint128, zbool.Bool, error) {
+func session(ctx context.Context, pathID PathID, key string) (SessionID, bool, error) {
 	var row struct {
-		ID   zint.Uint128 `db:"session"`
-		Seen int64        `db:"seen_at"`
+		ID   []byte `db:"session"`
+		Seen int64  `db:"seen_at"`
 	}
-	now := ztime.Now(ctx).Unix()
-	err := zdb.Get(ctx, &row, `select session, seen_at from collector_sessions where key=?`, key)
-	if err != nil && !zdb.ErrNoRows(err) {
-		return row.ID, false, err
+	var id SessionID
+	now := datetime.Now(ctx).Unix()
+	err := database.Get(ctx, &row, `select session, seen_at from collector_sessions where key=?`, key)
+	if err != nil && !database.ErrNoRows(err) {
+		return id, false, err
 	}
-	if zdb.ErrNoRows(err) || row.Seen < now-int64(SessionTime.Seconds()) {
-		if !row.ID.IsZero() {
-			if err := zdb.Exec(ctx, `delete from collector_session_paths where session=?`, row.ID); err != nil {
-				return row.ID, false, err
+	copy(id[:], row.ID)
+	if database.ErrNoRows(err) || row.Seen < now-int64(SessionTime.Seconds()) {
+		if id != uuid.Nil() {
+			if err := database.Exec(ctx, `delete from collector_session_paths where session=?`, id); err != nil {
+				return id, false, err
 			}
 		}
-		row.ID = UUID()
+		id = uuid.NewV4()
 	}
-	if err := zdb.Exec(ctx, `insert into collector_sessions(key,site,session,seen_at) values(?,?,?,?)
-        on conflict(key) do update set session=excluded.session, seen_at=excluded.seen_at`, key, MustGetSite(ctx).Key, row.ID, now); err != nil {
-		return row.ID, false, err
+	if err := database.Exec(ctx, `insert into collector_sessions(key,site,session,seen_at) values(?,?,?,?)
+		on conflict(key) do update set session=excluded.session, seen_at=excluded.seen_at`, key, MustGetSite(ctx).Key, id, now); err != nil {
+		return id, false, err
 	}
-	n, err := zdb.NumRows(ctx, `insert into collector_session_paths(session,path_id) values(?,?)
-        on conflict(session,path_id) do nothing`, row.ID, pathID)
-	return row.ID, zbool.Bool(n == 1), err
+	n, err := database.NumRows(ctx, `insert into collector_session_paths(session,path_id) values(?,?)
+		on conflict(session,path_id) do nothing`, id, pathID)
+	return id, n == 1, err
 }
 
 func EvictSessions(ctx context.Context) error {
-	return zdb.TX(ctx, func(ctx context.Context) error {
-		var ids []zint.Uint128
-		if err := zdb.Select(ctx, &ids, `delete from collector_sessions where seen_at < ? returning session`,
-			ztime.Now(ctx).Add(-SessionTime).Unix()); err != nil {
+	return database.TX(ctx, func(ctx context.Context) error {
+		var ids [][]byte
+		if err := database.Select(ctx, &ids, `delete from collector_sessions where seen_at < ? returning session`,
+			datetime.Now(ctx).Add(-SessionTime).Unix()); err != nil {
 			return err
 		}
 		if len(ids) == 0 {
 			return nil
 		}
-		return zdb.Exec(ctx, `delete from collector_session_paths where session in (:ids)`, map[string]any{"ids": ids})
+		return database.Exec(ctx, `delete from collector_session_paths where session in (:ids)`, map[string]any{"ids": ids})
 	})
 }

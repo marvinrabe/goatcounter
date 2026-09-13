@@ -29,7 +29,7 @@ Running it:
 - English only: the `i18n/` translations, the translation UI, and the
   per-user locale are gone. Dates, numbers, and times use international formats
   (ISO dates, 24-hour clock, thin-space thousands separator).
-- Commands: `serve`, `healthcheck`, `help`, `version`, and `geodb-update`. Use external
+- Commands: `serve`, `healthcheck`, `help`, and `geodb-update`. Use external
   SQLite/libSQL tools for database administration. Empty databases are initialized
   automatically by `serve`.
 - No runtime metrics collection and no admin ("bosmang") pages for cache,
@@ -198,7 +198,7 @@ For local sample data, generate a token in an untracked `.env` file:
     % set -a
     % . ./.env
     % set +a
-    % ./sample-data.sh -y
+    % ./scripts/sample-data.py -y
 
 The `.env` file is excluded from both Git and Docker build contexts.
 
@@ -429,9 +429,9 @@ must be treated as a destructive operation rather than an atomic swap.
       }
     }
 
-[`sample-data.sh`](sample-data.sh) is a complete bulk-import example:
+[`scripts/sample-data.py`](scripts/sample-data.py) is a complete bulk-import example:
 
-    GOATCOUNTER_API_TOKEN=... ./sample-data.sh -u https://stats.example.com/api
+    GOATCOUNTER_API_TOKEN=... ./scripts/sample-data.py -u https://stats.example.com/api
 
 #### MCP
 

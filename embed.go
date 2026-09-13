@@ -4,7 +4,7 @@ import (
 	"embed"
 	"html/template"
 
-	"zgo.at/zdb"
+	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 // DB contains all files in db/*
@@ -25,7 +25,7 @@ var Static embed.FS
 var Templates embed.FS
 
 func init() {
-	zdb.TemplateFuncMap = template.FuncMap{
+	database.TemplateFuncMap = template.FuncMap{
 		// Include another file from db/ in the schema or a migration; the list
 		// of languages is needed by both and is too large to keep two copies
 		// of. Always read from the embedded files, also with -dev: this is

@@ -1,4 +1,4 @@
-// Package libsql integrates remote libSQL and local SQLite with zdb.
+// Package libsql integrates remote libSQL and local SQLite with database.
 package libsql
 
 import (
@@ -10,30 +10,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 	"time"
 
+	"github.com/marvinrabe/goatcounter/internal/database"
 	_ "github.com/mattn/go-sqlite3"
 	remotelibsql "github.com/tursodatabase/libsql-client-go/libsql"
 	"github.com/tursodatabase/libsql-client-go/sqliteparserutils"
-	"zgo.at/zdb"
-	"zgo.at/zdb/drivers"
 )
 
-func init() {
-	drivers.RegisterDriver(driver{})
-}
-
-// FileConnect returns a zdb connection string for a local database path.
+// FileConnect returns a connection string for a local database path.
 func FileConnect(path string) string {
 	return "libsql+" + (&url.URL{Scheme: "file", Path: path}).String()
 }
 
 // Open connects to a libSQL database and initializes an empty database from
 // the supplied schema. The remote client executes one statement at a time, so the
-// rendered baseline is split and applied in a transaction before reconnecting
-// with Files enabled for zdb's query loader.
-func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
+// rendered baseline is split and applied in a transaction.
+func Open(ctx context.Context, opt database.ConnectOptions) (database.DB, error) {
 	// A local SQLite file has one writer. Keep one connection to avoid
 	// self-contention; shared deployments use a remote libSQL endpoint.
 	if !isRemote(opt.Connect) {
@@ -41,11 +34,19 @@ func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
 		opt.MaxIdleConns = 1
 	}
 	files := opt.Files
-	opt.Files = nil
-	db, err := zdb.Connect(ctx, opt)
+	conn, _, err := openSQL(ctx, strings.TrimPrefix(opt.Connect, "libsql+"), opt.Create)
 	if err != nil {
-		return db, err
+		return nil, err
 	}
+	if opt.MaxOpenConns == 0 {
+		opt.MaxOpenConns = 16
+	}
+	if opt.MaxIdleConns == 0 {
+		opt.MaxIdleConns = 4
+	}
+	conn.SetMaxOpenConns(opt.MaxOpenConns)
+	conn.SetMaxIdleConns(opt.MaxIdleConns)
+	db := database.New(conn, files)
 	configureRemotePool(db, opt.Connect)
 	if files == nil {
 		return db, nil
@@ -60,23 +61,14 @@ func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
 	if tables == 0 {
 		if !opt.Create {
 			db.Close()
-			return nil, &drivers.NotExistError{Driver: "libsql", Connect: opt.Connect}
+			return nil, fmt.Errorf("database does not exist: %w", os.ErrNotExist)
 		}
 		if err := createSchema(ctx, db, files); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
-	if err := db.Close(); err != nil {
-		return nil, err
-	}
 
-	opt.Files = files
-	opt.Create = false
-	db, err = zdb.Connect(ctx, opt)
-	if err == nil {
-		configureRemotePool(db, opt.Connect)
-	}
 	return db, err
 }
 
@@ -85,10 +77,8 @@ func Open(ctx context.Context, opt zdb.ConnectOptions) (zdb.DB, error) {
 // fresh stream avoids expired-stream errors across supported server versions;
 // the HTTP transport still reuses its underlying connections.
 //
-// This must run after zdb.Connect: zdb applies its own pool settings after the
-// driver's Connect method returns, so configuring this in driver.Connect gets
-// overwritten.
-func configureRemotePool(db zdb.DB, connect string) {
+// Apply this after setting the configured pool limits.
+func configureRemotePool(db database.DB, connect string) {
 	if !isRemote(connect) {
 		return
 	}
@@ -103,7 +93,7 @@ func isRemote(connect string) bool {
 		strings.HasPrefix(connect, "https://")
 }
 
-func createSchema(ctx context.Context, db zdb.DB, files fs.FS) error {
+func createSchema(ctx context.Context, db database.DB, files fs.FS) error {
 	schema, err := fs.ReadFile(files, "db/schema.gotxt")
 	if err != nil {
 		schema, err = fs.ReadFile(files, "schema.gotxt")
@@ -111,24 +101,24 @@ func createSchema(ctx context.Context, db zdb.DB, files fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("libsql.Open: read schema: %w", err)
 	}
-	rendered, err := zdb.Template(zdb.DialectSQLite, string(schema))
+	rendered, err := database.Template(string(schema))
 	if err != nil {
 		return fmt.Errorf("libsql.Open: render schema: %w", err)
 	}
 	for {
 		err = db.TX(ctx, func(ctx context.Context) error {
 			// Serialize simultaneous first starts before checking the schema.
-			if err := zdb.Exec(ctx, `create table if not exists init_lock(id integer primary key)`); err != nil {
+			if err := database.Exec(ctx, `create table if not exists init_lock(id integer primary key)`); err != nil {
 				return err
 			}
 			var tables int
-			if err := zdb.Get(ctx, &tables, `select count(*) from sqlite_schema where type='table' and name not in ('init_lock','version')`); err != nil {
+			if err := database.Get(ctx, &tables, `select count(*) from sqlite_schema where type='table' and name not in ('init_lock','version')`); err != nil {
 				return err
 			}
 			if tables > 0 {
 				return nil
 			}
-			return execStatements(ctx, zdb.MustGetDB(ctx), string(rendered))
+			return execStatements(ctx, database.MustGetDB(ctx), string(rendered))
 		})
 		if err == nil || !strings.Contains(err.Error(), "database is locked") {
 			break
@@ -146,14 +136,14 @@ func createSchema(ctx context.Context, db zdb.DB, files fs.FS) error {
 }
 
 // execStatements splits and executes a SQL script in one transaction.
-func execStatements(ctx context.Context, db zdb.DB, script string) error {
+func execStatements(ctx context.Context, db database.DB, script string) error {
 	statements, _ := sqliteparserutils.SplitStatement(script)
-	return zdb.TX(zdb.WithDB(ctx, db), func(txctx context.Context) error {
+	return database.TX(database.WithDB(ctx, db), func(txctx context.Context) error {
 		for _, statement := range statements {
 			if strings.TrimSpace(statement) == "" {
 				continue
 			}
-			if err := zdb.Exec(txctx, statement); err != nil {
+			if err := database.Exec(txctx, statement); err != nil {
 				return err
 			}
 		}
@@ -161,12 +151,7 @@ func execStatements(ctx context.Context, db zdb.DB, script string) error {
 	})
 }
 
-type driver struct{}
-
-func (driver) Name() string    { return "libsql" }
-func (driver) Dialect() string { return "sqlite" }
-
-func (driver) Connect(ctx context.Context, connect string, create bool) (*sql.DB, any, error) {
+func openSQL(ctx context.Context, connect string, create bool) (*sql.DB, any, error) {
 	path, local, err := localPath(connect)
 	if err != nil {
 		return nil, nil, err
@@ -227,42 +212,10 @@ func prepareLocal(path, connect string, create bool) error {
 		if abs, absErr := filepath.Abs(path); absErr == nil {
 			path = abs
 		}
-		return &drivers.NotExistError{Driver: "libsql", DB: path, Connect: connect}
+		return fmt.Errorf("database %s does not exist: %w", path, os.ErrNotExist)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("libsql.Connect: create DB dir: %w", err)
 	}
 	return nil
-}
-
-func (driver) ErrUnique(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "UNIQUE constraint failed") ||
-		strings.Contains(s, "SQLITE_CONSTRAINT_UNIQUE") ||
-		strings.Contains(s, "error code = 2067")
-}
-
-func (driver) StartTest(t testing.TB, opt *drivers.TestOptions) context.Context {
-	t.Helper()
-	if opt == nil {
-		opt = &drivers.TestOptions{}
-	}
-	connect := FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
-	if opt.Connect != "" {
-		connect = opt.Connect
-	}
-	db, err := Open(context.Background(), zdb.ConnectOptions{
-		Connect:      connect,
-		Create:       true,
-		Files:        opt.Files,
-		GoMigrations: opt.GoMigrations,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return zdb.WithDB(context.Background(), db)
 }

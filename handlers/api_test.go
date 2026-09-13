@@ -11,14 +11,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func apiBackend(ctx context.Context, token string) chi.Router {
-	return NewBackend(zdb.MustGetDB(ctx), true, "example.com", "", 10, NewRatelimits(), token, Auth{Mode: AuthPublic})
+	return NewBackend(database.MustGetDB(ctx), true, "example.com", "", 10, NewRatelimits(), token, Auth{Mode: AuthPublic})
 }
 
 func callAPI(t *testing.T, ctx context.Context, token, action string, args any) map[string]any {
@@ -31,7 +31,7 @@ func callAPI(t *testing.T, ctx context.Context, token, action string, args any) 
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("Content-Type", "application/json")
 	apiBackend(ctx, token).ServeHTTP(rr, r)
-	ztest.Code(t, rr, http.StatusOK)
+	testutil.Code(t, rr, http.StatusOK)
 	var result map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
@@ -43,11 +43,11 @@ func TestAPIDisabledAndBearerAuth(t *testing.T) {
 	ctx := testenv.DB(t)
 	r, rr := newTest(ctx, http.MethodGet, "/api", nil)
 	apiBackend(ctx, "").ServeHTTP(rr, r)
-	ztest.Code(t, rr, http.StatusNotFound)
+	testutil.Code(t, rr, http.StatusNotFound)
 
 	r, rr = newTest(ctx, http.MethodGet, "/api", nil)
 	apiBackend(ctx, "secret").ServeHTTP(rr, r)
-	ztest.Code(t, rr, http.StatusUnauthorized)
+	testutil.Code(t, rr, http.StatusUnauthorized)
 
 	// Public dashboard access does not authorize the API; neither do valid
 	// dashboard Basic credentials.
@@ -58,13 +58,13 @@ func TestAPIDisabledAndBearerAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	basic := Auth{Mode: AuthBasic, BasicUsers: users}
-	NewBackend(zdb.MustGetDB(ctx), true, "example.com", "", 10, NewRatelimits(), "secret", basic).ServeHTTP(rr, r)
-	ztest.Code(t, rr, http.StatusUnauthorized)
+	NewBackend(database.MustGetDB(ctx), true, "example.com", "", 10, NewRatelimits(), "secret", basic).ServeHTTP(rr, r)
+	testutil.Code(t, rr, http.StatusUnauthorized)
 
 	r, rr = newTest(ctx, http.MethodGet, "/settings/purge", nil)
 	login(t, r)
 	apiBackend(ctx, "secret").ServeHTTP(rr, r)
-	ztest.Code(t, rr, http.StatusNotFound)
+	testutil.Code(t, rr, http.StatusNotFound)
 }
 
 func TestAPISiteContextDoesNotNeedDatabase(t *testing.T) {
@@ -77,7 +77,7 @@ func TestAPISiteContextDoesNotNeedDatabase(t *testing.T) {
 
 func TestAPIPageviews(t *testing.T) {
 	ctx := testenv.DB(t)
-	now := ztime.Now(ctx).Add(-time.Hour)
+	now := datetime.Now(ctx).Add(-time.Hour)
 	testenv.StoreHits(ctx, t, false,
 		goatcounter.Hit{FirstVisit: true, Path: "/asd", CreatedAt: now},
 		goatcounter.Hit{FirstVisit: true, Path: "/asd", CreatedAt: now},
@@ -94,7 +94,7 @@ func TestAPIMerge(t *testing.T) {
 	ctx := testenv.DB(t)
 	uaLinux := `Mozilla/5.0 (X11; Linux x86_64; rv:139.0) Gecko/20100101 Firefox/139.0`
 	uaMac := `Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:139.0) Gecko/20100101 Firefox/139.0`
-	now := ztime.FromString("2025-06-13 12:13:40")
+	now := datetime.FromString("2025-06-13 12:13:40")
 	testenv.StoreHits(ctx, t, false,
 		goatcounter.Hit{FirstVisit: true, CreatedAt: now, Path: "/one", UserAgentHeader: uaLinux},
 		goatcounter.Hit{FirstVisit: true, CreatedAt: now, Path: "/two", UserAgentHeader: uaMac})
@@ -108,7 +108,7 @@ func TestAPIMerge(t *testing.T) {
 		t.Fatalf("unexpected paths after merge: %#v", paths)
 	}
 	var total int
-	if err := zdb.Get(ctx, &total, `select total from hit_counts where path_id=1`); err != nil {
+	if err := database.Get(ctx, &total, `select total from hit_counts where path_id=1`); err != nil {
 		t.Fatal(err)
 	}
 	if total != 2 {
@@ -123,7 +123,7 @@ func TestAPIMCP(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer secret")
 	r.Header.Set("Content-Type", "application/json")
 	apiBackend(ctx, "secret").ServeHTTP(rr, r)
-	ztest.Code(t, rr, http.StatusOK)
+	testutil.Code(t, rr, http.StatusOK)
 	if !strings.Contains(rr.Body.String(), `"name":"dashboard"`) || !strings.Contains(rr.Body.String(), `"name":"import_raw"`) {
 		t.Fatalf("unexpected MCP tools response: %s", rr.Body.String())
 	}
@@ -131,7 +131,7 @@ func TestAPIMCP(t *testing.T) {
 
 func TestAPIImportAndDashboard(t *testing.T) {
 	ctx := testenv.DB(t)
-	created := ztime.Now(ctx).UTC().Truncate(24 * time.Hour).Format(time.RFC3339)
+	created := datetime.Now(ctx).UTC().Truncate(24 * time.Hour).Format(time.RFC3339)
 	callAPI(t, ctx, "secret", "import_raw", map[string]any{
 		"replace": true,
 		"hits": []map[string]any{
@@ -152,7 +152,7 @@ func TestAPIImportAndDashboard(t *testing.T) {
 
 func TestAPIImportDistinctCampaigns(t *testing.T) {
 	ctx := testenv.DB(t)
-	if err := zdb.Exec(ctx, `insert into campaigns (name) values ('Alpha'), ('Beta')`); err != nil {
+	if err := database.Exec(ctx, `insert into campaigns (name) values ('Alpha'), ('Beta')`); err != nil {
 		t.Fatal(err)
 	}
 	created := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
@@ -163,7 +163,7 @@ func TestAPIImportDistinctCampaigns(t *testing.T) {
 		},
 	})
 	var names []string
-	if err := zdb.Select(ctx, &names, `select campaigns.name from hits join campaigns on campaigns.campaign_id = hits.campaign order by campaigns.name`); err != nil {
+	if err := database.Select(ctx, &names, `select campaigns.name from hits join campaigns on campaigns.campaign_id = hits.campaign order by campaigns.name`); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(names, ",") != "Alpha,Beta" {

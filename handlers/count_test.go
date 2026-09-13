@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,14 +12,11 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	botcheck "github.com/marvinrabe/goatcounter/internal/bot"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/isbot"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zcrypto"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestBackendCountLanguage(t *testing.T) {
@@ -35,7 +33,7 @@ func TestBackendCountLanguage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testenv.DB(t)
-			ctx = ztime.WithNow(ctx, ztime.FromString("2019-06-18 14:42:00"))
+			ctx = datetime.WithNow(ctx, datetime.FromString("2019-06-18 14:42:00"))
 
 			r, rr := newTest(ctx, "GET", "/count?p=/foo.html", nil)
 			if tt.header != "" {
@@ -43,7 +41,7 @@ func TestBackendCountLanguage(t *testing.T) {
 			}
 			login(t, r)
 			newBackend(ctx).ServeHTTP(rr, r)
-			ztest.Code(t, rr, 200)
+			testutil.Code(t, rr, 200)
 
 			if _, err := goatcounter.PersistHits(ctx, nil); err != nil {
 				t.Fatal(err)
@@ -153,7 +151,7 @@ func TestBackendCount(t *testing.T) {
 			r.Header.Set("User-Agent", "GoogleBot/1.0")
 		}, 200, goatcounter.Hit{
 			Path:            "/a",
-			Bot:             int(isbot.BotShort),
+			Bot:             int(botcheck.BotShort),
 			UserAgentHeader: "GoogleBot/1.0",
 		}},
 
@@ -174,7 +172,7 @@ func TestBackendCount(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testenv.DB(t)
-			ctx = ztime.WithNow(ctx, ztime.FromString("2019-06-18 14:42:00"))
+			ctx = datetime.WithNow(ctx, datetime.FromString("2019-06-18 14:42:00"))
 
 			r, rr := newTest(ctx, "GET", "/count?"+tt.query.Encode(), nil)
 			if tt.set != nil {
@@ -186,7 +184,7 @@ func TestBackendCount(t *testing.T) {
 			if h := rr.Header().Get("X-Goatcounter"); h != "" {
 				t.Logf("X-Goatcounter: %s", h)
 			}
-			ztest.Code(t, rr, tt.wantCode)
+			testutil.Code(t, rr, tt.wantCode)
 
 			if tt.wantCode >= 400 {
 				return
@@ -210,15 +208,15 @@ func TestBackendCount(t *testing.T) {
 				if len(hits) != 0 {
 					t.Fatalf("len(hits) = %d: %#v", len(hits), hits)
 				}
-				have := zdb.DumpString(ctx, `select * from bots`, zdb.DumpVertical)
-				want := ztest.NormalizeIndent(fmt.Sprintf(`
+				have := database.DumpString(ctx, `select * from bots`, true)
+				want := testutil.NormalizeIndent(fmt.Sprintf(`
 					site        example.com
 					path        %s
 					bot         %d
 					user_agent  %s
 					created_at  2019-06-18 14:42:00
 				`, tt.hit.Path, tt.hit.Bot, tt.hit.UserAgentHeader))
-				if d := ztest.Diff(have, want); d != "" {
+				if d := testutil.Diff(have, want); d != "" {
 					t.Error(d)
 				}
 				return
@@ -235,10 +233,10 @@ func TestBackendCount(t *testing.T) {
 			}
 
 			tt.hit.ID = h.ID
-			tt.hit.CreatedAt = ztime.Now(ctx)
+			tt.hit.CreatedAt = datetime.Now(ctx)
 			tt.hit.Session = h.Session // Should all be the same session.
 			h.CreatedAt = h.CreatedAt.In(time.UTC)
-			if d := ztest.Diff(string(zjson.MustMarshal(h)), string(zjson.MustMarshal(tt.hit)), ztest.DiffJSON); d != "" {
+			if d := testutil.Diff(string(testutil.MustMarshal(h)), string(testutil.MustMarshal(tt.hit)), testutil.DiffJSON); d != "" {
 				t.Error(d)
 			}
 		})
@@ -247,10 +245,10 @@ func TestBackendCount(t *testing.T) {
 
 func TestBackendCountSessions(t *testing.T) {
 	ctx := testenv.DB(t)
-	ctx = ztime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 0, 0, time.UTC))
+	ctx = datetime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 0, 0, time.UTC))
 
 	send := func(ctx context.Context, ua string) {
-		query := url.Values{"p": {"/" + zcrypto.Secret64()}}
+		query := url.Values{"p": {"/" + rand.Text()}}
 
 		r, rr := newTest(ctx, "GET", "/count?"+query.Encode(), nil)
 		r.Header.Set("User-Agent", ua)
@@ -258,7 +256,7 @@ func TestBackendCountSessions(t *testing.T) {
 		if h := rr.Header().Get("X-Goatcounter"); h != "" {
 			t.Logf("X-Goatcounter: %s", h)
 		}
-		ztest.Code(t, rr, 200)
+		testutil.Code(t, rr, 200)
 
 		_, err := goatcounter.PersistHits(ctx, nil)
 		if err != nil {
@@ -295,7 +293,7 @@ func TestBackendCountSessions(t *testing.T) {
 	checkSess := func(hits goatcounter.Hits, wantInt []int) {
 		t.Helper()
 
-		var got []zint.Uint128
+		var got []goatcounter.SessionID
 		for _, h := range hits {
 			got = append(got, h.Session)
 			if !h.FirstVisit {
@@ -308,9 +306,9 @@ func TestBackendCountSessions(t *testing.T) {
 		for _, id := range wantInt {
 			wantCounts[id]++
 		}
-		gotCounts := map[zint.Uint128]int{}
+		gotCounts := map[goatcounter.SessionID]int{}
 		for _, id := range got {
-			if id.IsZero() {
+			if id == (goatcounter.SessionID{}) {
 				t.Fatal("zero session")
 			}
 			gotCounts[id]++
@@ -350,7 +348,7 @@ func TestBackendCountSessions(t *testing.T) {
 	checkSess(checkHits(ctx, 5), []int{1, 1, 2, 1, 1})
 
 	// Should use new sessions from now on.
-	ctx = ztime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 2, 0, time.UTC))
+	ctx = datetime.WithNow(ctx, time.Date(2019, 6, 18, 14, 42, 2, 0, time.UTC))
 	goatcounter.EvictSessions(ctx)
 	send(ctx, ua1)
 	checkSess(checkHits(ctx, 6), []int{1, 1, 2, 1, 1, 3})
@@ -358,7 +356,7 @@ func TestBackendCountSessions(t *testing.T) {
 
 func TestCollectorDoesNotAcknowledgeFailedEnqueue(t *testing.T) {
 	ctx := testenv.DB(t)
-	if err := zdb.Exec(ctx, `create trigger reject_enqueue before insert on hit_queue
+	if err := database.Exec(ctx, `create trigger reject_enqueue before insert on hit_queue
         begin select raise(abort, 'queue unavailable'); end`); err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +366,7 @@ func TestCollectorDoesNotAcknowledgeFailedEnqueue(t *testing.T) {
 		t.Fatalf("failed durable enqueue returned HTTP %d", w.Code)
 	}
 	var n int
-	if err := zdb.Get(ctx, &n, `select count(*) from hit_queue`); err != nil || n != 0 {
+	if err := database.Get(ctx, &n, `select count(*) from hit_queue`); err != nil || n != 0 {
 		t.Fatalf("queued=%d, error=%v", n, err)
 	}
 }

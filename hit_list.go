@@ -2,42 +2,15 @@ package goatcounter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 
-	"zgo.at/errors"
-	"zgo.at/json"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zbool"
-	"zgo.at/zstd/zstrconv"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 type Group uint8
-
-func (g *Group) UnmarshalJSON(v []byte) error {
-	var err error
-	*g, err = zstrconv.ParseInt[Group](string(v), 10)
-	return err
-}
-
-func (g *Group) UnmarshalText(v []byte) error {
-	switch string(v) {
-	default:
-		return g.UnmarshalJSON(v)
-	case "hour":
-		*g = GroupHourly
-	case "day":
-		*g = GroupDaily
-	case "week":
-		*g = GroupWeekly
-	case "month":
-		*g = GroupMonthly
-	case "year":
-		*g = GroupYearly
-	}
-	return nil
-}
 
 func (g Group) Hourly() bool  { return g == GroupHourly }
 func (g Group) Daily() bool   { return g == GroupDaily }
@@ -85,7 +58,7 @@ type HitList struct {
 	Path string `db:"path" json:"path"`
 
 	// Is this an event?
-	Event zbool.Bool `db:"event" json:"event"`
+	Event bool `db:"event" json:"event"`
 
 	// Highest visitors per hour or day (depending on daily being set).
 	Max int `json:"max"`
@@ -136,34 +109,40 @@ type HitListStat struct {
 }
 
 // PathCount gets the visit count for one path.
-func (h *HitList) PathCount(ctx context.Context, path string, rng ztime.Range) error {
-	err := zdb.Get(ctx, h, "load:hit_list.PathCount", map[string]any{
+func (h *HitList) PathCount(ctx context.Context, path string, rng datetime.Range) error {
+	err := database.Get(ctx, h, "load:hit_list.PathCount", map[string]any{
 		"site":  MustGetSite(ctx).Key,
 		"path":  path,
 		"start": rng.Start,
 		"end":   rng.End,
 	})
-	return errors.Wrap(err, "HitList.PathCount")
+	if err != nil {
+		err = fmt.Errorf("HitList.PathCount: %w", err)
+	}
+	return err
 }
 
 // SiteTotal gets the total counts for all paths. This always uses UTC.
-func (h *HitList) SiteTotalUTC(ctx context.Context, rng ztime.Range) error {
-	err := zdb.Get(ctx, h, `/* HitList.SiteTotalUTC */
+func (h *HitList) SiteTotalUTC(ctx context.Context, rng datetime.Range) error {
+	err := database.Get(ctx, h, `/* HitList.SiteTotalUTC */
 		select
 			coalesce(sum(total), 0) as count
 		from hit_counts
 		where site = :site
-		{{:start and datetime(hour) >= datetime(:start)}}
-		{{:end   and datetime(hour) <= datetime(:end)}}
+		{{if not .start.IsZero}}and datetime(hour) >= datetime(:start){{end}}
+		{{if not .end.IsZero}}and datetime(hour) <= datetime(:end){{end}}
 	`, map[string]any{
 		"site":  MustGetSite(ctx).Key,
 		"start": rng.Start,
 		"end":   rng.End,
 	})
-	return errors.Wrap(err, "HitList.SiteTotalUTC")
+	if err != nil {
+		err = fmt.Errorf("HitList.SiteTotalUTC: %w", err)
+	}
+	return err
 }
 
-func (h *HitList) sum(ctx context.Context, rng ztime.Range, group Group) int {
+func (h *HitList) sum(ctx context.Context, rng datetime.Range, group Group) int {
 	var (
 		total     int
 		daynum    int
@@ -172,7 +151,7 @@ func (h *HitList) sum(ctx context.Context, rng ztime.Range, group Group) int {
 		lastmonth int
 	)
 	h.Stats = make([]HitListStat, 0, 7)
-	for d := range rng.Add(Config(ctx).Timezone.OffsetDuration()).Iter(ztime.Day) {
+	for d := range rng.Add(Config(ctx).Timezone.OffsetDuration()).Iter(datetime.Day) {
 		day := d.Format("2006-01-02")
 		st := HitListStat{Day: day, Hourly: make([]int, 24)}
 		for hour := range 24 {
@@ -230,30 +209,33 @@ type HitLists []HitList
 
 // ListPathsLike lists all paths matching the like pattern.
 func (h *HitLists) ListPathsLike(ctx context.Context, search string, matchCase bool) error {
-	err := zdb.Select(ctx, h, "load:hit_list.ListPathsLike", map[string]any{
+	err := database.Select(ctx, h, "load:hit_list.ListPathsLike", map[string]any{
 		"site":       MustGetSite(ctx).Key,
 		"search":     search,
 		"match_case": matchCase,
 	})
-	return errors.Wrap(err, "Hits.ListPathsLike")
+	if err != nil {
+		err = fmt.Errorf("Hits.ListPathsLike: %w", err)
+	}
+	return err
 }
 
 // List the top paths for this site in the given time period.
 func (h *HitLists) List(
-	ctx context.Context, rng ztime.Range, pathFilter PathFilter, exclude []PathID, limit int, group Group,
+	ctx context.Context, rng datetime.Range, pathFilter PathFilter, exclude []PathID, limit int, group Group,
 ) (int, bool, error) {
 	return h.list(ctx, rng, pathFilter, exclude, limit, group, true)
 }
 
 // ListCounts loads the page ranking without building unused hourly histories.
 func (h *HitLists) ListCounts(
-	ctx context.Context, rng ztime.Range, pathFilter PathFilter, exclude []PathID, limit int,
+	ctx context.Context, rng datetime.Range, pathFilter PathFilter, exclude []PathID, limit int,
 ) (int, bool, error) {
 	return h.list(ctx, rng, pathFilter, exclude, limit, GroupHourly, false)
 }
 
 func (h *HitLists) list(
-	ctx context.Context, rng ztime.Range, pathFilter PathFilter, exclude []PathID, limit int, group Group, withStats bool,
+	ctx context.Context, rng datetime.Range, pathFilter PathFilter, exclude []PathID, limit int, group Group, withStats bool,
 ) (int, bool, error) {
 
 	var (
@@ -265,7 +247,7 @@ func (h *HitLists) list(
 		if withStats {
 			query = "load:hit_list.List"
 		}
-		err := zdb.Select(ctx, h, query, filterParams, map[string]any{
+		err := database.Select(ctx, h, query, filterParams, map[string]any{
 			"start":   rng.Start,
 			"end":     rng.End,
 			"filter":  filterSQL,
@@ -273,10 +255,9 @@ func (h *HitLists) list(
 			"limit":   limit + 1,
 			"offset":  Config(ctx).Timezone.Offset(),
 			"offset2": fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-			"sqlite":  zdb.SQLDialect(ctx) == zdb.DialectSQLite,
 		})
 		if err != nil {
-			return 0, false, errors.Wrap(err, "HitLists.List")
+			return 0, false, fmt.Errorf("HitLists.List: %w", err)
 		}
 
 		// Check if there are more entries.
@@ -310,21 +291,20 @@ func (h *HitLists) list(
 const PathTotals = "TOTAL "
 
 // Totals gets the data for the "Totals" chart/widget.
-func (h *HitList) Totals(ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group, noEvents bool) error {
+func (h *HitList) Totals(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group, noEvents bool) error {
 	var (
 		filterSQL, filterParams = pathFilter.SQL(ctx, "hit_counts")
 	)
-	err := zdb.Get(ctx, &h.Stats2, "load:hit_list.Totals", filterParams, map[string]any{
+	err := database.Get(ctx, &h.Stats2, "load:hit_list.Totals", filterParams, map[string]any{
 		"start":     rng.Start,
 		"end":       rng.End,
 		"filter":    filterSQL,
 		"no_events": noEvents,
 		"offset":    Config(ctx).Timezone.Offset(),
 		"offset2":   fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-		"sqlite":    zdb.SQLDialect(ctx) == zdb.DialectSQLite,
 	})
 	if err != nil {
-		return errors.Wrap(err, "HitList.Totals")
+		return fmt.Errorf("HitList.Totals: %w", err)
 	}
 
 	h.Count, h.Path = h.sum(ctx, rng, group), PathTotals
@@ -352,12 +332,12 @@ type TotalCount struct {
 //
 // TotalCounter.TotalEvents is only populated if "Exclude events" is set on
 // totals chart, because it's not used for anything else.
-func GetTotalCount(ctx context.Context, rng ztime.Range, pathFilter PathFilter, totalEvents bool) (TotalCount, error) {
+func GetTotalCount(ctx context.Context, rng datetime.Range, pathFilter PathFilter, totalEvents bool) (TotalCount, error) {
 	var (
 		filterSQL, filterParams = pathFilter.SQL(ctx, "hit_counts")
 		t                       TotalCount
 	)
-	err := zdb.Get(ctx, &t, "load:hit_list.GetTotalCount", filterParams, map[string]any{
+	err := database.Get(ctx, &t, "load:hit_list.GetTotalCount", filterParams, map[string]any{
 		"start":        rng.Start,
 		"end":          rng.End,
 		"start_utc":    rng.Start.In(Config(ctx).Timezone.Loc()),
@@ -366,7 +346,10 @@ func GetTotalCount(ctx context.Context, rng ztime.Range, pathFilter PathFilter, 
 		"tz":           Config(ctx).Timezone.Offset(),
 		"total_events": totalEvents,
 	})
-	return t, errors.Wrap(err, "GetTotalCount")
+	if err != nil {
+		err = fmt.Errorf("GetTotalCount: %w", err)
+	}
+	return t, err
 }
 
 // Diff gets the difference in percentage of all paths in this HitList.
@@ -375,13 +358,13 @@ func GetTotalCount(ctx context.Context, rng ztime.Range, pathFilter PathFilter, 
 // compare this to start=2020-01-12; end=2020-01-19
 //
 // The return value is in the same order as paths.
-func (h HitLists) Diff(ctx context.Context, rng, prev ztime.Range) ([]float64, error) {
+func (h HitLists) Diff(ctx context.Context, rng, prev datetime.Range) ([]float64, error) {
 	if len(h) == 0 {
 		return nil, nil
 	}
 
 	d := -rng.End.Sub(rng.Start)
-	prev = ztime.NewRange(rng.Start.Add(d)).To(rng.End.Add(d))
+	prev = datetime.NewRange(rng.Start.Add(d)).To(rng.End.Add(d))
 
 	paths := make([]PathID, 0, len(h))
 	for _, hh := range h {
@@ -389,7 +372,7 @@ func (h HitLists) Diff(ctx context.Context, rng, prev ztime.Range) ([]float64, e
 	}
 
 	var diffs []float64
-	err := zdb.Select(ctx, &diffs, "load:hit_list.DiffTotal", map[string]any{
+	err := database.Select(ctx, &diffs, "load:hit_list.DiffTotal", map[string]any{
 		"site":      MustGetSite(ctx).Key,
 		"start":     rng.Start,
 		"end":       rng.End,
@@ -397,5 +380,8 @@ func (h HitLists) Diff(ctx context.Context, rng, prev ztime.Range) ([]float64, e
 		"prevend":   prev.End,
 		"paths":     paths,
 	})
-	return diffs, errors.Wrap(err, "HitList.DiffTotal")
+	if err != nil {
+		err = fmt.Errorf("HitList.DiffTotal: %w", err)
+	}
+	return diffs, err
 }

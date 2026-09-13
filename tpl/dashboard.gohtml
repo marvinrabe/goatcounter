@@ -16,7 +16,7 @@
 <form id="dash-form">
 	<input type="hidden" name="site" value="{{.Site.LinkDomain}}">
 	{{/* The first button gets used on the enter key, AFAICT there is no way to change that. */}}
-	<button type="submit" tabindex="-1" class="hide-btn" aria-label="{{.T "button/submit|Submit"}}"></button>
+	<button type="submit" tabindex="-1" class="hide-btn" aria-label="Submit"></button>
 	{{if .ShowRefs}}<input type="hidden" name="showrefs" value="{{.ShowRefs}}">{{end}}
 	<input type="hidden" id="hl-period" name="hl-period" value="{{.HLPeriod}}" disabled>
 	<input type="hidden" id="hl-group" name="group" value="{{.Group}}" disabled>
@@ -25,23 +25,23 @@
 		<div>
 			<span>
 				<input type="date" autocomplete="off" id="period-start" name="period-start"
-					aria-label="{{.T "nav-dash/start-date|First day to display"}}"
+					aria-label="First day to display"
 					value="{{tformat $.Context .Period.Start ""}}"
 				>–{{- "" -}}
 				<input type="date" autocomplete="off" id="period-end" name="period-end"
-					aria-label="{{.T "nav-dash/end-date|Last day to display"}}"
+					aria-label="Last day to display"
 					value="{{tformat $.Context .Period.End ""}}"
 				>{{- "" -}}
 			</span>
 			<span id="dash-select-period" class="period-{{.HLPeriod}}">
 				<span>
-					{{.T "nav-dash/last|Last"}} {{/* z18n: as in: "Last [day] [week] [month] ...*/}}
-					<button class="link" name="period" value="day">{{.T "nav-dash/day|day"}}</button> ·
-					<button class="link" name="period" value="week">{{.T "nav-dash/week|week"}}</button> ·
-					<button class="link" name="period" value="month">{{.T "nav-dash/month|month"}}</button> ·
-					<button class="link" name="period" value="quarter">{{.T "nav-dash/quarter|quarter"}}</button> ·
-					<button class="link" name="period" value="half-year">{{.T "nav-dash/half-year|half year"}}</button> ·
-					<button class="link" name="period" value="year">{{.T "nav-dash/year|year"}}</button>
+					Last
+					<button class="link" name="period" value="day">day</button> ·
+					<button class="link" name="period" value="week">week</button> ·
+					<button class="link" name="period" value="month">month</button> ·
+					<button class="link" name="period" value="quarter">quarter</button> ·
+					<button class="link" name="period" value="half-year">half year</button> ·
+					<button class="link" name="period" value="year">year</button>
 				</span>
 			</span>
 		</div>
@@ -52,11 +52,11 @@
 					<div id="filter-styled" aria-hidden="true"></div>
 					<input
 						type="text" autocomplete="off" name="filter" value="{{.Filter}}" id="filter-paths"
-						placeholder="{{.T "nav-dash/filter|Filter paths"}}"
+						placeholder="Filter paths"
 						class="unstyled">
 				</div>
-				<div id="filter-help">{{.T `nav-dash/filter-tooltip|
-					<p>Filter the list of paths; matched case-insensitive. %[%more More help]</p>
+				<div id="filter-help">
+					<p>Filter the list of paths; matched case-insensitive. <a href="#" id="filter-help-more">More help</a></p>
 
 					<div>
 						<p>Recognizes the following keywords:</p>
@@ -66,31 +66,31 @@
 							<li><em>:not</em> negate the match (that is: only show paths that don't match the filter).</li>
 						</ul>
 					</div>
-				` (tag "a" `href="#" id="filter-help-more"`)}}</div>
+				</div>
 			</div>
-			{{/* .T "nav-dash/by-day|View by day" */}}
+
 
 			<span id="dash-select-group" class="group-{{.Group}}">
-				{{.T `nav-dash/view-by|View by:`}}
+				View by:
                {{$dot := ""}}
                {{if .AllowGroups.Hourly}}
-                   <button class="link" name="group" value="hour">{{.T "nav-dash/hour|hour"}}</button>
+                   <button class="link" name="group" value="hour">hour</button>
                    {{$dot = "· "}}
                {{end}}
                {{if .AllowGroups.Daily}}
-                   {{$dot}}<button class="link" name="group" value="day">{{.T "nav-dash/day|day"}}</button>
+                   {{$dot}}<button class="link" name="group" value="day">day</button>
                    {{$dot = "· "}}
                {{end}}
                {{if .AllowGroups.Weekly}}
-                   {{$dot}}<button class="link" name="group" value="week">{{.T "nav-dash/week|week"}}</button>
+                   {{$dot}}<button class="link" name="group" value="week">week</button>
                    {{$dot = "· "}}
                {{end}}
                {{if .AllowGroups.Monthly}}
-                   {{$dot}}<button class="link" name="group" value="month">{{.T "nav-dash/month|month"}}</button>
+                   {{$dot}}<button class="link" name="group" value="month">month</button>
                    {{$dot = "· "}}
                {{end}}
                {{if .AllowGroups.Yearly}}
-                   {{$dot}}<button class="link" name="group" value="year">{{.T "nav-dash/year|year"}}</button>
+                   {{$dot}}<button class="link" name="group" value="year">year</button>
                {{end}}
                <input type="hidden" name="group" value="{{.Group}}">
 			</span>
@@ -98,23 +98,23 @@
 	</div>
 	<div id="dash-move">
 		<div>
-			←&#xfe0e; {{.T "nav-dash/back|back"}}  {{/* z18n: as in: "← back [day] [week] [month]" */}}
+			←&#xfe0e; back
 			<span>
-				<button class="link" name="move" value="day-b">{{.T "nav-dash/day|day"}}</button> ·
-				<button class="link" name="move" value="week-b">{{.T "nav-dash/week|week"}}</button> ·
-				<button class="link" name="move" value="month-b">{{.T "nav-dash/month|month"}}</button> ·
-				<button class="link" name="move" value="year-b">{{.T "nav-dash/year|year"}}</button>
+				<button class="link" name="move" value="day-b">day</button> ·
+				<button class="link" name="move" value="week-b">week</button> ·
+				<button class="link" name="move" value="month-b">month</button> ·
+				<button class="link" name="move" value="year-b">year</button>
 			</span>
 		</div>
 		<div id="dash-timerange">{{.Period}}</div>
 		<div>
 			<span>
-				<button class="link" name="move" value="day-f">{{.T "nav-dash/day|day"}}</button> ·
-				<button class="link" name="move" value="week-f">{{.T "nav-dash/week|week"}}</button> ·
-				<button class="link" name="move" value="month-f">{{.T "nav-dash/month|month"}}</button> ·
-				<button class="link" name="move" value="year-f">{{.T "nav-dash/year|year"}}</button>
+				<button class="link" name="move" value="day-f">day</button> ·
+				<button class="link" name="move" value="week-f">week</button> ·
+				<button class="link" name="move" value="month-f">month</button> ·
+				<button class="link" name="move" value="year-f">year</button>
 			</span>
-			{{.T "nav-dash/forward|forward"}} →&#xfe0e; {{/* z18n: as in: "[day] [week] [month] forward →" */}}
+			forward →&#xfe0e;
 		</div>
 	</div>
 </form>

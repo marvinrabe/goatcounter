@@ -2,7 +2,7 @@ with x as (
 	select sum(total) as total, path_id
 	from hit_counts
 	where
-		{{:exclude path_id not in (:exclude) and}}
+		{{if .exclude}}path_id not in (:exclude) and{{end}}
 		:filter and
 		datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end)
 	group by path_id

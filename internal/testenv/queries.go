@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"zgo.at/zdb"
+	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 // QueryCounts records inline SQL or successful query-file reads in tests.
@@ -36,14 +36,13 @@ func (q *QueryCounts) add(query string) {
 
 func (q *QueryCounts) Record(_ time.Duration, query string, _ []any) { q.add(query) }
 
-// CountInlineQueries uses zdb's recorder. Its wrapper cannot load query files;
-// use DBWithQueryFileCounts for code that executes named queries.
+// CountInlineQueries records each SQL statement after query expansion.
 func CountInlineQueries(ctx context.Context) (context.Context, *QueryCounts) {
 	counts := new(QueryCounts)
-	return zdb.WithDB(ctx, zdb.NewMetricsDB(zdb.MustGetDB(ctx), counts)), counts
+	return database.WithDB(ctx, database.NewMetricsDB(database.MustGetDB(ctx), counts)), counts
 }
 
-// DBWithQueryFileCounts tracks named queries without wrapping zdb's loader.
+// DBWithQueryFileCounts tracks named query file reads.
 func DBWithQueryFileCounts(t testing.TB) (context.Context, *QueryCounts) {
 	t.Helper()
 	counts := new(QueryCounts)

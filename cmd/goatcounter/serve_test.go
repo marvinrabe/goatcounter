@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"zgo.at/zvalidate"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 func TestSetupRatelimits(t *testing.T) {
@@ -43,7 +43,7 @@ func TestSetupRatelimits(t *testing.T) {
 		{"count", 0, 0, "-ratelimit.requests"},
 	} {
 		t.Run(tt.spec, func(t *testing.T) {
-			v := zvalidate.New()
+			v := validation.New()
 			limits := setupRatelimits(&v, tt.spec)
 			t.Cleanup(limits.ClearCount)
 			if tt.wantErr != "" {
@@ -80,7 +80,7 @@ func TestServe(t *testing.T) {
 	stop := make(chan struct{})
 	go runCmdStop(t, exit, ready, stop, "serve",
 		"-db="+dbc,
-		"-debug=all",
+		"-debug",
 		"-listen=localhost:31874")
 	<-ready
 
@@ -110,18 +110,18 @@ func TestGeoDBSelectionIsExplicit(t *testing.T) {
 	if err := os.WriteFile("goatcounter-data/first.mmdb", []byte("invalid hidden database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	v := zvalidate.New()
+	v := validation.New()
 	db := setupGeo(&v, "")
 	if v.HasErrors() {
 		t.Fatal(v)
 	}
 	db.Close()
-	v = zvalidate.New()
+	v = validation.New()
 	setupGeo(&v, "goatcounter-data/first.mmdb")
 	if !v.HasErrors() {
 		t.Fatal("an explicitly configured invalid file must fail startup")
 	}
-	v = zvalidate.New()
+	v = validation.New()
 	setupGeo(&v, "maxmind:account:license")
 	if !v.HasErrors() || !strings.Contains(v.Error(), "geodb-update") {
 		t.Fatalf("startup download was not rejected: %v", v)

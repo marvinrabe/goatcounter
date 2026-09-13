@@ -15,14 +15,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/marvinrabe/goatcounter/internal/log"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zhttp"
-	"zgo.at/zstd/zgo"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/zruntime"
-	"zgo.at/zstd/ztest"
-	"zgo.at/ztpl"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 type handlerTest struct {
@@ -41,32 +35,14 @@ type handlerTest struct {
 
 func init() {
 
-	files, _ := fs.Sub(os.DirFS(zgo.ModuleRoot()), "tpl")
-	err := ztpl.Init(files)
+	files, _ := fs.Sub(os.DirFS(testutil.ModuleRoot()), "tpl")
+	err := LoadTemplates(files)
 	if err != nil {
 		panic(err)
 	}
 
-	ztest.DefaultHost = "test.example.com"
-	if zruntime.TestVerbose() {
-		log.SetDebug([]string{"all"})
-	} else {
-		slog.SetDefault(slog.New(slog.DiscardHandler)) // Don't care about logs; don't spam.
-	}
-}
-
-func TestMain(m *testing.M) {
-	os.Exit(ztpl.TestTemplateExecution(m,
-		// Don't need tests.
-		"", "error.gohtml",
-
-		// Not executed by any test yet.
-		"_dashboard_pages_refs.gohtml",
-		"_dashboard_pages_text.gohtml",
-		"_dashboard_pages_text_rows.gohtml",
-		"_dashboard_configure_widget.gohtml",
-		"_user_dashboard_widget.gohtml",
-	))
+	testutil.DefaultHost = "test.example.com"
+	slog.SetDefault(slog.New(slog.DiscardHandler))
 }
 
 func runTest(
@@ -92,7 +68,7 @@ func runTest(
 			t.Run(sn, func(t *testing.T) {
 				ctx := testenv.DB(t)
 
-				r, rr := newTest(ctx, tt.method, tt.path, bytes.NewReader(zjson.MustMarshal(tt.body)))
+				r, rr := newTest(ctx, tt.method, tt.path, bytes.NewReader(testutil.MustMarshal(tt.body)))
 				if tt.setup != nil {
 					tt.setup(ctx, t)
 				}
@@ -101,7 +77,7 @@ func runTest(
 				}
 
 				tt.router(ctx).ServeHTTP(rr, r)
-				ztest.Code(t, rr, tt.wantCode)
+				testutil.Code(t, rr, tt.wantCode)
 				if !strings.Contains(rr.Body.String(), tt.wantBody) {
 					t.Errorf("wrong body\nwant: %s\ngot:  %s", tt.wantBody, rr.Body.String())
 				}
@@ -132,10 +108,7 @@ func runTest(
 			}
 
 			tt.router(ctx).ServeHTTP(rr, r)
-			if f := zhttp.ReadFlash(rr, r); f != nil {
-				t.Logf("flash message (%s): %s", f.Level, f.Message)
-			}
-			ztest.Code(t, rr, tt.wantFormCode)
+			testutil.Code(t, rr, tt.wantFormCode)
 			if !strings.Contains(rr.Body.String(), tt.wantFormBody) {
 				t.Errorf("wrong body\nwant: %q\ngot:  %q", tt.wantFormBody, rr.Body.String())
 			}
@@ -153,10 +126,9 @@ func login(t *testing.T, r *http.Request) {
 	r.SetBasicAuth("test@example.com", "coconuts")
 }
 func newTest(ctx context.Context, method, path string, body io.Reader) (*http.Request, *httptest.ResponseRecorder) {
-	site := Site(ctx)
-	r, rr := ztest.NewRequest(method, path, body).WithContext(ctx), httptest.NewRecorder()
+	r, rr := testutil.NewRequest(method, path, body).WithContext(ctx), httptest.NewRecorder()
 	r.Header.Set("User-Agent", "GoatCounter test runner/1.0")
-	r.Host = site.Domain(ctx)
+	r.Host = "test"
 	return r, rr
 }
 
@@ -167,7 +139,7 @@ func newTest(ctx context.Context, method, path string, body io.Reader) (*http.Re
 // Note: this is primitive, but enough for now.
 func formBody(i any) string {
 	var m map[string]string
-	zjson.MustUnmarshal(zjson.MustMarshal(i), &m)
+	testutil.MustUnmarshal(testutil.MustMarshal(i), &m)
 
 	f := make(url.Values)
 	for k, v := range m {

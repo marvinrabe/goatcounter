@@ -1,7 +1,6 @@
 import {
 	$$,
 	$1,
-	T,
 	ajax,
 	format_date,
 	format_date_ymd,
@@ -299,7 +298,7 @@ import Chart from 'chart.js/auto'
 			let end = $1('#period-end')
 			if (!end.classList.contains('red')) {
 				end.classList.add('red')
-				end.insertAdjacentHTML('afterend', ' <span class="red">' + T('error/date-mismatch') + '</span>')
+				end.insertAdjacentHTML('afterend', ' <span class="red">end date is before start date</span>')
 			}
 		})
 
@@ -326,11 +325,11 @@ import Chart from 'chart.js/auto'
 			let t = $1('#filter-help-more'),
 				d = $1('#filter-help div')
 			if (is_visible(d)) {
-				t.textContent = T('nav-dash/filter-more-help')
+				t.textContent = 'More help'
 				d.style.display = 'none'
 			}
 			else {
-				t.textContent = T('nav-fash/filter-less-help')
+				t.textContent = 'Less help'
 				d.style.display = 'block'
 			}
 		}

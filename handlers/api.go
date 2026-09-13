@@ -4,25 +4,21 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/cron"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"github.com/marvinrabe/goatcounter/internal/widgets"
-	"zgo.at/errors"
-	"zgo.at/guru"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zbool"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/ztime"
 )
 
 const mcpProtocol = "2026-07-28"
@@ -193,7 +189,7 @@ func (h backend) apiMCP(w http.ResponseWriter, r *http.Request, raw json.RawMess
 	var result any
 	switch req.Method {
 	case "server/discover":
-		result = map[string]any{"protocolVersion": mcpProtocol, "serverInfo": map[string]string{"name": "goatcounter", "version": goatcounter.Version}, "capabilities": map[string]any{"tools": map[string]any{}}}
+		result = map[string]any{"protocolVersion": mcpProtocol, "serverInfo": map[string]string{"name": "goatcounter", "version": "v1"}, "capabilities": map[string]any{"tools": map[string]any{}}}
 	case "initialize": // Compatibility with pre-2026 MCP clients.
 		var p struct {
 			ProtocolVersion string `json:"protocolVersion"`
@@ -202,7 +198,7 @@ func (h backend) apiMCP(w http.ResponseWriter, r *http.Request, raw json.RawMess
 		if p.ProtocolVersion == "" {
 			p.ProtocolVersion = "2025-11-25"
 		}
-		result = map[string]any{"protocolVersion": p.ProtocolVersion, "serverInfo": map[string]string{"name": "goatcounter", "version": goatcounter.Version}, "capabilities": map[string]any{"tools": map[string]any{}}}
+		result = map[string]any{"protocolVersion": p.ProtocolVersion, "serverInfo": map[string]string{"name": "goatcounter", "version": "v1"}, "capabilities": map[string]any{"tools": map[string]any{}}}
 	case "ping":
 		result = map[string]any{}
 	case "tools/list":
@@ -259,7 +255,7 @@ func apiJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func apiError(err error) (int, string) {
-	if code := guru.Code(err); code >= 400 && code <= 599 {
+	if code := httpx.Code(err); code >= 400 && code <= 599 {
 		return code, err.Error()
 	}
 	return http.StatusInternalServerError, err.Error()
@@ -272,7 +268,7 @@ func decodeArgs(raw json.RawMessage, dst any) error {
 	d := json.NewDecoder(strings.NewReader(string(raw)))
 	d.DisallowUnknownFields()
 	if err := d.Decode(dst); err != nil {
-		return guru.Errorf(http.StatusBadRequest, "invalid arguments: %v", err)
+		return httpx.Errorf(http.StatusBadRequest, "invalid arguments: %v", err)
 	}
 	return nil
 }
@@ -301,7 +297,7 @@ func (h backend) apiAction(ctx context.Context, action string, raw json.RawMessa
 			return nil, err
 		}
 		if strings.TrimSpace(args.Search) == "" {
-			return nil, guru.New(400, "search is required")
+			return nil, httpx.Error(400, "search is required")
 		}
 		ctx, _, err := apiSiteContext(ctx, args.Site)
 		if err != nil {
@@ -322,12 +318,12 @@ func (h backend) apiAction(ctx context.Context, action string, raw json.RawMessa
 			return nil, err
 		}
 		if len(args.PathIDs) == 0 {
-			return nil, guru.New(400, "path_ids must not be empty")
+			return nil, httpx.Error(400, "path_ids must not be empty")
 		}
 		for _, id := range args.PathIDs {
 			var p goatcounter.Path
 			if err := p.ByID(ctx, id); err != nil {
-				return nil, guru.Errorf(400, "unknown path_id %d", id)
+				return nil, httpx.Errorf(400, "unknown path_id %d", id)
 			}
 		}
 		var hits goatcounter.Hits
@@ -346,16 +342,16 @@ func (h backend) apiAction(ctx context.Context, action string, raw json.RawMessa
 		}
 		var target goatcounter.Path
 		if args.TargetPathID == 0 || target.ByID(ctx, args.TargetPathID) != nil {
-			return nil, guru.New(400, "target_path_id is missing or unknown")
+			return nil, httpx.Error(400, "target_path_id is missing or unknown")
 		}
 		args.PathIDs = slices.DeleteFunc(args.PathIDs, func(id goatcounter.PathID) bool { return id == target.ID })
 		if len(args.PathIDs) == 0 {
-			return nil, guru.New(400, "path_ids must include at least one path other than the target")
+			return nil, httpx.Error(400, "path_ids must include at least one path other than the target")
 		}
 		paths := make(goatcounter.Paths, len(args.PathIDs))
 		for i, id := range args.PathIDs {
 			if err := paths[i].ByID(ctx, id); err != nil {
-				return nil, guru.Errorf(400, "unknown path_id %d", id)
+				return nil, httpx.Errorf(400, "unknown path_id %d", id)
 			}
 		}
 		if err := target.Merge(ctx, paths); err != nil {
@@ -369,7 +365,7 @@ func (h backend) apiAction(ctx context.Context, action string, raw json.RawMessa
 		}
 		return apiImport(ctx, args)
 	default:
-		return nil, guru.Errorf(404, "unknown action %q", action)
+		return nil, httpx.Errorf(404, "unknown action %q", action)
 	}
 }
 
@@ -385,7 +381,7 @@ func apiSiteContext(ctx context.Context, name string) (context.Context, goatcoun
 	}
 	site, ok := goatcounter.Config(ctx).Site(name)
 	if !ok {
-		return ctx, site, guru.Errorf(400, "unknown site %q", name)
+		return ctx, site, httpx.Errorf(400, "unknown site %q", name)
 	}
 	site.Defaults()
 	return goatcounter.WithSite(ctx, &site), site, nil
@@ -399,7 +395,7 @@ func apiSites(ctx context.Context) (any, error) {
 			return nil, err
 		}
 		var pageviews int
-		if err := zdb.Get(ctx, &pageviews, `select count(*) from hits where site=?`, site.Key); err != nil {
+		if err := database.Get(ctx, &pageviews, `select count(*) from hits where site=?`, site.Key); err != nil {
 			return nil, err
 		}
 		result = append(result, map[string]any{
@@ -432,20 +428,20 @@ func (h backend) apiDashboard(ctx context.Context, in dashboardArgs) (any, error
 	rng := timeRange(ctx, period, tz, false)
 	if in.Start != "" || in.End != "" {
 		if in.Start == "" || in.End == "" {
-			return nil, guru.New(400, "start and end must be supplied together")
+			return nil, httpx.Error(400, "start and end must be supplied together")
 		}
 		start, err := apiTime(in.Start, tz, false)
 		if err != nil {
-			return nil, guru.Errorf(400, "invalid start: %v", err)
+			return nil, httpx.Errorf(400, "invalid start: %v", err)
 		}
 		end, err := apiTime(in.End, tz, true)
 		if err != nil {
-			return nil, guru.Errorf(400, "invalid end: %v", err)
+			return nil, httpx.Errorf(400, "invalid end: %v", err)
 		}
-		rng = ztime.NewRange(start.UTC()).To(end.UTC())
+		rng = datetime.NewRange(start.UTC()).To(end.UTC())
 	}
 	if rng.End.Before(rng.Start) {
-		return nil, guru.New(400, "end must not be before start")
+		return nil, httpx.Error(400, "end must not be before start")
 	}
 	group := goatcounter.GroupDaily
 	switch in.Group {
@@ -457,7 +453,7 @@ func (h backend) apiDashboard(ctx context.Context, in dashboardArgs) (any, error
 	case "month":
 		group = goatcounter.GroupMonthly
 	default:
-		return nil, guru.New(400, "group must be hour, day, week, or month")
+		return nil, httpx.Error(400, "group must be hour, day, week, or month")
 	}
 	var filter goatcounter.PathFilter
 	if in.Filter != "" {
@@ -471,7 +467,7 @@ func (h backend) apiDashboard(ctx context.Context, in dashboardArgs) (any, error
 		limit = 100
 	}
 	if limit < 1 || limit > 1000 {
-		return nil, guru.New(400, "limit must be between 1 and 1000")
+		return nil, httpx.Error(400, "limit must be between 1 and 1000")
 	}
 	args := widgets.NewArgs(ctx, rng, group, goatcounter.Groups{goatcounter.GroupHourly, goatcounter.GroupDaily, goatcounter.GroupWeekly, goatcounter.GroupMonthly}, 0)
 	args.PathFilter = filter
@@ -496,7 +492,10 @@ func (h backend) apiDashboard(ctx context.Context, in dashboardArgs) (any, error
 			v.Limit = limit
 		}
 		if _, err := w.GetData(ctx, args); err != nil {
-			return nil, errors.Wrapf(err, "dashboard %s", w.Name())
+			if err != nil {
+				err = fmt.Errorf("dashboard %s: %w", w.Name(), err)
+			}
+			return nil, err
 		}
 		switch v := w.(type) {
 		case *widgets.TotalCount:
@@ -569,37 +568,37 @@ type importArgs struct {
 
 func apiImport(ctx context.Context, in importArgs) (any, error) {
 	if len(in.Hits) == 0 {
-		return nil, guru.New(400, "hits must not be empty")
+		return nil, httpx.Error(400, "hits must not be empty")
 	}
 	if len(in.Hits) > 100000 {
-		return nil, guru.New(400, "at most 100000 hits can be imported in one request")
+		return nil, httpx.Error(400, "at most 100000 hits can be imported in one request")
 	}
 
 	sites := make(map[string]goatcounter.Site)
 	for i, raw := range in.Hits {
 		_, site, err := apiSiteContext(ctx, raw.Site)
 		if err != nil {
-			return nil, guru.Errorf(400, "hits[%d]: %v", i, err)
+			return nil, httpx.Errorf(400, "hits[%d]: %v", i, err)
 		}
 		if raw.Path == "" || (raw.CreatedAt == "" && raw.CreatedAtUnix == 0) {
-			return nil, guru.Errorf(400, "hits[%d]: path and created_at or created_at_unix are required", i)
+			return nil, httpx.Errorf(400, "hits[%d]: path and created_at or created_at_unix are required", i)
 		}
 		if raw.CreatedAt != "" {
 			if _, err := time.Parse(time.RFC3339, raw.CreatedAt); err != nil {
-				return nil, guru.Errorf(400, "hits[%d].created_at: %v", i, err)
+				return nil, httpx.Errorf(400, "hits[%d].created_at: %v", i, err)
 			}
 		}
 		if raw.RefScheme != "" && !slices.Contains([]string{"h", "g", "c", "o"}, raw.RefScheme) {
-			return nil, guru.Errorf(400, "hits[%d].ref_scheme is invalid", i)
+			return nil, httpx.Errorf(400, "hits[%d].ref_scheme is invalid", i)
 		}
 		if _, err := parseSession(raw.Session); err != nil {
-			return nil, guru.Errorf(400, "hits[%d].session: %v", i, err)
+			return nil, httpx.Errorf(400, "hits[%d].session: %v", i, err)
 		}
 		sites[site.Key] = site
 	}
 
 	counts := make(map[string]int)
-	err := zdb.TX(ctx, func(txctx context.Context) error {
+	err := database.TX(ctx, func(txctx context.Context) error {
 		txctx = goatcounter.NewBatchCache(txctx)
 		if in.Replace {
 			for _, site := range sites {
@@ -610,7 +609,7 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 			}
 		}
 
-		ins, err := zdb.NewBulkInsert(txctx, "hits", []string{"site", "path_id", "ref_id", "browser_id", "system_id", "width", "location", "language", "created_at", "session", "first_visit", "campaign"})
+		ins, err := database.NewBulkInsert(txctx, "hits", []string{"site", "path_id", "ref_id", "browser_id", "system_id", "width", "location", "language", "created_at", "session", "first_visit", "campaign"})
 		if err != nil {
 			return err
 		}
@@ -623,23 +622,23 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 			}
 			sctx := goatcounter.WithSite(txctx, &site)
 			if raw.Path == "" || (raw.CreatedAt == "" && raw.CreatedAtUnix == 0) {
-				return guru.Errorf(400, "hits[%d]: path and created_at or created_at_unix are required", i)
+				return httpx.Errorf(400, "hits[%d]: path and created_at or created_at_unix are required", i)
 			}
 			var created time.Time
 			if raw.CreatedAt != "" {
 				created, err = time.Parse(time.RFC3339, raw.CreatedAt)
 				if err != nil {
-					return guru.Errorf(400, "hits[%d].created_at: %v", i, err)
+					return httpx.Errorf(400, "hits[%d].created_at: %v", i, err)
 				}
 			} else {
 				created = time.Unix(raw.CreatedAtUnix, 0)
 			}
 			if created.After(time.Now().Add(5 * time.Second)) {
-				return guru.Errorf(400, "hits[%d].created_at is in the future", i)
+				return httpx.Errorf(400, "hits[%d].created_at is in the future", i)
 			}
-			path := goatcounter.Path{Path: raw.Path, Event: zbool.Bool(raw.Event)}
+			path := goatcounter.Path{Path: raw.Path, Event: raw.Event}
 			if err := path.GetOrInsert(sctx); err != nil {
-				return guru.Errorf(400, "hits[%d].path: %v", i, err)
+				return httpx.Errorf(400, "hits[%d].path: %v", i, err)
 			}
 			scheme := raw.RefScheme
 			if scheme == "" {
@@ -650,11 +649,11 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 				}
 			}
 			if !slices.Contains([]string{"h", "g", "c", "o"}, scheme) {
-				return guru.Errorf(400, "hits[%d].ref_scheme is invalid", i)
+				return httpx.Errorf(400, "hits[%d].ref_scheme is invalid", i)
 			}
 			ref := goatcounter.Ref{Ref: raw.Ref, RefScheme: scheme}
 			if err := ref.GetOrInsert(sctx); err != nil {
-				return guru.Errorf(400, "hits[%d].ref: %v", i, err)
+				return httpx.Errorf(400, "hits[%d].ref: %v", i, err)
 			}
 			var browser goatcounter.Browser
 			if raw.Browser != "" {
@@ -674,7 +673,7 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 				if !ok {
 					campaign := goatcounter.Campaign{}
 					err := campaign.ByName(sctx, raw.Campaign)
-					if zdb.ErrNoRows(err) {
+					if database.ErrNoRows(err) {
 						campaign.Name = raw.Campaign
 						err = campaign.Insert(sctx)
 					}
@@ -688,7 +687,7 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 			}
 			session, err := parseSession(raw.Session)
 			if err != nil {
-				return guru.Errorf(400, "hits[%d].session: %v", i, err)
+				return httpx.Errorf(400, "hits[%d].session: %v", i, err)
 			}
 			var language *string
 			if raw.Language != "" {
@@ -696,7 +695,7 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 			}
 			hit := goatcounter.Hit{Site: site.Key, PathID: path.ID, RefID: ref.ID, BrowserID: browser.ID, SystemID: system.ID,
 				CampaignID: campaignID, Session: session, Width: raw.Width, Location: raw.Location, Language: language,
-				FirstVisit: zbool.Bool(raw.FirstVisit), CreatedAt: created.UTC().Round(time.Second)}
+				FirstVisit: raw.FirstVisit, CreatedAt: created.UTC().Round(time.Second)}
 			ins.Values(hit.Site, hit.PathID, hit.RefID, hit.BrowserID, hit.SystemID, hit.Width, hit.Location, hit.Language,
 				hit.CreatedAt, hit.Session, hit.FirstVisit, hit.CampaignID)
 			bySite[site.Key] = append(bySite[site.Key], hit)
@@ -719,20 +718,13 @@ func apiImport(ctx context.Context, in importArgs) (any, error) {
 	return map[string]any{"imported": len(in.Hits), "sites": counts, "replaced": in.Replace}, nil
 }
 
-func parseSession(s string) (zint.Uint128, error) {
+func parseSession(s string) (goatcounter.SessionID, error) {
 	if s == "" {
-		return zint.Uint128{}, nil
+		return goatcounter.SessionID{}, nil
 	}
-	b, err := hex.DecodeString(strings.ReplaceAll(s, "-", ""))
-	if err != nil || len(b) != 16 {
-		return zint.Uint128{}, fmt.Errorf("must be 32 hexadecimal characters")
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return goatcounter.SessionID{}, fmt.Errorf("must be 32 hexadecimal characters")
 	}
-	return zint.Uint128{
-		uint64FromBytes(b[:8]), uint64FromBytes(b[8:]),
-	}, nil
-}
-
-func uint64FromBytes(b []byte) uint64 {
-	v, _ := strconv.ParseUint(hex.EncodeToString(b), 16, 64)
-	return v
+	return id, nil
 }

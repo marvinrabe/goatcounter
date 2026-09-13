@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
 )
 
 type TotalPages struct {
@@ -21,8 +20,8 @@ type TotalPages struct {
 
 func (w TotalPages) Name() string { return "totalpages" }
 func (w TotalPages) Type() string { return "full-width" }
-func (w TotalPages) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/total-pageviews|Total site pageviews")
+func (w TotalPages) Label() string {
+	return "Total site pageviews"
 }
 func (w *TotalPages) SetHTML(h template.HTML) { w.html = h }
 func (w TotalPages) HTML() template.HTML      { return w.html }

@@ -2,12 +2,11 @@ package goatcounter
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"strings"
 
-	"zgo.at/errors"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zstring"
+	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 var statTables = []string{"system_stats", "browser_stats", "location_stats", "language_stats", "size_stats"}
@@ -23,57 +22,43 @@ func (s *Site) Defaults() {
 	s.LinkDomain = strings.TrimRight(strings.TrimSpace(s.LinkDomain), "/")
 }
 
-func (s Site) ClearCache(ctx context.Context, full bool) {
-	if full {
-		cachePaths(ctx).Reset()
-	}
-}
-
-func (s Site) Domain(ctx context.Context) string {
-	if h := Host(ctx); h != "" {
-		return h
-	}
-	return Config(ctx).Domain
-}
-func (s Site) Display(context.Context) string           { return s.LinkDomain }
-func (s Site) SchemelessURL(ctx context.Context) string { return s.Domain(ctx) + Config(ctx).BasePath }
-func (s Site) URL(ctx context.Context) string {
-	if Config(ctx).Dev {
-		return "http://" + s.SchemelessURL(ctx)
-	}
-	return "https://" + s.SchemelessURL(ctx)
-}
 func (s Site) LinkDomainURL(withProto bool, paths ...string) string {
 	if s.LinkDomain == "" {
 		return ""
 	}
 	d := s.LinkDomain
-	if withProto && !zstring.HasPrefixes(d, "http://", "https://") {
+	if withProto && !(strings.HasPrefix(d, "http://") || strings.HasPrefix(d, "https://")) {
 		d = "http://" + d
 	} else if !withProto {
-		d = zstring.TrimPrefixes(d, "http://", "https://")
+		d = strings.TrimPrefix(strings.TrimPrefix(d, "http://"), "https://")
 	}
 	return strings.TrimRight(d, "/") + path.Join(paths...)
 }
 
 func (s Site) DeleteAll(ctx context.Context) error {
-	return zdb.TX(ctx, func(ctx context.Context) error {
+	return database.TX(ctx, func(ctx context.Context) error {
 		if err := clearFilters(ctx, s.Key); err != nil {
-			return errors.Wrap(err, "Site.DeleteAll: clear filters")
+			if err != nil {
+				err = fmt.Errorf("Site.DeleteAll: clear filters: %w", err)
+			}
+			return err
 		}
 		for _, t := range append(statTables, "campaign_stats", "hit_counts", "ref_counts", "hits", "bots", "paths", "hit_queue") {
-			if err := zdb.Exec(ctx, `delete from `+t+` where site=?`, s.Key); err != nil {
-				return errors.Wrap(err, "Site.DeleteAll: delete "+t)
+			if err := database.Exec(ctx, `delete from `+t+` where site=?`, s.Key); err != nil {
+				if err != nil {
+					err = fmt.Errorf("%s: %w", "Site.DeleteAll: delete "+t, err)
+				}
+				return err
 			}
 		}
-		if err := zdb.Exec(ctx, `delete from collector_session_paths where session in
+		if err := database.Exec(ctx, `delete from collector_session_paths where session in
             (select session from collector_sessions where site=?)`, s.Key); err != nil {
 			return err
 		}
-		if err := zdb.Exec(ctx, `delete from collector_sessions where site=?`, s.Key); err != nil {
+		if err := database.Exec(ctx, `delete from collector_sessions where site=?`, s.Key); err != nil {
 			return err
 		}
-		s.ClearCache(ctx, true)
+		clear(batchCacheFor(ctx).paths)
 		return nil
 	})
 }

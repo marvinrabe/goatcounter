@@ -23,11 +23,11 @@
 	</div>
 	<div class="totals-chart">
 		{{if .Err}}
-			<em>{{t .Context "p/error|Error: %(error-message)" .Err.Error}}</em>
+			<em>Error: {{.Err.Error}}</em>
 		{{else}}
 			<div class="chart metric-chart"
 				data-series="{{.Series | json}}" data-group="{{.Group}}" data-metric="visits">
-				{{if .Loaded}}<canvas></canvas>{{else}}{{t .Context "dashboard/loading|Loading…"}}{{end}}
+				{{if .Loaded}}<canvas></canvas>{{else}}Loading…{{end}}
 			</div>
 		{{end}}
 	</div>

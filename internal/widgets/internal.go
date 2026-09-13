@@ -20,7 +20,7 @@ type TotalCount struct {
 
 func (w TotalCount) Name() string                                         { return "totalcount" }
 func (w TotalCount) Type() string                                         { return "data-only" }
-func (w TotalCount) Label(ctx context.Context) string                     { return "" }
+func (w TotalCount) Label() string                                        { return "" }
 func (w *TotalCount) SetHTML(h template.HTML)                             {}
 func (w TotalCount) HTML() template.HTML                                  { return w.html }
 func (w *TotalCount) SetErr(h error)                                      { w.err = h }

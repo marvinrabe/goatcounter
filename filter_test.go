@@ -6,9 +6,9 @@ import (
 	"time"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztime"
 )
 
 func TestFilterMatch(t *testing.T) {
@@ -52,11 +52,11 @@ func TestCachedFilterAvoidsScanAndFrequentWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	ctx = ztime.WithNow(ctx, now)
-	if err := zdb.Exec(ctx, `update filters set last_used_at=?`, now); err != nil {
+	ctx = datetime.WithNow(ctx, now)
+	if err := database.Exec(ctx, `update filters set last_used_at=?`, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := zdb.Exec(ctx, `create trigger no_filter_writes before update on filters
+	if err := database.Exec(ctx, `create trigger no_filter_writes before update on filters
 		begin select raise(abort, 'unexpected filter update'); end`); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestCachedFilterAvoidsScanAndFrequentWrites(t *testing.T) {
 		}
 		sql, params := filter.SQL(ctx, "paths")
 		var matched []PathID
-		if err := zdb.Select(ctx, &matched, "select path_id from paths where "+string(sql), params); err != nil {
+		if err := database.Select(ctx, &matched, "select path_id from paths where "+string(sql), params); err != nil {
 			t.Fatal(err)
 		}
 		if len(matched) != 1 || matched[0] != paths[0].PathID {
@@ -78,10 +78,10 @@ func TestCachedFilterAvoidsScanAndFrequentWrites(t *testing.T) {
 		t.Errorf("cached filter scanned paths %d times", n)
 	}
 
-	if err := zdb.Exec(ctx, `drop trigger no_filter_writes`); err != nil {
+	if err := database.Exec(ctx, `drop trigger no_filter_writes`); err != nil {
 		t.Fatal(err)
 	}
-	ctx = ztime.WithNow(ctx, now.Add(time.Hour))
+	ctx = datetime.WithNow(ctx, now.Add(time.Hour))
 	if _, err := PathFilterFromQuery(ctx, "/keep"); err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +112,11 @@ func TestPathChangesInvalidateFilters(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := f.ByQuery(ctx, "/one"); !zdb.ErrNoRows(err) {
+			if err := f.ByQuery(ctx, "/one"); !database.ErrNoRows(err) {
 				t.Fatalf("filter survived %s: %v", operation, err)
 			}
 			var count int
-			if err := zdb.Get(ctx, &count, `select count(*) from filter_paths`); err != nil || count != 0 {
+			if err := database.Get(ctx, &count, `select count(*) from filter_paths`); err != nil || count != 0 {
 				t.Fatalf("stale cached path IDs: %d, %v", count, err)
 			}
 		})
@@ -131,7 +131,7 @@ func TestCachedFiltersAreScopedBySite(t *testing.T) {
 	sites := Config(ctx).Sites
 
 	// More than 10,000 matches makes PathFilterFromQuery persist the filter.
-	paths, err := zdb.NewBulkInsert(ctx, "paths", []string{"site", "path"})
+	paths, err := database.NewBulkInsert(ctx, "paths", []string{"site", "path"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestCachedFiltersAreScopedBySite(t *testing.T) {
 			}
 			sql, params := filter.SQL(sctx, "paths")
 			var count int
-			if err := zdb.Get(sctx, &count, "select count(*) from paths where "+string(sql), params); err != nil {
+			if err := database.Get(sctx, &count, "select count(*) from paths where "+string(sql), params); err != nil {
 				t.Fatal(err)
 			}
 			if count != 10_001 {
@@ -177,7 +177,7 @@ func TestCachedFiltersAreScopedBySite(t *testing.T) {
 	}
 	for i, site := range sites {
 		var count int
-		if err := zdb.Get(ctx, &count, `select count(*) from filter_paths where filter_id=?`, filters[i].FilterID); err != nil {
+		if err := database.Get(ctx, &count, `select count(*) from filter_paths where filter_id=?`, filters[i].FilterID); err != nil {
 			t.Fatal(err)
 		}
 		if want := 10_001 + i; count != want {
@@ -188,7 +188,7 @@ func TestCachedFiltersAreScopedBySite(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := zdb.Get(ctx, &count, `select count(*) from filter_paths where filter_id=?`, filters[1].FilterID); err != nil {
+	if err := database.Get(ctx, &count, `select count(*) from filter_paths where filter_id=?`, filters[1].FilterID); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -197,7 +197,7 @@ func TestCachedFiltersAreScopedBySite(t *testing.T) {
 	if err := filters[0].ByQuery(ctx, "/item/"); err != nil {
 		t.Fatalf("deleting another site removed the first site's filter: %v", err)
 	}
-	if err := filters[1].ByQuery(sctx, "/item/"); !zdb.ErrNoRows(err) {
+	if err := filters[1].ByQuery(sctx, "/item/"); !database.ErrNoRows(err) {
 		t.Fatalf("deleted site's filter: got %v, want no rows", err)
 	}
 }

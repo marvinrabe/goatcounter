@@ -2,11 +2,10 @@ with x as (
 	select
 		sum(total) as total,
 		path_id,
-		{{:sqlite  json_group_object(substr(datetime(hour, :offset2), 0, 14), total) as stats2}}
-		{{:sqlite! jsonb_object_agg(substr((hour + :offset * interval '1 minute')::text, 0, 14), total) as stats2}}
+		json_group_object(substr(datetime(hour, :offset2), 0, 14), total) as stats2
 	from hit_counts
 	where
-		{{:exclude path_id not in (:exclude) and}}
+		{{if .exclude}}path_id not in (:exclude) and{{end}}
 		:filter and
 		datetime(hour) >= datetime(:start) and datetime(hour) <= datetime(:end)
 	group by path_id

@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
 )
 
 type Sizes struct {
@@ -22,8 +21,8 @@ type Sizes struct {
 
 func (w Sizes) Name() string { return "sizes" }
 func (w Sizes) Type() string { return "hchart" }
-func (w Sizes) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/size-stats|Size stats")
+func (w Sizes) Label() string {
+	return "Size stats"
 }
 func (w *Sizes) SetHTML(h template.HTML) { w.html = h }
 func (w Sizes) HTML() template.HTML      { return w.html }
@@ -57,6 +56,6 @@ func (w Sizes) RenderHTML(ctx context.Context, shared SharedData) (string, any) 
 		Stats      goatcounter.HitStats
 		Detail     string
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
-		i18n.T(ctx, "header/sizes|Sizes"),
+		"Sizes",
 		shared.TotalUTC, w.Stats, w.Detail}
 }

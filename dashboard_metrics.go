@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"zgo.at/errors"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 // DashboardMetrics contains session-level metrics that can be calculated from
@@ -62,22 +61,24 @@ func (m DashboardMetrics) VisitDuration() time.Duration {
 
 // GetDashboardMetrics calculates visit and pageview metrics for a period. Only
 // pageviews are included: custom events are not visits and cannot be bounces.
-func GetDashboardMetrics(ctx context.Context, rng ztime.Range, pathFilter PathFilter) (DashboardMetrics, error) {
+func GetDashboardMetrics(ctx context.Context, rng datetime.Range, pathFilter PathFilter) (DashboardMetrics, error) {
 	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
 	var m DashboardMetrics
-	err := zdb.Get(ctx, &m, "load:dashboard_metrics.Get", filterParams, map[string]any{
+	err := database.Get(ctx, &m, "load:dashboard_metrics.Get", filterParams, map[string]any{
 		"start":  rng.Start,
 		"end":    rng.End,
 		"filter": filterSQL,
-		"sqlite": zdb.SQLDialect(ctx) == zdb.DialectSQLite,
 	})
-	return m, errors.Wrap(err, "GetDashboardMetrics")
+	if err != nil {
+		err = fmt.Errorf("GetDashboardMetrics: %w", err)
+	}
+	return m, err
 }
 
 // GetDashboardMetricSeries returns the five available metrics using the same
 // buckets as the dashboard's current grouping control.
 func GetDashboardMetricSeries(
-	ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group,
+	ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group,
 ) (DashboardMetricSeries, error) {
 	data, err := GetDashboardData(ctx, rng, pathFilter, group)
 	return data.Series, err
@@ -85,21 +86,20 @@ func GetDashboardMetricSeries(
 
 // GetDashboardData calculates totals and chart points together. Totals are
 // weighted by visits, rather than averaging the per-bucket rates.
-func GetDashboardData(ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group) (DashboardData, error) {
+func GetDashboardData(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) (DashboardData, error) {
 	loc := Config(ctx).Timezone.Loc()
 	group = ChartGroup(rng.In(loc), group)
 	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
 	var rows []dashboardMetricBucket
-	err := zdb.Select(ctx, &rows, "load:dashboard_metrics.Series", filterParams, map[string]any{
+	err := database.Select(ctx, &rows, "load:dashboard_metrics.Series", filterParams, map[string]any{
 		"start":   rng.Start,
 		"end":     rng.End,
 		"filter":  filterSQL,
 		"offset":  Config(ctx).Timezone.Offset(),
 		"offset2": fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-		"sqlite":  zdb.SQLDialect(ctx) == zdb.DialectSQLite,
 	})
 	if err != nil {
-		return DashboardData{}, errors.Wrap(err, "GetDashboardData")
+		return DashboardData{}, fmt.Errorf("GetDashboardData: %w", err)
 	}
 
 	start := metricBucketStart(rng.Start.In(loc), group)
@@ -113,7 +113,7 @@ func GetDashboardData(ctx context.Context, rng ztime.Range, pathFilter PathFilte
 		total.Duration += row.Duration
 		t, err := time.ParseInLocation("2006-01-02 15", row.Hour, loc)
 		if err != nil {
-			return DashboardData{}, errors.Wrap(err, "parse dashboard metric bucket")
+			return DashboardData{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
 		}
 		key := metricBucketStart(t, group).Format("2006-01-02 15")
 		b := buckets[key]
@@ -156,7 +156,7 @@ func GetDashboardData(ctx context.Context, rng ztime.Range, pathFilter PathFilte
 // ChartGroup coarsens long ranges without changing their dates. This bounds
 // empty chart buckets even while a date input contains a partially typed year.
 // Yearly charts have at most 10,000 points for the four-digit years we accept.
-func ChartGroup(rng ztime.Range, group Group) Group {
+func ChartGroup(rng datetime.Range, group Group) Group {
 	const maxPoints = 2400
 	for ; group < GroupYearly; group++ {
 		start := metricBucketStart(rng.Start, group)
@@ -183,15 +183,15 @@ func metricBucketStart(t time.Time, group Group) time.Time {
 		return t.Truncate(time.Hour)
 	}
 	if group.Weekly() {
-		return ztime.StartOf(t, ztime.Week(false))
+		return datetime.StartOf(t, datetime.Week(false))
 	}
 	if group.Monthly() {
-		return ztime.StartOf(t, ztime.Month)
+		return datetime.StartOf(t, datetime.Month)
 	}
 	if group.Yearly() {
 		return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location())
 	}
-	return ztime.StartOf(t, ztime.Day)
+	return datetime.StartOf(t, datetime.Day)
 }
 
 func nextMetricBucket(t time.Time, group Group) time.Time {
@@ -212,18 +212,17 @@ func nextMetricBucket(t time.Time, group Group) time.Time {
 
 // PageviewTotals returns the raw pageview time series used by the main chart.
 // This differs from Totals, which counts a path at most once per session.
-func (h *HitList) PageviewTotals(ctx context.Context, rng ztime.Range, pathFilter PathFilter, group Group) error {
+func (h *HitList) PageviewTotals(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) error {
 	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
-	err := zdb.Get(ctx, &h.Stats2, "load:dashboard_metrics.Pageviews", filterParams, map[string]any{
+	err := database.Get(ctx, &h.Stats2, "load:dashboard_metrics.Pageviews", filterParams, map[string]any{
 		"start":   rng.Start,
 		"end":     rng.End,
 		"filter":  filterSQL,
 		"offset":  Config(ctx).Timezone.Offset(),
 		"offset2": fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-		"sqlite":  zdb.SQLDialect(ctx) == zdb.DialectSQLite,
 	})
 	if err != nil {
-		return errors.Wrap(err, "HitList.PageviewTotals")
+		return fmt.Errorf("HitList.PageviewTotals: %w", err)
 	}
 
 	h.Count, h.Path = h.sum(ctx, rng, group), PathTotals

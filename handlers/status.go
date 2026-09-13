@@ -4,11 +4,11 @@ import (
 	"net/http"
 
 	"github.com/marvinrabe/goatcounter"
-	"zgo.at/zdb"
+	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 // status verifies database connectivity without loading site metadata.
-func status(db zdb.DB) http.HandlerFunc {
+func status(db database.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if goatcounter.Config(r.Context()).Draining.Load() {
 			http.Error(w, "draining", http.StatusServiceUnavailable)

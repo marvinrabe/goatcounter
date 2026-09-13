@@ -3,18 +3,18 @@ package goatcounter_test
 import (
 	"testing"
 	"time"
+	"uuid"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/ztime"
 )
 
 func TestDashboardMetrics(t *testing.T) {
 	ctx := testenv.DB(t)
 	start := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
-	one := zint.Uint128{1, 1}
-	two := zint.Uint128{2, 2}
+	one := uuid.UUID{15: 1}
+	two := uuid.UUID{15: 2}
 
 	testenv.StoreHits(ctx, t, false,
 		Hit{CreatedAt: start, Path: "/one", Session: one, FirstVisit: true},
@@ -23,7 +23,7 @@ func TestDashboardMetrics(t *testing.T) {
 		Hit{CreatedAt: start.Add(4 * time.Minute), Path: "signup", Event: true, Session: two, FirstVisit: true},
 	)
 
-	rng := ztime.NewRange(start.Add(-time.Minute)).To(start.Add(10 * time.Minute))
+	rng := datetime.NewRange(start.Add(-time.Minute)).To(start.Add(10 * time.Minute))
 	m, err := GetDashboardMetrics(ctx, rng, PathFilter{})
 	if err != nil {
 		t.Fatal(err)
@@ -56,14 +56,14 @@ func TestDashboardMetrics(t *testing.T) {
 func TestDashboardDataWeightedTotals(t *testing.T) {
 	ctx := testenv.DB(t)
 	start := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
-	one := zint.Uint128{1, 1}
+	one := uuid.UUID{15: 1}
 	testenv.StoreHits(ctx, t, false,
 		Hit{CreatedAt: start, Path: "/one", Session: one, FirstVisit: true},
 		Hit{CreatedAt: start.Add(2 * time.Hour), Path: "/two", Session: one, FirstVisit: true},
-		Hit{CreatedAt: start.Add(24 * time.Hour), Path: "/one", Session: zint.Uint128{2, 2}, FirstVisit: true},
-		Hit{CreatedAt: start.Add(25 * time.Hour), Path: "/one", Session: zint.Uint128{3, 3}, FirstVisit: true},
+		Hit{CreatedAt: start.Add(24 * time.Hour), Path: "/one", Session: uuid.UUID{15: 2}, FirstVisit: true},
+		Hit{CreatedAt: start.Add(25 * time.Hour), Path: "/one", Session: uuid.UUID{15: 3}, FirstVisit: true},
 	)
-	rng := ztime.NewRange(start).To(start.Add(26 * time.Hour))
+	rng := datetime.NewRange(start).To(start.Add(26 * time.Hour))
 	want, err := GetDashboardMetrics(ctx, rng, PathFilter{})
 	if err != nil {
 		t.Fatal(err)
@@ -90,10 +90,10 @@ func TestDashboardDataWeightedTotals(t *testing.T) {
 func TestDashboardDataLongRange(t *testing.T) {
 	ctx := testenv.DB(t)
 	testenv.StoreHits(ctx, t, false,
-		Hit{CreatedAt: ztime.FromString("2026-09-10"), Path: "/one", Session: zint.Uint128{1, 1}, FirstVisit: true},
-		Hit{CreatedAt: ztime.FromString("2026-09-11"), Path: "/one", Session: zint.Uint128{2, 2}, FirstVisit: true},
+		Hit{CreatedAt: datetime.FromString("2026-09-10"), Path: "/one", Session: uuid.UUID{15: 1}, FirstVisit: true},
+		Hit{CreatedAt: datetime.FromString("2026-09-11"), Path: "/one", Session: uuid.UUID{15: 2}, FirstVisit: true},
 	)
-	rng := ztime.NewRange(ztime.FromString("0000-01-01")).To(ztime.FromString("9999-12-31"))
+	rng := datetime.NewRange(datetime.FromString("0000-01-01")).To(datetime.FromString("9999-12-31"))
 	data, err := GetDashboardData(ctx, rng, PathFilter{}, GroupHourly)
 	if err != nil {
 		t.Fatal(err)

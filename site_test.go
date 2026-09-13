@@ -5,8 +5,8 @@ import (
 	"time"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/ztime"
 )
 
 func TestSiteFromConfig(t *testing.T) {
@@ -27,14 +27,14 @@ func TestSitesAreIsolatedByStableName(t *testing.T) {
 	second.Defaults()
 	Config(ctx).Sites = append(Config(ctx).Sites, second)
 
-	now := ztime.Now(ctx)
+	now := datetime.Now(ctx)
 	testenv.StoreHits(ctx, t, false,
 		Hit{Site: "example.com", Path: "/same", FirstVisit: true, CreatedAt: now},
 		Hit{Site: "foobar.net", Path: "/same", FirstVisit: true, CreatedAt: now},
 		Hit{Site: "foobar.net", Path: "/other", FirstVisit: true, CreatedAt: now},
 	)
 
-	rng := ztime.NewRange(now.Add(-time.Hour)).To(now.Add(time.Hour))
+	rng := datetime.NewRange(now.Add(-time.Hour)).To(now.Add(time.Hour))
 	for _, tt := range []struct {
 		name  string
 		total int

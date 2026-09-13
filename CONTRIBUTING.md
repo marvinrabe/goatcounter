@@ -14,10 +14,10 @@ separate terminals:
 
     % goatcounter serve -dev
 
-The `-dev` flag makes some small things a bit more convenient for development:
-the application will automatically restart on recompiles, templates and built
-static files will be read directly from the filesystem, and a few other minor
-changes. Vite rebuilds `public/` when files in `assets/` change.
+The `-dev` flag reads templates and built static files from the filesystem.
+Template edits reload automatically; Go changes require rebuilding and
+restarting the application. Vite rebuilds `public/` when files in `assets/`
+change.
 
 General notes
 -------------
@@ -29,12 +29,7 @@ General notes
     large dependency trees. So it's probably best to communicate in the issue if
     you're planning to do that.
 
-- Use `-debug=<mod>` to enable debug logs for specific modules, or `-debug=all`
-  to enable it for all modules.
-
-- Automatic reload is managed with github.com/teamwork/reload. Basically it will
-  restart on recompile, and reload templates once they change (no restart
-  required).
+- Use `-debug` to enable debug logs and `-debug-sql` to trace SQL queries.
 
 - Tests can be run with `go test ./...`; run `npm run build` first after
   changing frontend assets.

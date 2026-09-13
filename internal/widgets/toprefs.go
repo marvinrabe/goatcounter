@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
 )
 
 type TopRefs struct {
@@ -21,8 +20,8 @@ type TopRefs struct {
 
 func (w TopRefs) Name() string { return "toprefs" }
 func (w TopRefs) Type() string { return "hchart" }
-func (w TopRefs) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/topref|Top referrals")
+func (w TopRefs) Label() string {
+	return "Top referrals"
 }
 func (w *TopRefs) SetHTML(h template.HTML) { w.html = h }
 func (w TopRefs) HTML() template.HTML      { return w.html }

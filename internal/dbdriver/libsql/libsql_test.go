@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"zgo.at/zdb"
+	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 func TestIsRemote(t *testing.T) {
@@ -34,7 +34,7 @@ func TestIsRemote(t *testing.T) {
 }
 
 func TestConfigureRemotePool(t *testing.T) {
-	db, err := Open(context.Background(), zdb.ConnectOptions{
+	db, err := Open(context.Background(), database.ConnectOptions{
 		Connect: FileConnect(filepath.Join(t.TempDir(), "pool.db")),
 		Create:  true,
 	})
@@ -71,7 +71,7 @@ func TestConcurrentEmptyDatabaseInitialization(t *testing.T) {
 			<-start
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			db, err := Open(ctx, zdb.ConnectOptions{Connect: connect, Create: true, Files: files})
+			db, err := Open(ctx, database.ConnectOptions{Connect: connect, Create: true, Files: files})
 			if err == nil {
 				db.Close()
 			}

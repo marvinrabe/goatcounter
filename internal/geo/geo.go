@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
-	"github.com/marvinrabe/goatcounter/internal/log"
 )
 
 //go:embed GeoLite2-Country.mmdb.gz
@@ -68,8 +68,7 @@ func openBundled() (*geoip2.Reader, error) {
 
 	if _, err := os.Stat(path); err != nil {
 		if err := extractBundle(path); err != nil {
-			log.Module("geo").Debugf(context.Background(),
-				"can't cache the bundled GeoIP database, loading it in memory instead: %s", err)
+			slog.With("module", "geo").DebugContext(context.Background(), "can't cache the bundled GeoIP database, loading it in memory instead", "error", err)
 			return bundleFromMemory()
 		}
 	}
@@ -78,8 +77,7 @@ func openBundled() (*geoip2.Reader, error) {
 	if err != nil {
 		// A truncated or corrupted cache file shouldn't be fatal; drop it and
 		// carry on from memory. The next start will extract it again.
-		log.Module("geo").Debugf(context.Background(),
-			"can't open the cached GeoIP database, loading it in memory instead: %s", err)
+		slog.With("module", "geo").DebugContext(context.Background(), "can't open the cached GeoIP database, loading it in memory instead", "error", err)
 		os.Remove(path)
 		return bundleFromMemory()
 	}

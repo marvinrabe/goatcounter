@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/ztime"
 )
 
 func TestLocationStats(t *testing.T) {
@@ -22,7 +22,7 @@ func TestLocationStats(t *testing.T) {
 	}...)
 
 	var stats goatcounter.HitStats
-	err := stats.ListLocations(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
+	err := stats.ListLocations(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestLocationStats(t *testing.T) {
 	}...)
 
 	stats = goatcounter.HitStats{}
-	err = stats.ListLocations(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
+	err = stats.ListLocations(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

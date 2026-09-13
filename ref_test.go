@@ -5,10 +5,9 @@ import (
 	"time"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestListRefsByPathID(t *testing.T) {
@@ -20,7 +19,7 @@ func TestListRefsByPathID(t *testing.T) {
 		Hit{Path: "/x", Ref: "http://example.org", FirstVisit: true},
 		Hit{Path: "/y", Ref: "http://example.org", FirstVisit: true})
 
-	rng := ztime.NewRange(ztime.Now(ctx).Add(-1 * time.Hour)).To(ztime.Now(ctx).Add(1 * time.Hour))
+	rng := datetime.NewRange(datetime.Now(ctx).Add(-1 * time.Hour)).To(datetime.Now(ctx).Add(1 * time.Hour))
 
 	var have HitStats
 	err := have.ListRefsByPathID(ctx, 1, rng, 10, 0)
@@ -39,7 +38,7 @@ func TestListRefsByPathID(t *testing.T) {
 			"name": "example.org",
 			"ref_scheme": "h"
 		}]}`
-	if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+	if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 		t.Error(d)
 	}
 }
@@ -54,7 +53,7 @@ func TestListTopRefs(t *testing.T) {
 		Hit{Path: "/y", Ref: "http://example.org", FirstVisit: true},
 		Hit{Path: "/x", Ref: "http://example.org"})
 
-	rng := ztime.NewRange(ztime.Now(ctx).Add(-1 * time.Hour)).To(ztime.Now(ctx).Add(1 * time.Hour))
+	rng := datetime.NewRange(datetime.Now(ctx).Add(-1 * time.Hour)).To(datetime.Now(ctx).Add(1 * time.Hour))
 
 	{
 		var have HitStats
@@ -71,7 +70,7 @@ func TestListTopRefs(t *testing.T) {
 				"ref_scheme": "h"
 			}]
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}
@@ -91,7 +90,7 @@ func TestListTopRefs(t *testing.T) {
 				"ref_scheme": "h"
 			}]
 		}`
-		if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+		if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 			t.Error(d)
 		}
 	}

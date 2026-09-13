@@ -1,6 +1,6 @@
 select * from paths
 where
 	site = :site
-	{{:after and path_id > :after}}
+	{{if .after}}and path_id > :after{{end}}
 order by path, path_id
-{{:limit limit :limit}}
+{{if .limit}}limit :limit{{end}}

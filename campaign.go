@@ -2,11 +2,11 @@ package goatcounter
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
-	"zgo.at/errors"
-	"zgo.at/zdb"
-	"zgo.at/zvalidate"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 type CampaignID int32
@@ -18,36 +18,39 @@ type Campaign struct {
 
 func (Campaign) Table() string { return "campaigns" }
 
-var _ zdb.Defaulter = &Campaign{}
+var _ database.Defaulter = &Campaign{}
 
 func (c *Campaign) Defaults(ctx context.Context) {}
 
-var _ zdb.Validator = &Campaign{}
+var _ database.Validator = &Campaign{}
 
 func (c *Campaign) Validate(ctx context.Context) error {
-	v := zvalidate.New()
+	v := validation.New()
 	v.Required("name", c.Name)
 	return v.ErrorOrNil()
 }
 
 func (c *Campaign) Insert(ctx context.Context) error {
-	err := zdb.Insert(ctx, c)
+	err := database.Insert(ctx, c)
 	if err == nil {
 		c.cache(ctx)
 	}
-	return errors.Wrap(err, "Campaign.Insert")
+	if err != nil {
+		err = fmt.Errorf("Campaign.Insert: %w", err)
+	}
+	return err
 }
 
 func (c *Campaign) ByName(ctx context.Context, name string) error {
 	k := strings.ToLower(name)
-	if cc, ok := cacheCampaigns(ctx).Get(k); ok {
-		*c = *cc
+	if cc, ok := batchCacheFor(ctx).campaigns[k]; ok {
+		*c = cc
 		return nil
 	}
 
-	err := zdb.Get(ctx, c, `select * from campaigns where lower(name)=lower(?)`, name)
+	err := database.Get(ctx, c, `select * from campaigns where lower(name)=lower(?)`, name)
 	if err != nil {
-		return errors.Wrap(err, "Campaign.ByName")
+		return fmt.Errorf("Campaign.ByName: %w", err)
 	}
 
 	c.cache(ctx)
@@ -55,9 +58,9 @@ func (c *Campaign) ByName(ctx context.Context, name string) error {
 }
 
 // Store a copy so reusing a receiver cannot change another campaign's entry.
-// Uncommitted inserts must never escape into the shared cache.
+// Campaign IDs are only reused within the current transaction.
 func (c Campaign) cache(ctx context.Context) {
-	if _, tx := zdb.DBSQL(ctx); tx == nil {
-		cacheCampaigns(ctx).Set(strings.ToLower(c.Name), &c)
+	if cache := batchCacheFor(ctx).campaigns; cache != nil {
+		cache[strings.ToLower(c.Name)] = c
 	}
 }

@@ -2,17 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -21,18 +19,12 @@ import (
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/handlers"
 	"github.com/marvinrabe/goatcounter/internal/cron"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/geo"
 	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/errors"
-	"zgo.at/zhttp"
-	"zgo.at/zli"
-	"zgo.at/zstd/zfs"
-	"zgo.at/zstd/zio"
-	"zgo.at/zstd/znet"
-	"zgo.at/zstd/zruntime"
-	"zgo.at/ztpl"
-	"zgo.at/zvalidate"
+	"github.com/marvinrabe/goatcounter/internal/httpx"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 const usageServe = `
@@ -135,58 +127,59 @@ Flags:
   -dev         Load assets from disk and use readable text logs.
                Normal operation writes structured JSON logs to stdout.
 
-  -debug       Modules to debug, comma-separated or 'all' for all modules.
-               See "goatcounter help debug" for a list of modules.
+  -debug       Enable debug logs, including HTTP requests.
+  -debug-sql   Log SQL queries.
 `
 
-func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
+func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
+	f := newFlags("cmdServe")
 	var (
-		basePath     = f.String("", "base-path")
-		domainStatic = f.String("", "static")
-		dbConnect    = f.String(defaultDB(), "db")
-		dbConn       = f.String("4,2", "dbconn")
-		debugFlag    = f.StringList(nil, "debug")
-		dev          = f.Bool(false, "dev")
-		listen       = f.String(":8080", "listen")
-		geodbFlag    = f.String("", "geodb")
-		ratelimit    = f.String("", "ratelimit")
-		storeEvery   = f.Int(10, "store-every")
-		sitesFlag    = f.String("example.com", "sites")
-		apiToken     = f.String("", "api-token")
-		authMode     = f.String("public", "auth")
-		basicAuth    = f.String("", "basic-auth")
-		oidcIssuer   = f.String("", "oidc-issuer")
-		oidcClientID = f.String("", "oidc-client-id")
-		oidcSecret   = f.String("", "oidc-client-secret")
-		oidcRedirect = f.String("", "oidc-redirect-url")
-		oidcSession  = f.String("", "oidc-session-secret")
-		oidcScopes   = f.String("", "oidc-scopes")
-		shutdown     = f.Int(25, "shutdown-timeout")
-		drain        = f.Int(0, "drain-delay")
+		basePath     = f.String("base-path", "", "")
+		domainStatic = f.String("static", "", "")
+		dbConnect    = f.String("db", defaultDB(), "")
+		dbConn       = f.String("dbconn", "4,2", "")
+		debugFlag    = f.Bool("debug", false, "")
+		debugSQL     = f.Bool("debug-sql", false, "")
+		dev          = f.Bool("dev", false, "")
+		listen       = f.String("listen", ":8080", "")
+		geodbFlag    = f.String("geodb", "", "")
+		ratelimit    = f.String("ratelimit", "", "")
+		storeEvery   = f.Int("store-every", 10, "")
+		sitesFlag    = f.String("sites", "example.com", "")
+		apiToken     = f.String("api-token", "", "")
+		authMode     = f.String("auth", "public", "")
+		basicAuth    = f.String("basic-auth", "", "")
+		oidcIssuer   = f.String("oidc-issuer", "", "")
+		oidcClientID = f.String("oidc-client-id", "", "")
+		oidcSecret   = f.String("oidc-client-secret", "", "")
+		oidcRedirect = f.String("oidc-redirect-url", "", "")
+		oidcSession  = f.String("oidc-session-secret", "", "")
+		oidcScopes   = f.String("oidc-scopes", "", "")
+		shutdown     = f.Int("shutdown-timeout", 25, "")
+		drain        = f.Int("drain-delay", 0, "")
 	)
-	if err := f.Parse(zli.FromEnv("GOATCOUNTER")); err != nil {
+	if err := parseFlags(f, args, true, false); err != nil {
 		return err
 	}
 
-	v := zvalidate.New()
+	v := validation.New()
 
-	setupLog(dev.Bool(), debugFlag.StringsSplit(","))
+	setupLog(*dev, *debugFlag)
 
-	if dev.Bool() {
-		zhttp.DefaultDecoder = zhttp.NewDecoder(true, false) // Log unknown fields
+	if *dev {
 		if err := setupReload(); err != nil {
 			return err
 		}
 	}
 
-	geodb := setupGeo(&v, geodbFlag.String())
-	ratelimits := setupRatelimits(&v, ratelimit.String())
-	domainCount, urlStatic := setupDomains(&v, dev.Bool(), domainStatic.Pointer(), basePath.Pointer())
+	geodb := setupGeo(&v, *geodbFlag)
+	ratelimits := setupRatelimits(&v, *ratelimit)
+	setupDomains(&v, domainStatic, basePath)
 
-	v.Range("-store-every", int64(storeEvery.Int()), 1, 0)
-	v.Range("-shutdown-timeout", int64(shutdown.Int()), 1, 0)
-	v.Range("-drain-delay", int64(drain.Int()), 0, int64(shutdown.Int()-1))
-	if dbConnect.String() == "" {
+	v.Range("-store-every", int64(*storeEvery), 1, 0)
+	v.Range("-shutdown-timeout", int64(*shutdown), 1, 0)
+	v.Range("-drain-delay", int64(*drain), 0, int64(*shutdown-1))
+	if *dbConnect == "" {
 		v.Append("-db", "a database URL or path is required")
 	}
 
@@ -195,23 +188,27 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	}
 
 	defer geodb.Close()
-	db, ctx, err := connectDB(dbConnect.String(), dbConn.String(), dev.Bool())
+	db, ctx, err := connectDB(*dbConnect, *dbConn, *dev)
 	if err != nil {
 		return err
+	}
+	if *debugSQL {
+		db = database.WithQueryLog(db, os.Stderr)
+		ctx = database.WithDB(ctx, db)
 	}
 	defer closeDB(db)
 
 	ctx = geo.With(ctx, geodb)
 
-	if err := setupTpl(ctx, dev.Bool()); err != nil {
+	if err := setupTpl(ctx, *dev); err != nil {
 		return err
 	}
 
-	zhttp.ErrPage = handlers.ErrPage
+	httpx.ErrPage = handlers.ErrPage
 
 	c := goatcounter.Config(ctx)
 	seenSites := make(map[string]bool)
-	for _, name := range strings.Split(sitesFlag.String(), ",") {
+	for _, name := range strings.Split(*sitesFlag, ",") {
 		name = strings.TrimSpace(strings.TrimRight(name, "/"))
 		if name == "" {
 			continue
@@ -228,47 +225,44 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	if len(c.Sites) == 0 {
 		return fmt.Errorf("-sites must contain at least one site")
 	}
-	c.Timezone, err = goatcounter.LoadTimezone()
+	c.Timezone, err = datetime.LoadTimezone()
 	if err != nil {
 		return err
 	}
-	c.Domain = ""
-	c.DomainStatic = domainStatic.String()
-	c.DomainCount = domainCount
-	c.URLStatic = urlStatic
-	c.Dev = dev.Bool()
-	c.BasePath = basePath.String()
+	c.DomainStatic = *domainStatic
+	c.Dev = *dev
+	c.BasePath = *basePath
 
 	timeout := 60
-	auth := handlers.Auth{Mode: handlers.AuthMode(authMode.String())}
+	auth := handlers.Auth{Mode: handlers.AuthMode(*authMode)}
 	switch auth.Mode {
 	case handlers.AuthPublic:
 	case handlers.AuthBasic:
-		auth.BasicUsers, err = handlers.ParseBasicUsers(basicAuth.String())
+		auth.BasicUsers, err = handlers.ParseBasicUsers(*basicAuth)
 		if err != nil {
 			return err
 		}
 	case handlers.AuthOIDC:
 		for name, value := range map[string]string{
-			"-oidc-issuer": oidcIssuer.String(), "-oidc-client-id": oidcClientID.String(),
-			"-oidc-client-secret": oidcSecret.String(), "-oidc-redirect-url": oidcRedirect.String(),
-			"-oidc-session-secret": oidcSession.String(),
+			"-oidc-issuer": *oidcIssuer, "-oidc-client-id": *oidcClientID,
+			"-oidc-client-secret": *oidcSecret, "-oidc-redirect-url": *oidcRedirect,
+			"-oidc-session-secret": *oidcSession,
 		} {
 			if value == "" {
 				return fmt.Errorf("%s is required with -auth=oidc", name)
 			}
 		}
-		if len(oidcSession.String()) < 32 {
+		if len(*oidcSession) < 32 {
 			return fmt.Errorf("-oidc-session-secret must contain at least 32 bytes")
 		}
-		if err := handlers.ValidateOIDCRedirectURL(oidcRedirect.String()); err != nil {
+		if err := handlers.ValidateOIDCRedirectURL(*oidcRedirect); err != nil {
 			return fmt.Errorf("-oidc-redirect-url: %w", err)
 		}
 		oidcCtx, cancelOIDC := context.WithTimeout(ctx, 15*time.Second)
 		auth.OIDC, err = handlers.NewOIDCAuth(oidcCtx, handlers.OIDCConfig{
-			Issuer: oidcIssuer.String(), ClientID: oidcClientID.String(), ClientSecret: oidcSecret.String(),
-			RedirectURL: oidcRedirect.String(), SessionSecret: oidcSession.String(), BasePath: basePath.String(),
-			Scopes: strings.Split(oidcScopes.String(), ","),
+			Issuer: *oidcIssuer, ClientID: *oidcClientID, ClientSecret: *oidcSecret,
+			RedirectURL: *oidcRedirect, SessionSecret: *oidcSession, BasePath: *basePath,
+			Scopes: strings.Split(*oidcScopes, ","),
 		})
 		cancelOIDC()
 		if err != nil {
@@ -280,16 +274,26 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 
 	// Set up HTTP handler and servers.
 	hosts := map[string]http.Handler{
-		"*": handlers.NewBackend(db, dev.Bool(), c.DomainStatic, c.BasePath, timeout, ratelimits, apiToken.String(), auth),
+		"*": handlers.NewBackend(db, *dev, c.DomainStatic, c.BasePath, timeout, ratelimits, *apiToken, auth),
 	}
-	if domainStatic.String() != "" {
+	if *domainStatic != "" {
 		// May not be needed, but just in case the DomainStatic isn't an external CDN.
-		hosts[znet.RemovePort(domainStatic.String())] = handlers.NewStatic(chi.NewRouter(), dev.Bool(), c.BasePath)
+		hosts[hostWithoutPort(*domainStatic)] = handlers.NewStatic(chi.NewRouter(), *dev, c.BasePath)
 	}
 
 	server := &http.Server{
-		Addr:              listen.String(),
-		Handler:           zhttp.HostRoute(hosts),
+		Addr: *listen,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host := r.Host
+			if h, _, err := net.SplitHostPort(host); err == nil {
+				host = h
+			}
+			handler, ok := hosts[host]
+			if !ok {
+				handler = hosts["*"]
+			}
+			handler.ServeHTTP(w, r)
+		}),
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,
@@ -308,11 +312,11 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	defer ln.Close()
 	sig, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGTERM, os.Interrupt)
 	defer stopSignals()
-	runner := cron.Start(ctx, time.Duration(storeEvery.Int())*time.Second)
+	runner := cron.Start(ctx, time.Duration(*storeEvery)*time.Second)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(ln) }()
-	log.Module("startup").Info(ctx, "GoatCounter ready",
-		startupAttr(geodb, ln.Addr().String(), dev.Bool(), "timezone", c.Timezone.String())...)
+	slog.InfoContext(ctx, "GoatCounter ready",
+		"listen", ln.Addr().String(), "timezone", c.Timezone.String(), "dev", *dev)
 	ready <- struct{}{}
 	var serveErr error
 	select {
@@ -321,11 +325,11 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	case serveErr = <-served:
 	}
 	c.Draining.Store(true)
-	log.Info(ctx, "Draining HTTP requests", "delay_seconds", drain.Int())
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(shutdown.Int())*time.Second)
+	slog.InfoContext(ctx, "Draining HTTP requests", "delay_seconds", *drain)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(*shutdown)*time.Second)
 	defer cancel()
-	if drain.Int() > 0 {
-		timer := time.NewTimer(time.Duration(drain.Int()) * time.Second)
+	if *drain > 0 {
+		timer := time.NewTimer(time.Duration(*drain) * time.Second)
 		select {
 		case <-timer.C:
 		case <-shutdownCtx.Done():
@@ -346,43 +350,17 @@ func cmdServe(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	if workerErr != nil {
 		return fmt.Errorf("worker shutdown: %w", workerErr)
 	}
-	log.Info(ctx, "Shutdown complete; pending pageviews remain in the shared database")
+	slog.InfoContext(ctx, "Shutdown complete; pending pageviews remain in the shared database")
 	return nil
 }
 
 func defaultDB() string { return "" }
 
 func setupReload() error {
-	if !zio.Exists("db/schema.gotxt") || !zio.Exists("tpl") || !zio.Exists("public") {
+	if !fileExists("db/schema.gotxt") || !fileExists("tpl") || !fileExists("public") {
 		return errors.New("-dev flag was given but this doesn't seem like a GoatCounter source directory")
 	}
-	if _, err := exec.LookPath("git"); err == nil {
-		rev := ""
-		b, ok := debug.ReadBuildInfo()
-		if ok {
-			for _, s := range b.Settings {
-				if s.Key == "vcs.revision" {
-					rev = s.Value
-				}
-			}
-		}
-		if rev != "" {
-			have, err := exec.Command("git", "log", "-n1", "--pretty=format:%H").CombinedOutput()
-			if err == nil {
-				if h := strings.TrimSpace(string(have)); rev != h {
-					log.Errorf(context.Background(),
-						"goatcounter was built from revision %s but source directory has revision %s",
-						rev[:7], h[:7])
-				}
-			}
-		}
-	}
-
-	if _, err := os.Stat("./tpl"); os.IsNotExist(err) {
-		return nil
-	}
-
-	log.Module("startup").Info(context.Background(), "watching ./tpl for changes")
+	slog.Info("watching ./tpl for changes")
 	go watchTemplates("./tpl")
 	return nil
 }
@@ -395,10 +373,10 @@ func watchTemplates(dir string) {
 	for range time.Tick(time.Second) {
 		if m := templatesModified(dir); !m.Equal(last) {
 			last = m
-			if err := ztpl.Reload(dir); err != nil {
-				log.Error(context.Background(), err)
+			if err := handlers.LoadTemplates(os.DirFS(dir)); err != nil {
+				slog.ErrorContext(context.Background(), err.Error())
 			} else {
-				log.Module("startup").Info(context.Background(), "reloaded templates")
+				slog.Info("reloaded templates")
 			}
 		}
 	}
@@ -424,7 +402,7 @@ func templatesModified(dir string) time.Time {
 	return newest
 }
 
-func setupGeo(v *zvalidate.Validator, geodbFlag string) *geoip2.Reader {
+func setupGeo(v *validation.Validator, geodbFlag string) *geoip2.Reader {
 	geodb, err := geo.Open(geodbFlag)
 	if err != nil {
 		v.Append("-geodb", fmt.Sprintf("loading GeoIP database: %s", err))
@@ -432,7 +410,7 @@ func setupGeo(v *zvalidate.Validator, geodbFlag string) *geoip2.Reader {
 	return geodb
 }
 
-func setupRatelimits(v *zvalidate.Validator, ratelimit string) handlers.Ratelimits {
+func setupRatelimits(v *validation.Validator, ratelimit string) handlers.Ratelimits {
 	h := handlers.NewRatelimits()
 	if strings.TrimSpace(ratelimit) == "" {
 		return h
@@ -448,7 +426,7 @@ func setupRatelimits(v *zvalidate.Validator, ratelimit string) handlers.Ratelimi
 			continue
 		}
 
-		v2 := zvalidate.New()
+		v2 := validation.New()
 		requests, seconds, _ := strings.Cut(spec, "/")
 		tokens := v2.Integer("-ratelimit.requests", requests)
 		secs := v2.Integer("-ratelimit.seconds", seconds)
@@ -463,62 +441,40 @@ func setupRatelimits(v *zvalidate.Validator, ratelimit string) handlers.Ratelimi
 	return h
 }
 
-func setupDomains(v *zvalidate.Validator, dev bool, domainStatic, basePath *string) (string, string) {
+func setupDomains(v *validation.Validator, domainStatic, basePath *string) {
 	*basePath = strings.Trim(*basePath, "/")
 	if *basePath != "" {
 		*basePath = "/" + *basePath
 	}
-	zhttp.BasePath = *basePath
 
-	var domainCount, urlStatic string
 	if *domainStatic != "" {
 		if p := strings.Index(*domainStatic, ":"); p > -1 {
 			v.Domain("-static", (*domainStatic)[:p])
 		} else {
 			v.Domain("-static", *domainStatic)
 		}
-		urlStatic = "//" + *domainStatic
-		domainCount = *domainStatic
-	} else {
-		urlStatic = *basePath
 	}
-	return domainCount, urlStatic
 }
 
 func setupTpl(ctx context.Context, dev bool) error {
-	fsys, err := zfs.EmbedOrDir(goatcounter.Templates, "tpl", dev)
+	fsys, err := embeddedOrDir(goatcounter.Templates, "tpl", dev)
 	if err != nil {
 		return err
 	}
-	err = ztpl.Init(fsys)
+	err = handlers.LoadTemplates(fsys)
 	if err != nil {
 		if !dev {
 			return err
 		}
-		log.Error(ctx, err)
+		slog.ErrorContext(ctx, err.Error())
 	}
 	return nil
 }
 
-func startupAttr(geodb *geoip2.Reader, listen string, dev bool, attr ...any) []any {
-	md := geodb.DB().Metadata
-	return append(attr,
-		"listen", listen,
-		"dev", dev,
-		slog.Group("version",
-			"version", goatcounter.Version,
-			"go", runtime.Version(),
-			"GOOS", runtime.GOOS,
-			"GOARCH", runtime.GOARCH,
-			"CGO", zruntime.CGO,
-			"race", zruntime.Race,
-		),
-		slog.Group("geoip",
-			"path", geodb.DB().Path,
-			"build", time.Unix(int64(md.BuildEpoch), 0).UTC().Format("2006-01-02 15:04:05"),
-			"type", md.DatabaseType,
-			"description", md.Description["en"],
-			"nodes", md.NodeCount,
-		),
-	)
+func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
+func hostWithoutPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }

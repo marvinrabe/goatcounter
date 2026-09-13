@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/ztime"
 )
 
 func TestBrowserStats(t *testing.T) {
@@ -23,7 +23,7 @@ func TestBrowserStats(t *testing.T) {
 	}...)
 
 	var stats goatcounter.HitStats
-	err := stats.ListBrowsers(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
+	err := stats.ListBrowsers(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestBrowserStats(t *testing.T) {
 	}...)
 
 	stats = goatcounter.HitStats{}
-	err = stats.ListBrowsers(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
+	err = stats.ListBrowsers(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestBrowserStats(t *testing.T) {
 
 	// List just Firefox.
 	stats = goatcounter.HitStats{}
-	err = stats.ListBrowser(ctx, "Firefox", ztime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
+	err = stats.ListBrowser(ctx, "Firefox", datetime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

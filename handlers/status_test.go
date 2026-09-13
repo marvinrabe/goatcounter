@@ -8,15 +8,15 @@ import (
 	"testing"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
 	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
-	"zgo.at/zdb"
 )
 
 func TestStatus(t *testing.T) {
 	for _, base := range []string{"", "/stats"} {
 		t.Run("base="+base, func(t *testing.T) {
 			// A health check needs a reachable database, but no site or schema.
-			db, err := libsqldriver.Open(context.Background(), zdb.ConnectOptions{
+			db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{
 				Connect: libsqldriver.FileConnect(filepath.Join(t.TempDir(), "status.db")),
 				Create:  true,
 			})

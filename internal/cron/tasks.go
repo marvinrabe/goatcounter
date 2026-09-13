@@ -2,17 +2,17 @@ package cron
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/errors"
-	"zgo.at/zdb"
+	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 func oldBot(ctx context.Context) error {
-	err := zdb.Exec(ctx, `delete from bots where created_at < datetime('now', '-30 days')`)
+	err := database.Exec(ctx, `delete from bots where created_at < datetime('now', '-30 days')`)
 	if err != nil {
-		log.Module("cron").Error(ctx, err)
+		slog.With("module", "cron").ErrorContext(ctx, err.Error())
 	}
 	return nil
 }
@@ -53,12 +53,15 @@ func UpdateStats(ctx context.Context, hits []goatcounter.Hit) error {
 			continue
 		}
 		if err := (&goatcounter.Location{}).ByCode(ctx, h.Location); err != nil {
-			return errors.Wrap(err, "UpdateStats location")
+			if err != nil {
+				err = fmt.Errorf("UpdateStats location: %w", err)
+			}
+			return err
 		}
 		locations[h.Location] = true
 	}
 
-	return zdb.TX(ctx, func(ctx context.Context) error {
+	return database.TX(ctx, func(ctx context.Context) error {
 		for _, batch := range batches {
 			if len(batch.rows) == 0 {
 				continue
@@ -71,7 +74,10 @@ func UpdateStats(ctx context.Context, hits []goatcounter.Hit) error {
 				ins.Values(row...)
 			}
 			if err := ins.Finish(); err != nil {
-				return errors.Wrap(err, "UpdateStats")
+				if err != nil {
+					err = fmt.Errorf("UpdateStats: %w", err)
+				}
+				return err
 			}
 		}
 		return nil
@@ -80,21 +86,21 @@ func UpdateStats(ctx context.Context, hits []goatcounter.Hit) error {
 
 // statBatch holds already grouped rows; constructing it performs no SQL.
 type statBatch struct {
-	bulk func(context.Context) (zdb.BulkInsert, error)
+	bulk func(context.Context) (database.BulkInsert, error)
 	rows [][]any
 }
 
 func oldFilters(ctx context.Context) error {
-	return zdb.TX(ctx, func(ctx context.Context) error {
+	return database.TX(ctx, func(ctx context.Context) error {
 		var ids []goatcounter.FilterID
-		err := zdb.Select(ctx, &ids,
+		err := database.Select(ctx, &ids,
 			`delete from filters where last_used_at < datetime('now', '-2 days') returning filter_id`)
 		if err != nil {
 			return err
 		}
 
 		if len(ids) > 0 {
-			return zdb.Exec(ctx, `delete from filter_paths where filter_id in (:ids)`, map[string]any{
+			return database.Exec(ctx, `delete from filter_paths where filter_id in (:ids)`, map[string]any{
 				"ids": ids,
 			})
 		}

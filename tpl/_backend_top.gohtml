@@ -8,11 +8,11 @@
 
 <body id="page-{{.Path | path_id}}">
 	<noscript>
-		<p>{{.T "top-nav/need-js|GoatCounter requires JavaScript enabled to function well; please allow JavaScript to run from %(domain)." .StaticDomain}}</p>
+		<p>GoatCounter requires JavaScript enabled to function well; please allow JavaScript to run from {{.StaticDomain}}.</p>
 	</noscript>
 
 	<nav class="center">
-	
+
 		<div id="domaininfo">
 			<label class="hide" for="site-selector">Site</label>
 			<select id="site-selector" aria-label="Site">
@@ -33,4 +33,3 @@
 	</nav>
 
 	<div class="page">
-	{{- if .Flash}}<div class="flash flash-{{.Flash.Level}}">{{.Flash.Message}}</div>{{end -}}

@@ -4,30 +4,23 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-
-	"zgo.at/errors"
-	"zgo.at/zli"
 )
 
 func printHelp(t string) {
-	fmt.Fprint(zli.Stdout, zli.Usage(zli.UsageTrim|zli.UsageHeaders, t))
+	fmt.Fprintln(stdout, strings.TrimSpace(t))
 }
 
-func cmdHelp(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
+func cmdHelp(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	defer func() { ready <- struct{}{} }()
 
-	zli.WantColor = true
-
-	// Don't parse any flags, just grep out non-flags and print help for those.
-	// zli.Flags stops at an unknown flag, so "-site 1" tries to load the help
-	// for "1"; that's the price for being able to append "-h" to any command.
+	// Help accepts topic names and ignores flag switches.
 	var topics []string
-	for _, a := range f.Args {
+	for _, a := range args {
 		if len(a) == 0 || a[0] == '-' {
 			continue
 		}
 		if a == "all" {
-			topics = []string{"help", "version", "serve", "healthcheck", "geodb-update", "listen", "debug"}
+			topics = []string{"help", "serve", "healthcheck", "geodb-update", "listen", "debug"}
 			break
 		}
 		topics = append(topics, strings.ToLower(a))
@@ -39,22 +32,22 @@ func cmdHelp(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
 	case 1:
 		text, ok := usage[topics[0]]
 		if !ok {
-			return errors.Errorf("no help topic for %q", topics[0])
+			return fmt.Errorf("no help topic for %q", topics[0])
 		}
 		printHelp(text)
 	default:
 		for _, t := range topics {
 			text, ok := usage[t]
 			if !ok {
-				return errors.Errorf("no help topic for %q", t)
+				return fmt.Errorf("no help topic for %q", t)
 			}
 
 			head := fmt.Sprintf("─── Help for %q ", t)
-			fmt.Fprintf(zli.Stdout, "%s%s\n\n",
-				zli.Colorize(head, zli.Bold),
+			fmt.Fprintf(stdout, "%s%s\n\n",
+				head,
 				strings.Repeat("─", 80-utf8.RuneCountInString(head)))
 			printHelp(text)
-			fmt.Fprintln(zli.Stdout, "")
+			fmt.Fprintln(stdout, "")
 		}
 	}
 	return nil
@@ -68,15 +61,6 @@ var usage = map[string]string{
 	"debug":        helpDebug,
 	"healthcheck":  cmdHealthcheck,
 	"geodb-update": usageGeoDB,
-
-	"version": `
-Show version and build information. This is printed as key=value, separated by
-semicolons.
-
-Flags:
-
-  -json        Output version as JSON.
-`,
 }
 
 const usageTop = `Usage: goatcounter [command] [flags]
@@ -86,14 +70,13 @@ Use "help <topic>" or "cmd -h" for more details for a command or topic.
 
 Commands:
   help         Show help; use "help <topic>" or "help all" for more details.
-  version      Show version and build information and exit.
   serve        Start HTTP server.
   geodb-update Download a GeoIP database as a one-off operation.
   healthcheck  Check a running instance is healthy; for Docker HEALTHCHECK.
 
 Extra help topics:
   listen       Detailed documentation on -listen flag.
-  debug        List of modules accepted by the -debug flag.
+  debug        Debug logging options.
 `
 
 const usageHelp = `
@@ -113,21 +96,9 @@ want TLS.
 `
 
 const helpDebug = `
-List of debug modules for the -debug flag; you can add multiple separated by
-commas.
+Use -debug to enable debug logs, including HTTP requests (except /count and
+/robots.txt). Use -debug-sql to log SQL queries independently.
 
-    all            Show debug logs for all of the below
-    cli-trace      Show stack traces in errors on the CLI
-    cron           Background "cron" jobs, including vacuuming old pageviews
-    dashboard      Dashboard view
-    geo            Loading of the GeoIP database
-    collector      Processing durable pageviews in the database
-    refspam        Pageviews blocked due to being in the refspam list
-    req            HTTP requests (all except /count and /robots.txt)
-    session        Internal "session" generation to track visitors
-    sql-query      Log all SQL queries
-    sql-result     Log all SQL queries with the data they're returning.
-
-You can also disable a module by prefixing it with "-", for example
-"-debug=all,-sql-query" to debug everything except SQL queries.
+Logs use Go's standard slog JSON format, or text format with -dev. The module
+field identifies the part of the application that produced the message.
 `

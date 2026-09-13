@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztime"
 )
 
 func TestDashboard(t *testing.T) {
@@ -51,18 +51,35 @@ func TestDashboardTrackingCode(t *testing.T) {
 	second.Defaults()
 	goatcounter.Config(ctx).Sites = append(goatcounter.Config(ctx).Sites, second)
 	goatcounter.Config(ctx).BasePath = "/stats"
-	router := NewBackend(zdb.MustGetDB(ctx), true, "", "/stats", 10, Ratelimits{}, "", Auth{Mode: AuthPublic})
-	for _, name := range []string{"example.com", "second.example"} {
-		r, rr := newTest(ctx, http.MethodGet, "/stats/?site="+name, nil)
-		r.Host = "analytics.example"
-		router.ServeHTTP(rr, r)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("dashboard: %d, %s", rr.Code, rr.Body.String())
+	for _, static := range []string{"", "assets.example:8443"} {
+		goatcounter.Config(ctx).DomainStatic = static
+		router := NewBackend(database.MustGetDB(ctx), true, static, "/stats", 10, Ratelimits{}, "", Auth{Mode: AuthPublic})
+		countDomain, assetBase, scriptHost := "analytics.example:8080/stats", "/stats", "analytics.example:8080"
+		if static != "" {
+			countDomain, assetBase, scriptHost = static, "//"+static, static
 		}
-		match := regexp.MustCompile(`(?s)<textarea[^>]+id="tracking-snippet"[^>]*>(.*?)</textarea>`).FindStringSubmatch(rr.Body.String())
-		want := "<script data-site=\"" + name + "\"\n        async src=\"//analytics.example/stats/count.js\"></script>"
-		if len(match) != 2 || html.UnescapeString(match[1]) != want {
-			t.Fatalf("wrong tracking snippet for %s: %v", name, match)
+		for _, name := range []string{"example.com", "second.example"} {
+			r, rr := newTest(ctx, http.MethodGet, "/stats/?site="+name, nil)
+			r.Host = "analytics.example:8080"
+			router.ServeHTTP(rr, r)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("dashboard: %d, %s", rr.Code, rr.Body.String())
+			}
+			body := rr.Body.String()
+			match := regexp.MustCompile(`(?s)<textarea[^>]+id="tracking-snippet"[^>]*>(.*?)</textarea>`).FindStringSubmatch(body)
+			want := "<script data-site=\"" + name + "\"\n        async src=\"//" + countDomain + "/count.js\"></script>"
+			if len(match) != 2 || html.UnescapeString(match[1]) != want {
+				t.Fatalf("wrong tracking snippet for %s (static %q): %v", name, static, match)
+			}
+			for _, want := range []string{
+				`href="` + assetBase + `/assets/`,
+				`src="` + assetBase + `/assets/`,
+				"please allow JavaScript to run from " + scriptHost + ".",
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("static %q: missing %q", static, want)
+				}
+			}
 		}
 	}
 }
@@ -106,9 +123,9 @@ func TestDashboardPastAndFuture(t *testing.T) {
 func TestDashboardLongRange(t *testing.T) {
 	ctx := testenv.DB(t)
 	testenv.StoreHits(ctx, t, false, goatcounter.Hit{
-		Path: "/sample-page", CreatedAt: ztime.FromString("2026-09-10"), FirstVisit: true,
+		Path: "/sample-page", CreatedAt: datetime.FromString("2026-09-10"), FirstVisit: true,
 	})
-	router := NewBackend(zdb.MustGetDB(ctx), true, "", "", 10, Ratelimits{}, "", Auth{Mode: AuthPublic})
+	router := NewBackend(database.MustGetDB(ctx), true, "", "", 10, Ratelimits{}, "", Auth{Mode: AuthPublic})
 	for _, tt := range []struct{ start, end, group string }{
 		{"2020-01-01", "2026-12-31", "week"},
 		{"1900-01-01", "2100-12-31", "year"},
@@ -168,8 +185,8 @@ func TestGetGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			start := ztime.FromString("2020-06-18")
-			rng := ztime.NewRange(start).To(start.AddDate(0, 0, tt.days).Add(24*time.Hour - time.Second))
+			start := datetime.FromString("2020-06-18")
+			rng := datetime.NewRange(start).To(start.AddDate(0, 0, tt.days).Add(24*time.Hour - time.Second))
 
 			r := httptest.NewRequest("GET", "/?group="+tt.query, nil)
 			group, allow := getGroup(r, tt.saved, rng)
@@ -206,7 +223,7 @@ func TestTimeRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.rng+"-"+tt.now, func(t *testing.T) {
 			t.Run("UTC", func(t *testing.T) {
-				ctx := ztime.WithNow(context.Background(), ztime.FromString(tt.now))
+				ctx := datetime.WithNow(context.Background(), datetime.FromString(tt.now))
 				rng := timeRange(ctx, tt.rng, time.UTC, false)
 				gotStart := rng.Start.Format("2006-01-02 15:04:05")
 				gotEnd := rng.End.Format("2006-01-02 15:04:05")

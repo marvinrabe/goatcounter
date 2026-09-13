@@ -9,10 +9,10 @@ import (
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/cron"
+	"github.com/marvinrabe/goatcounter/internal/database"
 	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 	"github.com/marvinrabe/goatcounter/internal/geo"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zgo"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func init() {
@@ -25,12 +25,11 @@ func init() {
 }
 
 // Context creates a new test context.
-func Context(db zdb.DB) context.Context {
+func Context(db database.DB) context.Context {
 	ctx := goatcounter.NewContext(context.Background(), db)
 	geodb, _ := geo.Open("")
 	ctx = geo.With(ctx, geodb)
 
-	goatcounter.Config(ctx).Domain = "test"
 	s := goatcounter.Site{Key: "example.com", LinkDomain: "example.com"}
 	s.Defaults()
 	goatcounter.Config(ctx).Sites = []goatcounter.Site{s}
@@ -59,11 +58,11 @@ func db(t testing.TB, storeFile bool, queries *QueryCounts) context.Context {
 	conn := libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
 	os.Setenv("TESTENV_CONNECT", conn)
 
-	files := os.DirFS(zgo.ModuleRoot())
+	files := os.DirFS(testutil.ModuleRoot())
 	if queries != nil {
 		files = countedFiles{files, queries}
 	}
-	db, err := libsqldriver.Open(context.Background(), zdb.ConnectOptions{
+	db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{
 		Connect: conn,
 		Files:   files,
 		Create:  true,
@@ -89,7 +88,7 @@ func StoreHits(ctx context.Context, t *testing.T, wantFail bool, hits ...goatcou
 	t.Helper()
 
 	for i := range hits {
-		if hits[i].Session.IsZero() {
+		if hits[i].Session == (goatcounter.SessionID{}) {
 			hits[i].Session = goatcounter.TestSession
 		}
 		if hits[i].Path == "" {

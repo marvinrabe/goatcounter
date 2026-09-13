@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/geo"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztest"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestLocations(t *testing.T) {
@@ -43,14 +43,14 @@ func TestLocations(t *testing.T) {
 			}
 		}
 
-		out := zdb.DumpString(ctx, `select * from locations`)
+		out := database.DumpString(ctx, `select * from locations`)
 		want := `
 			location_id  iso_3166_2  country  region  country_name   region_name
 			1                                         (unknown)
 			2            IE          IE               Ireland
 			3            US-TX       US       TX      United States
 			4            US          US               United States`
-		if d := ztest.Diff(out, want, ztest.DiffNormalizeWhitespace); d != "" {
+		if d := testutil.Diff(out, want, testutil.DiffNormalizeWhitespace); d != "" {
 			t.Error(d)
 		}
 	}
@@ -58,7 +58,7 @@ func TestLocations(t *testing.T) {
 	// Run it multiple times, since it should always give the same resuts.
 	run()
 	run()
-	ctx = NewContext(ctx, zdb.MustGetDB(ctx)) // Reset cache
+	ctx = NewContext(ctx, database.MustGetDB(ctx)) // Reset cache
 	run()
 }
 

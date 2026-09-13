@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	. "github.com/marvinrabe/goatcounter"
+	botcheck "github.com/marvinrabe/goatcounter/internal/bot"
+	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/isbot"
-	"zgo.at/zdb"
-	"zgo.at/zstd/ztest"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestUserAgentGetOrInsert(t *testing.T) {
@@ -23,10 +23,10 @@ func TestUserAgentGetOrInsert(t *testing.T) {
 		}
 
 		want = strings.ReplaceAll(strings.TrimSpace(strings.ReplaceAll(want, "\t", "")), "@", " ")
-		out := zdb.DumpString(ctx, `select browsers.name || ' ' || browsers.version as browser from browsers;`) +
-			zdb.DumpString(ctx, `select systems.name  || ' ' || systems.version  as system  from systems;`)
-		out = strings.ReplaceAll(out, " \n", "\n") // zdb.DumpString pads columns with trailing spaces.
-		if d := ztest.Diff(out, want); d != "" {
+		out := database.DumpString(ctx, `select browsers.name || ' ' || browsers.version as browser from browsers;`) +
+			database.DumpString(ctx, `select systems.name  || ' ' || systems.version  as system  from systems;`)
+		out = strings.ReplaceAll(out, " \n", "\n") // database.DumpString pads columns with trailing spaces.
+		if d := testutil.Diff(out, want); d != "" {
 			t.Error(d)
 		}
 	}
@@ -37,7 +37,7 @@ func TestUserAgentGetOrInsert(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 1, SystemID: 1, Isbot: isbot.NoBotNoMatch}, `
+		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 1, SystemID: 1, Isbot: botcheck.NoBotNoMatch}, `
 			browser
 			Firefox 79
 			system
@@ -51,7 +51,7 @@ func TestUserAgentGetOrInsert(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 1, SystemID: 1, Isbot: isbot.NoBotNoMatch}, `
+		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 1, SystemID: 1, Isbot: botcheck.NoBotNoMatch}, `
 			browser
 			Firefox 79
 			system
@@ -65,7 +65,7 @@ func TestUserAgentGetOrInsert(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 1, SystemID: 2, Isbot: isbot.NoBotNoMatch}, `
+		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 1, SystemID: 2, Isbot: botcheck.NoBotNoMatch}, `
 			browser
 			Firefox 79
 			system
@@ -80,7 +80,7 @@ func TestUserAgentGetOrInsert(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 2, SystemID: 2, Isbot: isbot.NoBotNoMatch}, `
+		test(ua, UserAgent{UserAgent: ua.UserAgent, BrowserID: 2, SystemID: 2, Isbot: botcheck.NoBotNoMatch}, `
 			browser
 			Firefox 79
 			Firefox 71

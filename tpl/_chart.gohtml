@@ -1,0 +1,27 @@
+{{- if not .Rows -}}
+ <em>Nothing to display</em>
+{{- else -}}
+ {{if not .RowsOnly}}<div class="rows{{if .Pages}} pages{{end}}">{{end}}
+ {{range .Rows}}
+  <div class="{{.Class}}" {{if .Page}}id="{{.Title}}" data-id="{{.PageID}}" data-key="{{.PageID}}" data-count="{{.Count}}" data-detail-total="{{.Count}}"{{else}}data-key="{{.Key}}"{{end}}>
+   <span class="col-name">
+    {{if .Link}}<a href="#" class="hchart-row-link load-detail{{if .Page}} rlink{{end}}"{{if .Page}} title="{{.Title}}"{{end}}>{{template "_chart_bar" .}}</a>{{else}}{{template "_chart_bar" .}}{{end}}
+   </span>
+   <span class="col-count">{{nformat .Count}}</span>
+   <span class="col-count col-perc">{{.Percentage}}</span>
+  </div>
+  {{if .Detail}}
+   <div class="hchart detail" data-widget="{{.WidgetID}}" data-key="{{.PageID}}" data-total="{{.Count}}">{{template "_chart.gohtml" .Detail}}</div>
+  {{end}}
+ {{end}}
+ {{if not .RowsOnly}}</div>{{end}}
+ {{if .More}}
+  <a href="#" class="load-more">Show more</a>
+  <a href="#" class="load-less">(show less)</a>
+ {{end}}
+{{- end -}}
+
+{{define "_chart_bar" -}}
+ <span class="bar" style="width: {{.Percentage}}"></span>
+ <span class="bar-c"><span class="cutoff">{{.Name}}</span> {{if .Event}}<sup class="label-event">event</sup>{{end}}{{if .VisitURL}}<sup class="go"><a rel="noopener" target="_blank" href="{{.VisitURL}}">visit</a></sup>{{end}}</span>
+{{- end}}

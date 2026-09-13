@@ -162,8 +162,7 @@ sub {
 			<p>This page doesn’t exist.</p>
 		{{else if and (ge .Code 500) (ne .Code 504)}}
 			<h1>Unexpected error</h1>
-			<p>An unexpected error with the code ‘{{error_code .Error}}’ occurred.<br>
-				This has been reported for investigation.</p>
+			<p>An unexpected error occurred.</p>
 		{{else}}
 			<h1>Error {{.Code}}</h1>
 			<p>{{.Error}}</p>

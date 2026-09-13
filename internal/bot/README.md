@@ -1,0 +1,1 @@
+Bot signature and cloud IP data are retained from [isbot v1.1.0](https://github.com/arp242/isbot) under the accompanying MIT license. Only the data is retained; request matching uses the standard library. Existing numeric reason codes remain compatible with stored records. Browser and OS parsing uses github.com/mileusna/useragent.

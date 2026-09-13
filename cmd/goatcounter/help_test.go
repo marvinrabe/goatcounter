@@ -3,12 +3,10 @@ package main
 import (
 	"strings"
 	"testing"
-
-	"zgo.at/zli"
 )
 
 func TestHelp(t *testing.T) {
-	exit, _, out := zli.Test(t)
+	exit, _, out := captureCLI(t)
 
 	{
 		runCmd(t, exit, "help", "serve")
@@ -22,17 +20,17 @@ func TestHelp(t *testing.T) {
 	{
 		runCmd(t, exit, "help", "all")
 		wantExit(t, exit, out, 0)
-		if !strings.Contains(out.String(), `Help for "healthcheck"`) || strings.Contains(out.String(), `Help for "db"`) {
+		if !strings.Contains(out.String(), `Help for "healthcheck"`) || strings.Contains(out.String(), `Help for "db"`) || strings.Contains(out.String(), `Help for "version"`) {
 			t.Error()
 		}
 		out.Reset()
 	}
 }
 
-func TestRemovedDBCommands(t *testing.T) {
-	for _, cmd := range []string{"db", "database", "create"} {
+func TestRemovedCommands(t *testing.T) {
+	for _, cmd := range []string{"db", "database", "create", "version"} {
 		t.Run(cmd, func(t *testing.T) {
-			exit, _, out := zli.Test(t)
+			exit, _, out := captureCLI(t)
 			runCmdStop(t, exit, make(chan struct{}, 1), make(chan struct{}), cmd)
 			wantExit(t, exit, out, 1)
 		})

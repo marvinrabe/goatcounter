@@ -1,4 +1,4 @@
-package goatcounter_test
+package handlers
 
 import (
 	"context"
@@ -6,35 +6,33 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/marvinrabe/goatcounter"
-	_ "github.com/marvinrabe/goatcounter/internal/tpl"
-	"zgo.at/ztpl"
+	"github.com/marvinrabe/goatcounter"
 )
 
 func TestDashboardTemplateSyntax(t *testing.T) {
-	if err := ztpl.Init(os.DirFS("tpl")); err != nil {
+	if err := LoadTemplates(os.DirFS("../tpl")); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestDashboardTotalsIsReloadableWidget(t *testing.T) {
-	if err := ztpl.Init(os.DirFS("tpl")); err != nil {
+	if err := LoadTemplates(os.DirFS("../tpl")); err != nil {
 		t.Fatal(err)
 	}
 
-	html, err := ztpl.ExecuteString("_dashboard_totals.gohtml", struct {
+	html, err := renderTemplate("_dashboard_totals.gohtml", struct {
 		Context context.Context
 		ID      int
 		Loaded  bool
 		Err     error
-		Group   Group
-		Metrics DashboardMetrics
-		Series  DashboardMetricSeries
+		Group   goatcounter.Group
+		Metrics goatcounter.DashboardMetrics
+		Series  goatcounter.DashboardMetricSeries
 	}{
 		Context: context.Background(),
 		ID:      7,
 		Loaded:  true,
-		Group:   GroupDaily,
+		Group:   goatcounter.GroupDaily,
 	})
 	if err != nil {
 		t.Fatal(err)

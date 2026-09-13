@@ -5,10 +5,9 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestCampaignStats(t *testing.T) {
@@ -24,7 +23,7 @@ func TestCampaignStats(t *testing.T) {
 	}...)
 
 	var have goatcounter.HitStats
-	err := have.ListCampaigns(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
+	err := have.ListCampaigns(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +35,7 @@ func TestCampaignStats(t *testing.T) {
 			{"count": 1, "id": "3", "name": "three"}
 		]
 	}`
-	if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+	if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 		t.Error(d)
 	}
 }

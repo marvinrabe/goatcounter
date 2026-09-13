@@ -1,4 +1,4 @@
-package goatcounter
+package datetime
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Timezone the dashboard is displayed in.
+// Timezone is the timezone the dashboard is displayed in.
 //
 // There is just one timezone for the entire installation, set with the TZ
 // environment variable; the zero value is UTC.

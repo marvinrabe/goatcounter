@@ -10,15 +10,15 @@ import (
 
 	. "github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/cron"
+	"github.com/marvinrabe/goatcounter/internal/database"
 	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
 )
 
 func queryCount(t *testing.T, ctx context.Context, query string) int {
 	t.Helper()
 	var n int
-	if err := zdb.Get(ctx, &n, query); err != nil {
+	if err := database.Get(ctx, &n, query); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -35,7 +35,7 @@ func TestDurableCollectorRollback(t *testing.T) {
 			if n := queryCount(t, ctx, "select count(*) from hit_queue"); n != 1 {
 				t.Fatalf("durable queue: %d", n)
 			}
-			if err := zdb.Exec(ctx, `create trigger reject_write before insert on `+target+`
+			if err := database.Exec(ctx, `create trigger reject_write before insert on `+target+`
                 begin select raise(abort, 'injected failure'); end`); err != nil {
 				t.Fatal(err)
 			}
@@ -50,7 +50,7 @@ func TestDurableCollectorRollback(t *testing.T) {
 			if n := queryCount(t, ctx, "select count(*) from hit_queue"); n != 1 {
 				t.Fatalf("lost queued hit: %d", n)
 			}
-			if err := zdb.Exec(ctx, `drop trigger reject_write`); err != nil {
+			if err := database.Exec(ctx, `drop trigger reject_write`); err != nil {
 				t.Fatal(err)
 			}
 			for range 2 {
@@ -69,7 +69,7 @@ func TestDurableCollectorRollback(t *testing.T) {
 
 func TestCollectorsShareSessionAndQueue(t *testing.T) {
 	first := testenv.DB(t)
-	db, err := libsqldriver.Open(context.Background(), zdb.ConnectOptions{Connect: os.Getenv("TESTENV_CONNECT"), Create: false})
+	db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{Connect: os.Getenv("TESTENV_CONNECT"), Create: false})
 	if err != nil {
 		t.Fatal(err)
 	}

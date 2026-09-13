@@ -167,20 +167,6 @@ var get_date = function(str) {
 		(s[3] || 0), (s[4] || 0), (s[5] || 0))
 }
 
-// Simple z18n-compatible transate.
-var T = function(id, params) {
-	var str = window.I18N[id]
-	if (!str) {
-		console.warn(`No translation for ${id}`)
-		return id;
-	}
-	if (typeof params === 'undefined')
-		params = {}
-	else if (typeof params !== 'object')
-		params['__one__'] = params
-	return str.replace(/%\((.+?)\)/g, (_, varname) => params[varname] !== 'undefined' ?  params[varname] : params['__one__'])
-}
-
 var style = function(name) {
 	return getComputedStyle(document.documentElement).getPropertyValue(`--${name}`)
 }
@@ -188,7 +174,6 @@ var style = function(name) {
 export {
 	$$,
 	$1,
-	T,
 	ajax,
 	days,
 	daysShort,

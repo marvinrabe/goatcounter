@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"math"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,16 +16,11 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/log"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/httpx"
+	"github.com/marvinrabe/goatcounter/internal/parse"
+	"github.com/marvinrabe/goatcounter/internal/validation"
 	"github.com/marvinrabe/goatcounter/internal/widgets"
-	"zgo.at/errors"
-	"zgo.at/guru"
-	"zgo.at/zhttp"
-	"zgo.at/zstd/zint"
-	"zgo.at/zstd/zstrconv"
-	"zgo.at/zstd/ztime"
-	"zgo.at/ztpl"
-	"zgo.at/zvalidate"
 )
 
 // The dashboard period when nothing is given in the query string.
@@ -48,7 +46,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		period = defaultPeriod
 	}
 
-	showRefs, _ := zstrconv.ParseInt[goatcounter.PathID](q.Get("showrefs"), 10)
+	showRefs, _ := parse.Int[goatcounter.PathID](q.Get("showrefs"), 10)
 	var allowGroups goatcounter.Groups
 	group, allowGroups := getGroup(r, 0, rng)
 
@@ -59,12 +57,13 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		log.Module("dashboard").Debug(r.Context(), "pathfilter", "took", time.Since(start))
+		slog.With("module", "dashboard").DebugContext(r.Context(), "pathfilter", "took", time.Since(start))
 	}
 
-	cd := goatcounter.Config(r.Context()).DomainCount
+	cfg := goatcounter.Config(r.Context())
+	cd := cfg.DomainStatic
 	if cd == "" {
-		cd = site.SchemelessURL(r.Context())
+		cd = r.Host + cfg.BasePath
 	}
 
 	// Load widgets data from the database.
@@ -76,9 +75,9 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		if tplName == "" { // Some data doesn't have a template.
 			return
 		}
-		tpl, err := ztpl.ExecuteString(tplName, tplData)
+		tpl, err := renderTemplate(tplName, tplData)
 		if err != nil {
-			log.Module("dashboard").Error(r.Context(), err, log.AttrHTTP(r))
+			slog.With("module", "dashboard").ErrorContext(r.Context(), err.Error(), requestAttrs(r))
 			w.SetHTML(template.HTML("template rendering error: " + template.HTMLEscapeString(err.Error())))
 			return
 		}
@@ -103,39 +102,30 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		getHTML(widget)
 	}
 
-	rng = rng.In(goatcounter.Config(r.Context()).Timezone.Loc()).Locale(ztime.RangeLocale{
-		Today:     func() string { return "Today" },
-		Yesterday: func() string { return "Yesterday" },
-		DayAgo:    func(n int) string { return fmt.Sprintf("%d days ago", n) },
-		WeekAgo:   func(n int) string { return fmt.Sprintf("%d weeks ago", n) },
-		MonthAgo:  func(n int) string { return fmt.Sprintf("%d months ago", n) },
-		Month: func(m time.Month) string {
-			return time.Date(0, m, 0, 0, 0, 0, 0, time.UTC).Format("January")
-		},
-	})
+	rng = rng.In(goatcounter.Config(r.Context()).Timezone.Loc())
 
 	// When reloading the dashboard from e.g. the filter we don't need to render
 	// header/footer/menu, etc. Render just the widgets and return that as JSON.
 	if q.Get("reload") != "" {
-		t, err := ztpl.ExecuteString("_dashboard_widgets.gohtml", struct {
+		t, err := renderTemplate("_dashboard_widgets.gohtml", struct {
 			Globals
 			Widgets widgets.List
-		}{newGlobals(w, r), wid})
+		}{newGlobals(r), wid})
 		if err != nil {
 			return err
 		}
 
-		return zhttp.JSON(w, map[string]string{
+		return httpx.JSON(w, map[string]string{
 			"widgets":   t,
 			"timerange": rng.String(),
 		})
 	}
 
-	return zhttp.Template(w, "dashboard.gohtml", struct {
+	return renderHTML(w, "dashboard.gohtml", struct {
 		Globals
 		CountDomain string
 		ShowRefs    goatcounter.PathID
-		Period      ztime.Range
+		Period      datetime.Range
 		PathFilter  goatcounter.PathFilter
 		AllowGroups goatcounter.Groups
 		Widgets     widgets.List
@@ -144,7 +134,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		Filter      string
 		Total       int
 		TotalUTC    int
-	}{newGlobals(w, r), cd, showRefs, rng,
+	}{newGlobals(r), cd, showRefs, rng,
 		args.PathFilter, allowGroups, wid, period, group, filter,
 		shared.Total, shared.TotalUTC})
 }
@@ -158,25 +148,27 @@ func (h backend) loadDashboardWidgets(r *http.Request, list widgets.List, args w
 	var wg sync.WaitGroup
 	for _, widget := range list {
 		wg.Go(func() {
-			defer log.Recover(r.Context(), func(err error) {
-				log.Error(r.Context(), err, "widget", widget.Name(), log.AttrHTTP(r))
-				_, userErr := zhttp.UserError(err)
-				widget.SetErr(userErr)
-			})
+			defer func() {
+				if p := recover(); p != nil {
+					slog.ErrorContext(r.Context(), "widget panic", "panic", p, "stack", string(debug.Stack()), "widget", widget.Name(), requestAttrs(r))
+					_, userErr := httpx.UserError(fmt.Errorf("widget panic: %v", p))
+					widget.SetErr(userErr)
+				}
+			}()
 			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(h.dashTimeout)*time.Second)
 			defer cancel()
 			start := time.Now()
 			_, err := widget.GetData(ctx, args)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					err = guru.New(http.StatusGatewayTimeout, "server timed out loading data")
+					err = httpx.Error(http.StatusGatewayTimeout, "server timed out loading data")
 				} else if !errors.Is(err, context.Canceled) {
-					log.Module("dashboard").Error(ctx, err, "widget", widget.Name(), log.AttrHTTP(r))
-					_, err = zhttp.UserError(err)
+					slog.With("module", "dashboard").ErrorContext(ctx, err.Error(), "widget", widget.Name(), requestAttrs(r))
+					_, err = httpx.UserError(err)
 				}
 				widget.SetErr(err)
 			}
-			log.Module("dashboard").Debug(r.Context(), widget.Name(), "took", time.Since(start))
+			slog.With("module", "dashboard").DebugContext(r.Context(), widget.Name(), "took", time.Since(start))
 		})
 	}
 	wg.Wait()
@@ -189,7 +181,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	v := goatcounter.NewValidate(r.Context())
+	v := validation.New()
 	var (
 		widget     = int(v.Integer("widget", r.URL.Query().Get("widget")))
 		key        = r.URL.Query().Get("key")
@@ -215,7 +207,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 
 	wid := widgets.ByID(r.Context(), widget)
 	if wid == nil {
-		return guru.Errorf(400, `"widget" query parameter out of range: %d`, widget)
+		return httpx.Errorf(400, `"widget" query parameter out of range: %d`, widget)
 	}
 	if key != "" {
 		wid.SetDetail(key)
@@ -232,11 +224,11 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 		if key == "" {
 			p.Max, err = strconv.Atoi(r.URL.Query().Get("max"))
 			if err != nil {
-				return guru.Errorf(400, `"max" query parameter wrong: %w`, err)
+				return httpx.Errorf(400, `"max" query parameter wrong: %w`, err)
 			}
-			p.Exclude, err = zint.Split[goatcounter.PathID](r.URL.Query().Get("exclude"), ",")
+			p.Exclude, err = parse.Ints[goatcounter.PathID](r.URL.Query().Get("exclude"), ",")
 			if err != nil {
-				return guru.Errorf(400, `"exclude" query parameter wrong: %w`, err)
+				return httpx.Errorf(400, `"exclude" query parameter wrong: %w`, err)
 			}
 		}
 	}
@@ -245,7 +237,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	ret["html"], err = ztpl.ExecuteString(wid.RenderHTML(r.Context(), args))
+	ret["html"], err = renderTemplate(wid.RenderHTML(r.Context(), args))
 	if err != nil {
 		return err
 	}
@@ -256,7 +248,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 		ret["max"] = p.Max
 	}
 
-	return zhttp.JSON(w, ret)
+	return httpx.JSON(w, ret)
 }
 
 // Get a time range; the return value is always in UTC, and is the UTC day range
@@ -273,20 +265,20 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 //
 //	Any digit
 //	   Last n days.
-func timeRange(ctx context.Context, r string, tz *time.Location, sundayStartsWeek bool) ztime.Range {
-	rng := ztime.NewRange(ztime.Now(ctx).In(tz)).Current(ztime.Day)
+func timeRange(ctx context.Context, r string, tz *time.Location, sundayStartsWeek bool) datetime.Range {
+	rng := datetime.NewRange(datetime.Now(ctx).In(tz)).Current(datetime.Day)
 	switch r {
 	case "0", "day":
 	case "week":
-		rng = rng.Last(ztime.Week(sundayStartsWeek))
+		rng = rng.Last(datetime.Week(sundayStartsWeek))
 	case "month":
-		rng = rng.Last(ztime.Month)
+		rng = rng.Last(datetime.Month)
 	case "quarter":
-		rng = rng.Last(ztime.Quarter)
+		rng = rng.Last(datetime.Quarter)
 	case "half-year":
-		rng = rng.Last(ztime.HalfYear)
+		rng = rng.Last(datetime.HalfYear)
 	case "year":
-		rng = rng.Last(ztime.Year)
+		rng = rng.Last(datetime.Year)
 	default:
 		// This can be a fraction such as "54.958333333333336" for views that
 		// were saved from dashboard.js before it rounded the number: it
@@ -295,29 +287,29 @@ func timeRange(ctx context.Context, r string, tz *time.Location, sundayStartsWee
 		// Keep rounding here for views that were saved like that.
 		days, err := strconv.ParseFloat(r, 32)
 		if err != nil {
-			log.Error(ctx, errors.Errorf("timeRange: %w", err), "rng", r)
+			slog.ErrorContext(ctx, fmt.Errorf("timeRange: %w", err).Error(), "rng", r)
 			return timeRange(ctx, "week", tz, sundayStartsWeek)
 		}
-		rng.Start = ztime.AddPeriod(rng.Start, -int(math.Round(days)), ztime.Day)
+		rng.Start = datetime.AddPeriod(rng.Start, -int(math.Round(days)), datetime.Day)
 	}
 	return rng.UTC()
 }
 
-func getPeriod(r *http.Request) (ztime.Range, error) {
-	var rng ztime.Range
+func getPeriod(r *http.Request) (datetime.Range, error) {
+	var rng datetime.Range
 
 	if d := r.URL.Query().Get("period-start"); d != "" {
 		var err error
 		rng.Start, err = time.ParseInLocation("2006-01-02", d, goatcounter.Config(r.Context()).Timezone.Loc())
 		if err != nil {
-			return rng, guru.New(400, T(r.Context(), "error/invalid-start-date|Invalid start date: %(date)", d))
+			return rng, httpx.Error(400, "Invalid start date: "+d)
 		}
 	}
 	if d := r.URL.Query().Get("period-end"); d != "" {
 		var err error
 		rng.End, err = time.ParseInLocation("2006-01-02 15:04:05", d+" 23:59:59", goatcounter.Config(r.Context()).Timezone.Loc())
 		if err != nil {
-			return rng, guru.New(400, T(r.Context(), "error/invalid-end-date|Invalid end date: %(date)", d))
+			return rng, httpx.Error(400, "Invalid end date: "+d)
 		}
 	}
 
@@ -325,13 +317,13 @@ func getPeriod(r *http.Request) (ztime.Range, error) {
 		return timeRange(r.Context(), defaultPeriod, goatcounter.Config(r.Context()).Timezone.Loc(), false), nil
 	}
 	if rng.End.Before(rng.Start) {
-		return rng, guru.New(400, T(r.Context(), "error/date-mismatch|end date is before start date"))
+		return rng, httpx.Error(400, "end date is before start date")
 	}
 
 	return rng.From(rng.Start).To(rng.End).UTC(), nil
 }
 
-func getGroup(r *http.Request, g goatcounter.Group, rng ztime.Range) (goatcounter.Group, goatcounter.Groups) {
+func getGroup(r *http.Request, g goatcounter.Group, rng datetime.Range) (goatcounter.Group, goatcounter.Groups) {
 	var (
 		allow goatcounter.Groups
 		saved = g
@@ -383,7 +375,7 @@ func getGroup(r *http.Request, g goatcounter.Group, rng ztime.Range) (goatcounte
 	return g, allow
 }
 
-func getPathFilter(v *zvalidate.Validator, r *http.Request) goatcounter.PathFilter {
+func getPathFilter(v *validation.Validator, r *http.Request) goatcounter.PathFilter {
 	f := r.URL.Query().Get("filter")
 	if f == "" {
 		return goatcounter.PathFilter{}

@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
 )
 
 type Languages struct {
@@ -20,8 +19,8 @@ type Languages struct {
 
 func (w Languages) Name() string { return "languages" }
 func (w Languages) Type() string { return "hchart" }
-func (w Languages) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/language-stats|Language stats")
+func (w Languages) Label() string {
+	return "Language stats"
 }
 func (w *Languages) SetHTML(h template.HTML) { w.html = h }
 func (w Languages) HTML() template.HTML      { return w.html }
@@ -52,6 +51,6 @@ func (w Languages) RenderHTML(ctx context.Context, shared SharedData) (string, a
 		TotalUTC   int
 		Stats      goatcounter.HitStats
 	}{ctx, w.Name(), w.id, shared.RowsOnly, false, w.loaded, w.err,
-		i18n.T(ctx, "header/languages|Languages"),
+		"Languages",
 		shared.TotalUTC, w.Stats}
 }

@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"zgo.at/zli"
 )
 
 const cmdHealthcheck = `
@@ -22,14 +20,15 @@ Flags:
   -timeout     Timeout for the request, in seconds. Default: 3
 `
 
-func runHealthcheck(f zli.Flags, ready chan<- struct{}, stop chan struct{}) error {
-	url := f.String("", "url")
-	timeout := f.Int(3, "timeout")
-	if err := f.Parse(); err != nil {
+func runHealthcheck(args []string, ready chan<- struct{}, stop chan struct{}) error {
+	f := newFlags("runHealthcheck")
+	url := f.String("url", "", "")
+	timeout := f.Int("timeout", 3, "")
+	if err := parseFlags(f, args, false, false); err != nil {
 		return err
 	}
 
-	target := url.String()
+	target := *url
 	if target == "" {
 		listen := os.Getenv("GOATCOUNTER_LISTEN")
 		if listen == "" {
@@ -44,7 +43,7 @@ func runHealthcheck(f zli.Flags, ready chan<- struct{}, stop chan struct{}) erro
 		}
 		target = "http://" + net.JoinHostPort(host, port) + os.Getenv("GOATCOUNTER_BASE_PATH") + "/status"
 	}
-	client := &http.Client{Timeout: time.Duration(timeout.Int()) * time.Second}
+	client := &http.Client{Timeout: time.Duration(*timeout) * time.Second}
 	resp, err := client.Get(target)
 	if err != nil {
 		return fmt.Errorf("healthcheck failed: %w", err)

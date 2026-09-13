@@ -6,15 +6,15 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/ztime"
 )
 
 func TestDashboardWidgetsShareSessionQuery(t *testing.T) {
 	ctx, queries := testenv.DBWithQueryFileCounts(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	testenv.StoreHits(ctx, t, false, goatcounter.Hit{Path: "/one", CreatedAt: now, FirstVisit: true})
-	rng := ztime.NewRange(now.Add(-time.Minute)).To(now.Add(time.Minute))
+	rng := datetime.NewRange(now.Add(-time.Minute)).To(now.Add(time.Minute))
 	a := NewArgs(ctx, rng, goatcounter.GroupHourly, nil, 0)
 	var totals TotalCount
 	var chart TotalPages

@@ -2,8 +2,7 @@ with session_stats as (
 	select
 		hits.session,
 		count(*) as pageviews,
-		{{:sqlite  cast(strftime('%s', max(hits.created_at)) as integer) - cast(strftime('%s', min(hits.created_at)) as integer) as duration}}
-		{{:sqlite! extract(epoch from (max(hits.created_at) - min(hits.created_at))) as duration}}
+		cast(strftime('%s', max(hits.created_at)) as integer) - cast(strftime('%s', min(hits.created_at)) as integer) as duration
 	from hits
 	join paths using (path_id)
 	where

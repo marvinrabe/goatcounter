@@ -2,14 +2,14 @@ package widgets
 
 import (
 	"context"
+	"errors"
 	"html/template"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/i18n"
-	"github.com/marvinrabe/goatcounter/internal/log"
-	"zgo.at/errors"
-	"zgo.at/zstd/zstrconv"
+	"github.com/marvinrabe/goatcounter/internal/parse"
 )
 
 type Pages struct {
@@ -31,8 +31,8 @@ type Pages struct {
 
 func (w Pages) Name() string { return "pages" }
 func (w Pages) Type() string { return "full-width" }
-func (w Pages) Label(ctx context.Context) string {
-	return i18n.T(ctx, "label/paths|Paths overview")
+func (w Pages) Label() string {
+	return "Paths overview"
 }
 func (w *Pages) SetHTML(h template.HTML) { w.html = h }
 func (w Pages) HTML() template.HTML      { return w.html }
@@ -41,7 +41,7 @@ func (w Pages) Err() error               { return w.err }
 func (w Pages) ID() int                  { return w.id }
 
 func (w *Pages) SetDetail(d string) {
-	w.RefsForPath, _ = zstrconv.ParseInt[goatcounter.PathID](d, 10)
+	w.RefsForPath, _ = parse.Int[goatcounter.PathID](d, 10)
 }
 
 func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
@@ -51,13 +51,17 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 	}
 
 	var (
-		wg   sync.WaitGroup
-		errs = errors.NewGroup(2)
+		wg      sync.WaitGroup
+		refsErr error
 	)
 	if a.ShowRefs > 0 {
 		wg.Go(func() {
-			defer log.Recover(ctx)
-			errs.Append(w.Refs.ListRefsByPathID(ctx, a.ShowRefs, a.Rng, w.LimitRefs, a.Offset))
+			defer func() {
+				if p := recover(); p != nil {
+					slog.ErrorContext(ctx, "background task panic", "panic", p, "stack", string(debug.Stack()))
+				}
+			}()
+			refsErr = w.Refs.ListRefsByPathID(ctx, a.ShowRefs, a.Rng, w.LimitRefs, a.Offset)
 		})
 	}
 
@@ -67,7 +71,6 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 	} else {
 		w.Display, w.More, err = w.Pages.ListCounts(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit)
 	}
-	errs.Append(err)
 
 	wg.Wait()
 
@@ -78,7 +81,7 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 	}
 
 	w.loaded = true
-	return w.More, errs.ErrorOrNil()
+	return w.More, errors.Join(err, refsErr)
 }
 
 func (w Pages) RenderHTML(ctx context.Context, shared SharedData) (string, any) {

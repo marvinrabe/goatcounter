@@ -1,7 +1,5 @@
-{{- $x := (t $.Context "dashboard/loading|Loading…") -}}
-{{- if $.Loaded -}}{{- $x = horizontal_chart .Context .Stats .TotalUTC .HasSubMenu true -}}{{- end -}}
 {{- if .RowsOnly -}}
-	{{- $x -}}
+	{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .TotalUTC .HasSubMenu true)}}{{else}}Loading…{{end}}
 {{- else -}}
 	<div class="hchart widget-{{if $.Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
 		<div class="widget-header">
@@ -15,9 +13,9 @@
 			</div>
 		{{end}}
 		{{if .Err}}
-			<em>{{t $.Context "p/error|Error: %(error-message)" .Err.Error}}</em>
+			<em>Error: {{.Err.Error}}</em>
 		{{else}}
-			{{$x}}
+			{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .TotalUTC .HasSubMenu true)}}{{else}}Loading…{{end}}
 		{{end}}
 	</div>
 {{- end -}}

@@ -5,10 +5,9 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestSizeStats(t *testing.T) {
@@ -26,7 +25,7 @@ func TestSizeStats(t *testing.T) {
 	}...)
 
 	var have goatcounter.HitStats
-	err := have.ListSizes(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, false)
+	err := have.ListSizes(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +40,7 @@ func TestSizeStats(t *testing.T) {
 		]
 	}`
 
-	if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+	if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 		t.Error(d)
 	}
 
@@ -56,7 +55,7 @@ func TestSizeStats(t *testing.T) {
 	}...)
 
 	have = goatcounter.HitStats{}
-	err = have.ListSizes(ctx, ztime.NewRange(now).To(now), goatcounter.PathFilter{}, false)
+	err = have.ListSizes(ctx, datetime.NewRange(now).To(now), goatcounter.PathFilter{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +69,7 @@ func TestSizeStats(t *testing.T) {
 			{"count": 1, "id": "unknown", "name": ""}
 		]
 	}`
-	if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+	if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 		t.Error(d)
 	}
 }

@@ -8,9 +8,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestStaticFiles(t *testing.T) {
+	t.Chdir(testutil.ModuleRoot())
 	for _, dev := range []bool{false, true} {
 		for _, base := range []string{"", "/stats"} {
 			for _, standalone := range []bool{false, true} {

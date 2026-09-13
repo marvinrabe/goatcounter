@@ -6,11 +6,10 @@ import (
 	"time"
 
 	. "github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"zgo.at/zdb"
-	"zgo.at/zstd/zjson"
-	"zgo.at/zstd/ztest"
-	"zgo.at/zstd/ztime"
+	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestHitStats(t *testing.T) {
@@ -22,16 +21,16 @@ func TestHitStats(t *testing.T) {
 		Hit{Path: "/y", Location: "ID-BA", Size: []float64{800, 600, 2}, UserAgentHeader: "Mozilla/5.0 (X11; Linux x86_64; Ubuntu; rv:79.0) Gecko/20100101 Firefox/79.0", FirstVisit: true},
 	)
 
-	rng := ztime.NewRange(ztime.Now(ctx)).To(ztime.Now(ctx))
+	rng := datetime.NewRange(datetime.Now(ctx)).To(datetime.Now(ctx))
 
 	cmp := func(t *testing.T, want string, stats ...HitStats) {
 		t.Helper()
 
 		var got strings.Builder
 		for _, s := range stats {
-			got.WriteString(string(zjson.MustMarshalIndent(s, "\t\t\t", "\t")))
+			got.WriteString(string(testutil.MustMarshalIndent(s, "\t\t\t", "\t")))
 		}
-		if d := ztest.Diff(got.String(), want); d != "" {
+		if d := testutil.Diff(got.String(), want); d != "" {
 			t.Error(d)
 		}
 	}
@@ -169,9 +168,9 @@ func TestHitStats(t *testing.T) {
 
 			// We don't have the cities db in tests, so it's expected to be
 			// blank.
-			err = zdb.Exec(ctx, `update locations set region_name='Noord-Brabant' where iso_3166_2='NL-NB'`)
+			err = database.Exec(ctx, `update locations set region_name='Noord-Brabant' where iso_3166_2='NL-NB'`)
 			if err == nil {
-				err = zdb.Exec(ctx, `update locations set region_name='Bali' where iso_3166_2='ID-BA'`)
+				err = database.Exec(ctx, `update locations set region_name='Bali' where iso_3166_2='ID-BA'`)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -228,7 +227,7 @@ func TestListSizes(t *testing.T) {
 		sizeUnknown = "unknown"
 	)
 
-	now := ztime.Now(ctx)
+	now := datetime.Now(ctx)
 	widths := []struct {
 		w  float64
 		id string
@@ -256,12 +255,12 @@ func TestListSizes(t *testing.T) {
 
 	t.Run("ListSizes", func(t *testing.T) {
 		var s HitStats
-		err := s.ListSizes(ctx, ztime.NewRange(now).To(now), PathFilter{}, false)
+		err := s.ListSizes(ctx, datetime.NewRange(now).To(now), PathFilter{}, false)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		got := string(zjson.MustMarshalIndent(s, "\t\t", "\t"))
+		got := string(testutil.MustMarshalIndent(s, "\t\t", "\t"))
 		want := `{
 			"more": false,
 			"stats": [
@@ -287,7 +286,7 @@ func TestListSizes(t *testing.T) {
 				}
 			]
 		}`
-		if d := ztest.Diff(got, want); d != "" {
+		if d := testutil.Diff(got, want); d != "" {
 			t.Error(d)
 		}
 	})
@@ -296,12 +295,12 @@ func TestListSizes(t *testing.T) {
 		var got strings.Builder
 		for _, w := range widths {
 			var s HitStats
-			err := s.ListSize(ctx, w.id, ztime.NewRange(now).To(now), PathFilter{}, 10, 0)
+			err := s.ListSize(ctx, w.id, datetime.NewRange(now).To(now), PathFilter{}, 10, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			got.WriteString(string(zjson.MustMarshalIndent(s, "\t\t", "\t")))
+			got.WriteString(string(testutil.MustMarshalIndent(s, "\t\t", "\t")))
 		}
 
 		want := strings.ReplaceAll(`{
@@ -349,7 +348,7 @@ func TestListSizes(t *testing.T) {
 				}
 			]
 		}`, `\ufe0e`, "\ufe0e")
-		if d := ztest.Diff(got.String(), want); d != "" {
+		if d := testutil.Diff(got.String(), want); d != "" {
 			t.Error(d)
 		}
 	})
@@ -365,7 +364,7 @@ func TestStatsByRef(t *testing.T) {
 
 	var have HitStats
 	err := have.ListTopRef(ctx, "example.com",
-		ztime.NewRange(ztime.Now(ctx).Add(-1*time.Hour)).To(ztime.Now(ctx).Add(1*time.Hour)),
+		datetime.NewRange(datetime.Now(ctx).Add(-1*time.Hour)).To(datetime.Now(ctx).Add(1*time.Hour)),
 		PathFilterFromIDs([]PathID{1}), 10, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +377,7 @@ func TestStatsByRef(t *testing.T) {
 			"name": "/a"
 		}]
 	}`
-	if d := ztest.Diff(zjson.MustMarshalString(have), want, ztest.DiffJSON); d != "" {
+	if d := testutil.Diff(testutil.MustMarshalString(have), want, testutil.DiffJSON); d != "" {
 		t.Error(d)
 	}
 }
