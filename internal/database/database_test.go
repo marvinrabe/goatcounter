@@ -1,15 +1,35 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
 	"testing/fstest"
+	"uuid"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func TestUUIDArgument(t *testing.T) {
+	ctx := testDB(t)
+	if err := Exec(ctx, `create table uuids(id blob)`); err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.MustParse("00112233-4455-6677-8899-aabbccddeeff")
+	if err := Exec(ctx, `insert into uuids values (?)`, id); err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	if err := Get(ctx, &got, `select id from uuids where id=?`, id); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, id[:]) {
+		t.Fatalf("stored UUID %x; want %x", got, id)
+	}
+}
 
 func testDB(t *testing.T) context.Context {
 	t.Helper()
