@@ -179,19 +179,19 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 				start := at
 				event := r.IntN(8) == 0
 				for i := range n {
-					h := analytics.Hit{
+					e := analytics.Event{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
 						Path: entry, Ref: ref, Width: agent.width,
 						Hostname: siteName, Language: "deu",
 						Country: loc.Value,
 					}
 					if i > 0 {
-						h.Path, h.Ref = pick(r, allPages).Value, "https://"+siteName+"/"
+						e.Path, e.Ref = pick(r, allPages).Value, "https://"+siteName+"/"
 					}
-					if err := store.Collect(ctx, site, h); err != nil {
+					if err := store.Collect(ctx, site, e); err != nil {
 						return err
 					}
-					if p, _, _ := cut(h.Path, "?"); !seenPage[p] {
+					if p, _, _ := cut(e.Path, "?"); !seenPage[p] {
 						seenPage[p] = true
 						day.Pages[p]++
 					}
@@ -201,13 +201,13 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 				}
 				if event {
 					at = at.Add(time.Duration(5+r.IntN(30)) * time.Second)
-					h := analytics.Hit{
+					e := analytics.Event{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
 						Path: "/", Hostname: siteName, Name: "Outbound Link: Click",
 						Props:   `{"url":"https://www.roll-pastuch.de/"}`,
 						Country: loc.Value,
 					}
-					if err := store.Collect(ctx, site, h); err != nil {
+					if err := store.Collect(ctx, site, e); err != nil {
 						return err
 					}
 					if !hadEvent {

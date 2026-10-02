@@ -14,27 +14,27 @@ import (
 // the same as Plausible.
 const SessionTimeout = 30 * time.Minute
 
-// Collect stores one hit with a single INSERT statement.
+// Collect stores one event with a single INSERT statement.
 //
 // There is no queue and no background processing: the session is resolved
-// in the same statement from the visitor's most recent hit in the last 30
-// minutes, so any replica in any region can accept any hit, and nothing
+// in the same statement from the visitor's most recent event in the last 30
+// minutes, so any replica in any region can accept any event, and nothing
 // runs while there is no traffic.
-func (s *Store) Collect(ctx context.Context, site Site, h Hit) error {
-	h.Defaults(site)
-	if h.Ignore() {
+func (s *Store) Collect(ctx context.Context, site Site, e Event) error {
+	e.Defaults(site)
+	if e.Ignore() {
 		return nil
 	}
 
-	salt, prevSalt, err := s.daySalts(ctx, h.CreatedAt)
+	salt, prevSalt, err := s.daySalts(ctx, e.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("Collect: %w", err)
 	}
-	visitor, prevVisitor := visitorID(salt, &h), visitorID(prevSalt, &h)
+	visitor, prevVisitor := visitorID(salt, &e), visitorID(prevSalt, &e)
 	if prevVisitor == 0 {
 		prevVisitor = -1 // No salt for yesterday; visitor IDs are never negative.
 	}
-	if h.NoSession {
+	if e.NoSession {
 		visitor, prevVisitor = rand.Int64(), -1
 	}
 
@@ -55,18 +55,18 @@ func (s *Store) Collect(ctx context.Context, site Site, h Hit) error {
 			:browser, :browser_version, :os, :os_version, :width,
 			:country, :language
 		)`, map[string]any{
-		"site": h.Site, "ts": h.CreatedAt.Unix(),
+		"site": e.Site, "ts": e.CreatedAt.Unix(),
 		"visitor": visitor, "prev_visitor": prevVisitor,
-		"since":   h.CreatedAt.Add(-SessionTimeout).Unix(),
+		"since":   e.CreatedAt.Add(-SessionTimeout).Unix(),
 		"session": rand.Int64(),
-		"name":    h.Name, "hostname": h.Hostname, "path": h.Path, "props": h.Props,
-		"source": h.Source, "referrer": h.Referrer,
-		"utm_source": h.UTMSource, "utm_medium": h.UTMMedium, "utm_campaign": h.UTMCampaign,
-		"utm_content": h.UTMContent, "utm_term": h.UTMTerm,
-		"browser": h.Browser, "browser_version": h.BrowserVersion,
-		"os": h.OS, "os_version": h.OSVersion, "width": h.Width,
-		"country":  h.Country,
-		"language": h.Language,
+		"name":    e.Name, "hostname": e.Hostname, "path": e.Path, "props": e.Props,
+		"source": e.Source, "referrer": e.Referrer,
+		"utm_source": e.UTMSource, "utm_medium": e.UTMMedium, "utm_campaign": e.UTMCampaign,
+		"utm_content": e.UTMContent, "utm_term": e.UTMTerm,
+		"browser": e.Browser, "browser_version": e.BrowserVersion,
+		"os": e.OS, "os_version": e.OSVersion, "width": e.Width,
+		"country":  e.Country,
+		"language": e.Language,
 	})
 	if err != nil {
 		return fmt.Errorf("Collect: %w", err)
@@ -76,13 +76,13 @@ func (s *Store) Collect(ctx context.Context, site Site, h Hit) error {
 
 // visitorID is a 63-bit hash of the salt, site, IP address, and User-Agent.
 // The IP address itself is never stored.
-func visitorID(salt []byte, h *Hit) int64 {
+func visitorID(salt []byte, e *Event) int64 {
 	if len(salt) == 0 {
 		return 0
 	}
 	sum := sha256.New()
 	sum.Write(salt)
-	for _, s := range []string{h.Site, h.RemoteAddr, h.UserAgentHeader} {
+	for _, s := range []string{e.Site, e.RemoteAddr, e.UserAgentHeader} {
 		sum.Write([]byte(s))
 		sum.Write([]byte{0})
 	}

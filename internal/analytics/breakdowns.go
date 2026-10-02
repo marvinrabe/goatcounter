@@ -11,14 +11,53 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
-// visitsCTE selects the matching pageviews as "hits", and the first of them
+// BreakdownRow is the number of visits for one value of a dimension.
+type BreakdownRow struct {
+	// ID for selecting more details; not present in the detail view.
+	ID    string `db:"id"`
+	Name  string `db:"name"`  // Display name.
+	Count int    `db:"count"` // Number of visits.
+
+	// What kind of referral this is; only set when retrieving referrals {enum: h g}.
+	//
+	//  h   A domain or URL, which can be linked.
+	//  g   Generated; for example "Google" or a utm_source value.
+	RefScheme *string `db:"-"`
+}
+
+// Breakdown is the visits by one dimension, such as browsers.
+type Breakdown struct {
+	More bool // There are more rows than the limit.
+	Rows []BreakdownRow
+}
+
+const (
+	SizePhones  = "phone"
+	SizeTablets = "tablet"
+	SizeDesktop = "desktop"
+	SizeUnknown = "unknown"
+)
+
+// BreakdownRow.RefScheme values.
+const (
+	RefSchemeHTTP      = "h"
+	RefSchemeGenerated = "g"
+)
+
+// Page is the number of visitors of a path.
+type Page struct {
+	Path  string `db:"path"`
+	Count int    `db:"count"`
+}
+
+// visitsCTE selects the matching pageviews as "views", and the first of them
 // in each session as "visits". A visit takes its source, browser, location,
 // etc. from that first pageview. Custom events never create visits.
 //
 // SQLite takes the bare columns of an aggregate query with a single min()
 // from the row with the minimum, so this needs no window functions.
 const visitsCTE = `
-with hits as (
+with views as (
 	select * from events
 	where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter
 ), visits as (
@@ -26,7 +65,7 @@ with hits as (
 		utm_source, utm_medium, utm_campaign, utm_content, utm_term,
 		browser, browser_version, os, os_version, width,
 		country, language
-	from hits group by session
+	from views group by session
 )`
 
 type breakdownQuery struct {
@@ -103,7 +142,7 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 	case "exit_pages":
 		return breakdownQuery{
 			live: `select '' as id, path as name, count(*) as count from (
-					select session, max(ts), path from hits group by session
+					select session, max(ts), path from views group by session
 				) group by 2`,
 			migrated: `select '' as id, path as name, sum(exits) as count from events
 				where :migrated group by 2`,
@@ -124,8 +163,8 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 	case "refpaths":
 		// The pages reached in visits from this source.
 		return breakdownQuery{
-			live: `select '' as id, hits.path as name, count(distinct hits.session) as count
-				from hits join visits using (session)
+			live: `select '' as id, views.path as name, count(distinct views.session) as count
+				from views join visits using (session)
 				where lower(coalesce(nullif(visits.source, ''), visits.referrer)) = lower(:detail)
 				group by 2`,
 		}, nil
@@ -134,7 +173,7 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 		// the rows add up to the page's visits.
 		return breakdownQuery{
 			live: `select '' as id, coalesce(nullif(source, ''), referrer) as name, count(*) as count from (
-					select session, min(ts), source, referrer from hits
+					select session, min(ts), source, referrer from views
 					where path = :detail group by session
 				) group by 2`,
 		}, nil
@@ -147,8 +186,8 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 //
 // Migrated Plausible rows are only included when the filter matches every
 // pageview, as Plausible exports don't break down dimensions by page.
-func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string, limit, offset int) (HitStats, error) {
-	var h HitStats
+func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string, limit, offset int) (Breakdown, error) {
+	var h Breakdown
 	q, err := breakdown(kind, detail)
 	if err != nil {
 		return h, err
@@ -168,7 +207,7 @@ func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string,
 		union += "\nunion all\n" + q.migrated
 	}
 	// Collected and migrated rows with the same ID (or name) are one row.
-	err = s.DB.Select(ctx, &h.Stats, visitsCTE+`
+	err = s.DB.Select(ctx, &h.Rows, visitsCTE+`
 		select min(id) as id, min(name) as name, sum(count) as count from (`+union+`)
 		group by case when id <> '' then lower(id) else lower(name) end
 		order by count desc, name asc
@@ -176,13 +215,13 @@ func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string,
 	if err != nil {
 		return h, fmt.Errorf("Breakdown(%s): %w", kind, err)
 	}
-	h.More = limit > 0 && len(h.Stats) > limit
+	h.More = limit > 0 && len(h.Rows) > limit
 	if h.More {
-		h.Stats = h.Stats[:limit]
+		h.Rows = h.Rows[:limit]
 	}
 
-	for i := range h.Stats {
-		st := &h.Stats[i]
+	for i := range h.Rows {
+		st := &h.Rows[i]
 		switch kind {
 		case "locations":
 			if n := enrich.CountryName(st.Name); n != "" {
@@ -207,13 +246,13 @@ func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string,
 }
 
 // Sizes groups visits into the four dashboard device categories.
-func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (HitStats, error) {
+func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (Breakdown, error) {
 	h, err := s.Breakdown(ctx, q, "sizes", "", 0, 0)
 	if err != nil {
 		return h, err
 	}
-	ns := []HitStat{{ID: SizePhones}, {ID: SizeTablets}, {ID: SizeDesktop}, {ID: SizeUnknown}}
-	for _, stat := range h.Stats {
+	ns := []BreakdownRow{{ID: SizePhones}, {ID: SizeTablets}, {ID: SizeDesktop}, {ID: SizeUnknown}}
+	for _, stat := range h.Rows {
 		for i := range ns {
 			if ns[i].ID == stat.ID {
 				ns[i].Count += stat.Count
@@ -221,16 +260,16 @@ func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (HitStats,
 		}
 	}
 	if sortByCount {
-		slices.SortStableFunc(ns, func(a, b HitStat) int { return cmp.Compare(b.Count, a.Count) })
+		slices.SortStableFunc(ns, func(a, b BreakdownRow) int { return cmp.Compare(b.Count, a.Count) })
 	}
-	h.Stats, h.More = ns, false
+	h.Rows, h.More = ns, false
 	return h, nil
 }
 
 // Pages counts the unique visitors of each page, as Plausible does; visitors
 // are unique per day. It also reports if there are more pages.
-func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) (HitLists, bool, error) {
-	var h HitLists
+func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) ([]Page, bool, error) {
+	var h []Page
 	params := q.params("path", "name")
 	iparams := q.params("path", "")
 	params["ifilter"] = iparams["filter"]

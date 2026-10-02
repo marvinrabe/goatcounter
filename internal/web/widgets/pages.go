@@ -16,8 +16,8 @@ type Pages struct {
 
 	RefsForPath string
 	More        bool
-	Pages       analytics.HitLists
-	Refs        analytics.HitStats
+	Pages       []analytics.Page
+	Refs        analytics.Breakdown
 }
 
 func (w *Pages) SetDetail(d string) { w.RefsForPath = d }

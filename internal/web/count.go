@@ -27,28 +27,28 @@ func (s *server) count(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 
-	hit := analytics.HitFromRequest(r)
+	event := analytics.EventFromRequest(r)
 	q := r.URL.Query()
 	if q.Get("s") == "" {
 		q.Del("s") // An unknown width is 0, not an error.
 	}
 	err := formam.NewDecoder(&formam.DecoderOptions{TagName: "json", IgnoreUnknownKeys: true}).
-		Decode(q, &hit)
+		Decode(q, &event)
 	if err != nil {
 		return fail("error decoding parameters: %s", err)
 	}
-	if hit.Bot > 0 && hit.Bot < 150 {
-		return fail("wrong value: b=%d", hit.Bot)
+	if event.Bot > 0 && event.Bot < 150 {
+		return fail("wrong value: b=%d", event.Bot)
 	}
-	if hit.Bot > 0 {
+	if event.Bot > 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
-	if err := hit.Validate(); err != nil {
+	if err := event.Validate(); err != nil {
 		return fail("not valid: %s", err)
 	}
 
-	if err := s.store.Collect(r.Context(), siteFrom(r.Context()), hit); err != nil {
+	if err := s.store.Collect(r.Context(), siteFrom(r.Context()), event); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

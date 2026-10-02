@@ -33,14 +33,14 @@ const (
 	nameDirect  = "Direct / none"
 )
 
-// newChart creates a chart for stats; link makes the rows load their detail
+// newChart creates a chart for a breakdown; link makes the rows load their detail
 // when clicked, and unnamed rows are shown as unnamed.
-func newChart(stats analytics.HitStats, total int, link bool, unnamed string, rowsOnly bool) Chart {
-	data := Chart{More: stats.More, RowsOnly: rowsOnly}
+func newChart(b analytics.Breakdown, total int, link bool, unnamed string, rowsOnly bool) Chart {
+	data := Chart{More: b.More, RowsOnly: rowsOnly}
 	if total == 0 {
 		return data
 	}
-	for _, s := range stats.Stats {
+	for _, s := range b.Rows {
 		name := s.Name
 		if name == "" {
 			switch s.ID {
@@ -79,7 +79,7 @@ func newChart(stats analytics.HitStats, total int, link bool, unnamed string, ro
 
 // pagesChart creates the chart for the pages list, with the referrers below
 // the showRefs path.
-func pagesChart(pages analytics.HitLists, total int, showRefs string, refs analytics.HitStats, rowsOnly bool) Chart {
+func pagesChart(pages []analytics.Page, total int, showRefs string, refs analytics.Breakdown, rowsOnly bool) Chart {
 	data := Chart{Pages: true, RowsOnly: rowsOnly}
 	if total == 0 {
 		return data

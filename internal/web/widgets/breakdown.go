@@ -16,7 +16,7 @@ type Breakdown struct {
 	detailKind string
 
 	Detail        string
-	Stats         analytics.HitStats
+	Data          analytics.Breakdown
 	MostlyUnknown bool // Location lookups don't seem to work.
 }
 
@@ -30,17 +30,17 @@ func (w *Breakdown) GetData(ctx context.Context, a Args) (bool, error) {
 	var err error
 	switch {
 	case w.Detail != "":
-		w.Stats, err = a.Store.Breakdown(ctx, a.Query, w.detailKind, w.Detail, hchartSize, a.Offset)
+		w.Data, err = a.Store.Breakdown(ctx, a.Query, w.detailKind, w.Detail, hchartSize, a.Offset)
 	case w.name == "sizes":
-		w.Stats, err = a.Store.Sizes(ctx, a.Query, false)
+		w.Data, err = a.Store.Sizes(ctx, a.Query, false)
 	default:
-		w.Stats, err = a.Store.Breakdown(ctx, a.Query, w.name, "", hchartSize, a.Offset)
+		w.Data, err = a.Store.Breakdown(ctx, a.Query, w.name, "", hchartSize, a.Offset)
 	}
 	if w.name == "locations" && w.Detail == "" {
-		w.MostlyUnknown = len(w.Stats.Stats) > 0 && w.Stats.Stats[0].ID == "" &&
+		w.MostlyUnknown = len(w.Data.Rows) > 0 && w.Data.Rows[0].ID == "" &&
 			datetime.StartOf(a.Query.Range.End, datetime.Day).Equal(datetime.StartOf(datetime.Now(), datetime.Day))
 	}
-	return w.Stats.More, err
+	return w.Data.More, err
 }
 
 func (w Breakdown) RenderHTML(a Args) (string, any) {
@@ -48,7 +48,7 @@ func (w Breakdown) RenderHTML(a Args) (string, any) {
 	if w.name == "toprefs" {
 		unnamed = nameDirect
 	}
-	chart := newChart(w.Stats, a.Total, w.detailKind != "" && w.Detail == "", unnamed, a.RowsOnly)
+	chart := newChart(w.Data, a.Total, w.detailKind != "" && w.Detail == "", unnamed, a.RowsOnly)
 
 	// A detail, or more rows.
 	if w.Detail != "" || a.RowsOnly {

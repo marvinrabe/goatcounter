@@ -30,17 +30,17 @@ func Store(t testing.TB) *analytics.Store {
 	return &analytics.Store{DB: db, Sites: []analytics.Site{site}}
 }
 
-// StoreHits stores hits for the first site through the collector. Hits from
-// the same RemoteAddr and UserAgentHeader are one visitor, and one visit
+// StoreEvents stores events for the first site through the collector. Events
+// from the same RemoteAddr and UserAgentHeader are one visitor, and one visit
 // within 30 minutes.
-func StoreHits(t testing.TB, store *analytics.Store, hits ...analytics.Hit) {
+func StoreEvents(t testing.TB, store *analytics.Store, events ...analytics.Event) {
 	t.Helper()
-	for _, h := range hits {
-		if h.Path == "" {
-			h.Path = "/"
+	for _, e := range events {
+		if e.Path == "" {
+			e.Path = "/"
 		}
-		if err := store.Collect(context.Background(), store.Sites[0], h); err != nil {
-			t.Fatalf("StoreHits: %v", err)
+		if err := store.Collect(context.Background(), store.Sites[0], e); err != nil {
+			t.Fatalf("StoreEvents: %v", err)
 		}
 	}
 }

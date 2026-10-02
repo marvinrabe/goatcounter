@@ -30,13 +30,3 @@ const (
 	GroupMonthly
 	GroupYearly
 )
-
-type HitList struct {
-	// Number of visitors for the selected date range.
-	Count int `db:"count" json:"count"`
-
-	// Path name (e.g. /hello.html).
-	Path string `db:"path" json:"path"`
-}
-
-type HitLists []HitList
