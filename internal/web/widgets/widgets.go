@@ -5,7 +5,6 @@ import (
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 type Widget interface {
@@ -32,7 +31,7 @@ type Widget interface {
 type Args struct {
 	Store    *analytics.Store
 	Query    analytics.Query
-	Group    analytics.Group
+	Group    analytics.Period
 	ShowRefs string // Show the referrers for this path in the pages list.
 	Offset   int
 
@@ -42,23 +41,23 @@ type Args struct {
 }
 
 // NewArgs creates the arguments for a query and grouping.
-func NewArgs(store *analytics.Store, q analytics.Query, group analytics.Group) Args {
+func NewArgs(store *analytics.Store, q analytics.Query, group analytics.Period) Args {
 	// Align to start of week or month if we're grouping by week or month.
 	//
 	// This gives a really jarring experience if the UI is updated with the new
 	// dates, as switching between day/week/month can really move the date
 	// around. So don't update the UI and just "silently" include the extra date
 	// ranges.
-	align := func(p datetime.Period) {
+	align := func(p analytics.Period) {
 		loc := store.Timezone.Loc()
-		q.Range.Start = datetime.StartOf(q.Range.Start.In(loc), p).UTC()
-		q.Range.End = datetime.EndOf(q.Range.End.In(loc), p).UTC()
+		q.Range.Start = analytics.StartOf(q.Range.Start.In(loc), p).UTC()
+		q.Range.End = analytics.EndOf(q.Range.End.In(loc), p).UTC()
 	}
 	switch group {
-	case analytics.GroupWeekly:
-		align(datetime.Week(false))
-	case analytics.GroupMonthly:
-		align(datetime.Month)
+	case analytics.Week:
+		align(analytics.Week)
+	case analytics.Month:
+		align(analytics.Month)
 	}
 	return Args{Store: store, Query: q, Group: group}
 }
@@ -128,12 +127,12 @@ func New(name string) Widget {
 		return &Pages{base: base{name: name}}
 
 	// Breakdowns with a detail view.
-	case "browsers", "systems", "sizes", "campaigns":
+	case "browsers", "systems", "campaigns":
 		return &Breakdown{base: base{name: name}, detailKind: name}
 	case "toprefs":
 		return &Breakdown{base: base{name: name}, detailKind: "refpaths"}
 
-	case "languages", "entry_pages", "exit_pages", "events", "utm_mediums", "utm_sources", "locations":
+	case "sizes", "languages", "entry_pages", "exit_pages", "events", "utm_mediums", "utm_sources", "locations":
 		return &Breakdown{base: base{name: name}}
 	}
 	return nil

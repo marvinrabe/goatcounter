@@ -1,39 +1,51 @@
-// Package datetime implements date and time utilities used by the dashboard.
-package datetime
+package analytics
 
-import (
-	"strings"
-	"time"
-)
+import "time"
 
-// Now is the current time in UTC.
-func Now() time.Time { return time.Now().UTC() }
+// Period is a span of calendar time. It's used both to select a dashboard
+// range ("last month") and to group the chart (per day, week, …).
+type Period uint8
 
-type Period int
-
+// Weeks start on Monday.
 const (
-	Day Period = iota
-	weekMonday
-	weekSunday
+	Hour Period = iota
+	Day
+	Week
 	Month
 	Quarter
 	HalfYear
 	Year
 )
 
-func Week(sunday bool) Period {
-	if sunday {
-		return weekSunday
+// ChartGroups are the periods the dashboard chart can be grouped by.
+var ChartGroups = []Period{Hour, Day, Week, Month, Year}
+
+func (p Period) String() string {
+	switch p {
+	case Hour:
+		return "hour"
+	case Day:
+		return "day"
+	case Week:
+		return "week"
+	case Month:
+		return "month"
+	case Quarter:
+		return "quarter"
+	case HalfYear:
+		return "half-year"
 	}
-	return weekMonday
+	return "year"
 }
+
 func StartOf(t time.Time, p Period) time.Time {
+	if p == Hour {
+		return t.Truncate(time.Hour)
+	}
 	y, m, d := t.Date()
 	switch p {
-	case weekMonday:
+	case Week:
 		d -= (int(t.Weekday()) + 6) % 7
-	case weekSunday:
-		d -= int(t.Weekday())
 	case Month:
 		d = 1
 	case Quarter:
@@ -51,9 +63,11 @@ func StartOf(t time.Time, p Period) time.Time {
 func EndOf(t time.Time, p Period) time.Time { return AddPeriod(StartOf(t, p), 1, p).Add(-time.Second) }
 func AddPeriod(t time.Time, n int, p Period) time.Time {
 	switch p {
+	case Hour:
+		return t.Add(time.Duration(n) * time.Hour)
 	case Day:
 		return t.AddDate(0, 0, n)
-	case weekMonday, weekSunday:
+	case Week:
 		return t.AddDate(0, 0, n*7)
 	}
 	months := n
@@ -106,23 +120,4 @@ func (r Range) String() string {
 		return start.Format("2 Jan") + " – " + end.Format("2 Jan 2006")
 	}
 	return start.Format("2 Jan 2006") + " – " + end.Format("2 Jan 2006")
-}
-
-// FromString is a fixture convenience; invalid input is a programming error.
-func FromString(s string) time.Time {
-	layout := "2006-01-02 15:04:05"
-	date := s
-	zone := ""
-	if i := strings.LastIndexByte(s, ' '); i > 0 && !strings.ContainsAny(s[i:], "0123456789") {
-		date = s[:i]
-		zone = " MST"
-	}
-	if len(date) < len(layout) {
-		layout = layout[:len(date)]
-	}
-	t, err := time.Parse(layout+zone, s)
-	if err != nil {
-		panic(err)
-	}
-	return t
 }

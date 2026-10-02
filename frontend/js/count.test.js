@@ -17,7 +17,7 @@ function load({page = 'https://example.com/docs?ref=newsletter#intro', dataset =
 		visibilityState: visibility,
 		prerendering: visibility === 'prerender',
 	})
-	const window = Object.assign(new EventTarget(), {goatcounter: settings, screen: {width: 1440}})
+	const window = Object.assign(new EventTarget(), {goatcounter: settings})
 	window.self = window
 	window.top = frame ? {} : window
 	const navigator = {webdriver}
@@ -70,7 +70,7 @@ test('counts a pageview with the collection fields and script-relative endpoint'
 	assert.deepEqual(data, {
 		site: 'example.com', p: '/docs?ref=newsletter',
 		r: 'https://search.example/query?q=docs', h: 'example.com', n: '', pr: '',
-		ns: 'false', s: '1440', b: '0',
+		ns: 'false', b: '0',
 	})
 })
 

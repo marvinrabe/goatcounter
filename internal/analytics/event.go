@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
@@ -26,7 +25,6 @@ type Event struct {
 	Hostname  string `json:"h,omitempty"`  // location.hostname
 	Name      string `json:"n,omitempty"`  // Custom event name; empty for pageviews.
 	Props     string `json:"pr,omitempty"` // Custom event properties as a JSON object.
-	Width     int    `json:"s,omitempty"`  // Screen width in CSS pixels.
 	Bot       int    `json:"b,omitempty"`
 	NoSession bool   `json:"ns,omitempty"`
 
@@ -41,7 +39,7 @@ type Event struct {
 	// Derived by Defaults().
 	Source, Referrer                                       string `json:"-"`
 	UTMSource, UTMMedium, UTMCampaign, UTMContent, UTMTerm string `json:"-"`
-	Browser, BrowserVersion, OS, OSVersion                 string `json:"-"`
+	Browser, BrowserVersion, OS, OSVersion, Device         string `json:"-"`
 }
 
 func (e *Event) Ignore() bool {
@@ -88,7 +86,7 @@ func (e *Event) splitPath() {
 // that by Defaults.
 func EventFromRequest(r *http.Request) Event {
 	return Event{
-		CreatedAt:       datetime.Now(),
+		CreatedAt:       time.Now().UTC(),
 		UserAgentHeader: r.UserAgent(),
 		RemoteAddr:      r.RemoteAddr,
 		Country:         enrich.Country(r),
@@ -100,7 +98,7 @@ func EventFromRequest(r *http.Request) Event {
 func (e *Event) Defaults(site Site) {
 	e.Site = site.Key
 	if e.CreatedAt.IsZero() {
-		e.CreatedAt = datetime.Now()
+		e.CreatedAt = time.Now().UTC()
 	}
 	e.Name = strings.TrimSpace(e.Name)
 	if e.Name == "" {
@@ -113,7 +111,7 @@ func (e *Event) Defaults(site Site) {
 		e.Source = e.UTMSource
 	}
 	ua := enrich.ParseUserAgent(e.UserAgentHeader)
-	e.Browser, e.BrowserVersion, e.OS, e.OSVersion = ua.Browser, ua.BrowserVersion, ua.OS, ua.OSVersion
+	e.Browser, e.BrowserVersion, e.OS, e.OSVersion, e.Device = ua.Browser, ua.BrowserVersion, ua.OS, ua.OSVersion, ua.Device
 }
 
 // Validate the request before it's normalized. Props are normalized to a
@@ -139,7 +137,6 @@ func (e *Event) Validate() error {
 		check(utf8.ValidString(f.value), f.name, "must be UTF-8")
 		check(utf8.RuneCountInString(f.value) <= f.max, f.name, fmt.Sprintf("must be at most %d characters", f.max))
 	}
-	check(e.Width >= 0 && e.Width <= 100_000, "width", "must be between 0 and 100000")
 	if e.Props != "" {
 		var props map[string]string
 		switch err := json.Unmarshal([]byte(e.Props), &props); {

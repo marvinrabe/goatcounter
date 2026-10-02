@@ -16,15 +16,15 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/web/widgets"
 )
 
 // The "Last …" period shortcuts.
-var periods = []string{"day", "week", "month", "quarter", "half-year", "year"}
+var periods = []analytics.Period{analytics.Day, analytics.Week, analytics.Month,
+	analytics.Quarter, analytics.HalfYear, analytics.Year}
 
 // The dashboard period when nothing is given in the query string.
-const defaultPeriod = "week"
+const defaultPeriod = analytics.Week
 
 // The dashboard view is whatever is in the query string; there is nothing
 // saved or configurable.
@@ -81,11 +81,11 @@ func (s *server) dashboard(w http.ResponseWriter, r *http.Request) error {
 	return renderHTML(w, "dashboard.gohtml", struct {
 		Globals
 		CountDomain string
-		Period      datetime.Range
-		Periods     []string
+		Period      analytics.Range
+		Periods     []analytics.Period
 		HLPeriod    string
-		Group       analytics.Group
-		AllowGroups analytics.Groups
+		Group       analytics.Period
+		AllowGroups []analytics.Period
 		Filter      string
 		ShowRefs    string
 		Total       int
@@ -174,10 +174,10 @@ func (s *server) loadWidgets(r *http.Request, list widgets.List, args widgets.Ar
 }
 
 // highlightedPeriod is the "Last …" shortcut that describes rng, if any.
-func (s *server) highlightedPeriod(rng datetime.Range) string {
+func (s *server) highlightedPeriod(rng analytics.Range) string {
 	for _, p := range periods {
 		if want := s.lastPeriod(p); rng.Start.Equal(want.Start) && rng.End.Equal(want.End) {
-			return p
+			return p.String()
 		}
 	}
 	return ""
@@ -189,33 +189,24 @@ func (s *server) highlightedPeriod(rng datetime.Range) string {
 // The return value is always in UTC, and is the UTC day range corresponding
 // to the configured timezone. So, for example a week in +08:00 would be:
 // 2020-12-20 16:00:00 - 2020-12-27 15:59:59
-func (s *server) lastPeriod(period string) datetime.Range {
-	rng := datetime.NewRange(datetime.Now().In(s.store.Timezone.Loc())).Current(datetime.Day)
-	switch period {
-	case "week":
-		rng = rng.Last(datetime.Week(false))
-	case "month":
-		rng = rng.Last(datetime.Month)
-	case "quarter":
-		rng = rng.Last(datetime.Quarter)
-	case "half-year":
-		rng = rng.Last(datetime.HalfYear)
-	case "year":
-		rng = rng.Last(datetime.Year)
+func (s *server) lastPeriod(p analytics.Period) analytics.Range {
+	rng := analytics.NewRange(time.Now().In(s.store.Timezone.Loc())).Current(analytics.Day)
+	if p != analytics.Day {
+		rng = rng.Last(p)
 	}
 	return rng.UTC()
 }
 
 // getPeriod gets the period from the query string: a "Last …" shortcut in
 // "period", or the dates in "period-start" and "period-end".
-func (s *server) getPeriod(r *http.Request) (datetime.Range, error) {
+func (s *server) getPeriod(r *http.Request) (analytics.Range, error) {
 	var (
 		q   = r.URL.Query()
 		loc = s.store.Timezone.Loc()
-		rng datetime.Range
+		rng analytics.Range
 	)
-	if p := q.Get("period"); slices.Contains(periods, p) {
-		return s.lastPeriod(p), nil
+	if i := slices.IndexFunc(periods, func(p analytics.Period) bool { return p.String() == q.Get("period") }); i >= 0 {
+		return s.lastPeriod(periods[i]), nil
 	}
 	if d := q.Get("period-start"); d != "" {
 		var err error
@@ -242,7 +233,7 @@ func (s *server) getPeriod(r *http.Request) (datetime.Range, error) {
 }
 
 // query gets the dashboard's query for the request's site.
-func (s *server) query(r *http.Request, rng datetime.Range) analytics.Query {
+func (s *server) query(r *http.Request, rng analytics.Range) analytics.Query {
 	return analytics.Query{
 		Site:   siteFrom(r.Context()),
 		Range:  rng,
@@ -252,30 +243,30 @@ func (s *server) query(r *http.Request, rng datetime.Range) analytics.Query {
 
 // getGroup gets the chart grouping from the query string, and the groupings
 // that can be selected for this period.
-func getGroup(r *http.Request, rng datetime.Range) (analytics.Group, analytics.Groups) {
+func getGroup(r *http.Request, rng analytics.Range) (analytics.Period, []analytics.Period) {
 	// Viewing by hour for a year or viewing by day for 2 days looks horrible,
 	// so don't allow that sort of thing.
 	//
 	// These numbers are based on what makes sense when you click "Last day ·
 	// week · month · quarter · half year · year", which is probably what most
 	// people use.
-	var allow analytics.Groups
+	var allow []analytics.Period
 	switch d := rng.End.Sub(rng.Start).Hours() / 24; {
 	case d <= 6:
-		allow = analytics.Groups{analytics.GroupHourly}
+		allow = []analytics.Period{analytics.Hour}
 	case d < 90:
-		allow = analytics.Groups{analytics.GroupHourly, analytics.GroupDaily}
+		allow = []analytics.Period{analytics.Hour, analytics.Day}
 	case d < 364:
-		allow = analytics.Groups{analytics.GroupDaily, analytics.GroupWeekly}
+		allow = []analytics.Period{analytics.Day, analytics.Week}
 	default:
-		allow = analytics.Groups{analytics.GroupDaily, analytics.GroupWeekly, analytics.GroupMonthly}
+		allow = []analytics.Period{analytics.Day, analytics.Week, analytics.Month}
 	}
 
 	// Keep the full date range, but avoid rendering millions of empty points.
 	group := analytics.ChartGroup(rng, allow[0])
-	allow = slices.DeleteFunc(allow, func(g analytics.Group) bool { return g < group })
+	allow = slices.DeleteFunc(allow, func(g analytics.Period) bool { return g < group })
 	if len(allow) == 0 {
-		allow = analytics.Groups{group}
+		allow = []analytics.Period{group}
 	}
 
 	want := strings.ToLower(r.URL.Query().Get("group"))

@@ -28,8 +28,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 var (
@@ -91,7 +91,7 @@ func run(connect, site, file string) error {
 	if os.Getenv("TZ") == "" {
 		return fmt.Errorf("TZ must be set to the dashboard's timezone, e.g. TZ=Europe/Berlin")
 	}
-	tz, err := datetime.LoadTimezone()
+	tz, err := analytics.LoadTimezone()
 	if err != nil {
 		return err
 	}

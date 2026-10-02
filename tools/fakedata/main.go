@@ -20,7 +20,6 @@ import (
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 // Day is what was stored for one day; visitors are unique per day.
@@ -54,16 +53,15 @@ func pick(r *rand.Rand, w []weighted) weighted {
 
 var agents = []struct {
 	browser, ua string
-	width       int
 	weight      int
 }{
-	{"Chrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36", 1920, 30},
-	{"Microsoft Edge", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.2792.65", 1536, 15},
-	{"Safari", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", 1440, 12},
-	{"Firefox", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0", 1920, 10},
-	{"Safari", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", 390, 18},
-	{"Chrome", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36", 412, 10},
-	{"Safari", "Mozilla/5.0 (iPad; CPU OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1", 820, 5},
+	{"Chrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36", 30},
+	{"Microsoft Edge", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.2792.65", 15},
+	{"Safari", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", 12},
+	{"Firefox", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0", 10},
+	{"Safari", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", 18},
+	{"Chrome", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36", 10},
+	{"Safari", "Mozilla/5.0 (iPad; CPU OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1", 5},
 }
 
 func main() {
@@ -83,7 +81,7 @@ func main() {
 }
 
 func run(connect, siteName, from, to string, perDay int, seed uint64) error {
-	tz, err := datetime.LoadTimezone()
+	tz, err := analytics.LoadTimezone()
 	if err != nil {
 		return err
 	}
@@ -181,7 +179,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 				for i := range n {
 					e := analytics.Event{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
-						Path: entry, Ref: ref, Width: agent.width,
+						Path: entry, Ref: ref,
 						Hostname: siteName, Language: "deu",
 						Country: loc.Value,
 					}

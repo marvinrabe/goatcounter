@@ -1,4 +1,4 @@
-package datetime
+package analytics
 
 import (
 	"fmt"

@@ -21,7 +21,7 @@
 			</span>
 			<span id="dash-select-period" class="mt-2 flex flex-wrap items-center gap-0 text-xs text-slate-500 dark:text-neutral-400">
 				<span class="mr-1">Last</span>
-				{{range .Periods}}<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq . $.HLPeriod}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="{{.}}">{{if eq . "half-year"}}half year{{else}}{{.}}{{end}}</button>{{end}}
+				{{range .Periods}}<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .String $.HLPeriod}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="{{.}}">{{if eq .String "half-year"}}half year{{else}}{{.}}{{end}}</button>{{end}}
 			</span>
 		</div>
 

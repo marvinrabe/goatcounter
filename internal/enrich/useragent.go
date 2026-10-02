@@ -29,12 +29,21 @@ var (
 	}
 )
 
-// UserAgent is the browser and OS dimensions.
-type UserAgent struct{ Browser, BrowserVersion, OS, OSVersion string }
+// Device names as Plausible reports them. Plausible tells laptops from
+// desktops by the screen width, which isn't collected; both are Desktop.
+const (
+	DeviceMobile  = "Mobile"
+	DeviceTablet  = "Tablet"
+	DeviceLaptop  = "Laptop" // Only in rows migrated from Plausible.
+	DeviceDesktop = "Desktop"
+)
 
-// ParseUserAgent gets the browser and OS from a User-Agent header, with
-// versions truncated to major.minor as in Plausible exports ("Chrome 120.0",
-// "Mac 10.15").
+// UserAgent is the browser, OS, and device dimensions.
+type UserAgent struct{ Browser, BrowserVersion, OS, OSVersion, Device string }
+
+// ParseUserAgent gets the browser, OS, and device from a User-Agent header,
+// with versions truncated to major.minor as in Plausible exports ("Chrome
+// 120.0", "Mac 10.15"). The device is empty if it's unknown.
 func ParseUserAgent(raw string) UserAgent {
 	ua := useragent.Parse(raw)
 	version := func(s string) string {
@@ -48,6 +57,21 @@ func ParseUserAgent(raw string) UserAgent {
 		return parts[0] + "." + parts[1]
 	}
 	r := UserAgent{Browser: ua.Name, BrowserVersion: version(ua.Version), OS: ua.OS}
+	switch {
+	case ua.OS == useragent.Android:
+		// Android tablets leave out "Mobile"; the parser counts them as phones.
+		r.Device = DeviceTablet
+		if strings.Contains(raw, "Mobile") {
+			r.Device = DeviceMobile
+		}
+	case ua.Tablet:
+		r.Device = DeviceTablet
+	case ua.Mobile:
+		r.Device = DeviceMobile
+	case ua.Desktop:
+		// iPads with Safari in desktop mode, the default, look like a Mac.
+		r.Device = DeviceDesktop
+	}
 	if n, ok := browserNames[r.Browser]; ok {
 		r.Browser = n
 	}

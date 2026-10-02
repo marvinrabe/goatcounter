@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,10 +8,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
 )
 
@@ -56,7 +55,7 @@ func TestServerSiteIndependentRoutes(t *testing.T) {
 
 func count(t testing.TB, handler http.Handler, ip, path string) {
 	t.Helper()
-	r, rr := newTest("POST", "/count?"+url.Values{"p": {path}, "s": {"1440"}, "site": {"example.com"}}.Encode(), nil)
+	r, rr := newTest("POST", "/count?"+url.Values{"p": {path}, "site": {"example.com"}}.Encode(), nil)
 	r.RemoteAddr = ip
 	r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
 	handler.ServeHTTP(rr, r)
@@ -68,7 +67,7 @@ func count(t testing.TB, handler http.Handler, ip, path string) {
 // Pageviews sent to /count show up in the paginated page list.
 func TestServerPagesMore(t *testing.T) {
 	store := testenv.Store(t)
-	now := datetime.Now()
+	now := time.Now().UTC()
 	handler := newServer(store)
 	for i := range 10 {
 		// /1 has one visit, /10 has ten.
@@ -93,27 +92,6 @@ func TestServerPagesMore(t *testing.T) {
 	}
 	if body["more"] != false {
 		t.Errorf("more=%v", body["more"])
-	}
-}
-
-// Screen widths are stored; an empty width is unknown, an invalid one an error.
-func TestCountWidth(t *testing.T) {
-	store := testenv.Store(t)
-	handler := newServer(store)
-	for s, code := range map[string]int{"1440": 204, "": 204, "-5": 400, "abc": 400, "999999": 400} {
-		r, rr := newTest("POST", "/count?"+url.Values{"p": {"/w" + s}, "s": {s}, "site": {"example.com"}}.Encode(), nil)
-		r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
-		handler.ServeHTTP(rr, r)
-		if rr.Code != code {
-			t.Errorf("s=%q: %d %s; want %d", s, rr.Code, rr.Header().Get("X-Goatcounter"), code)
-		}
-	}
-	var widths []int
-	if err := store.DB.Select(context.Background(), &widths, `select width from events order by path`); err != nil {
-		t.Fatal(err)
-	}
-	if fmt.Sprint(widths) != "[0 1440]" {
-		t.Errorf("stored widths %v; want [0 1440]", widths)
 	}
 }
 

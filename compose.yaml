@@ -25,7 +25,7 @@ services:
       GOATCOUNTER_DB: 'http://libsql:8080'
       # Comma-separated site names. Each name is stored as the stable key with
       # collected data, so entries can be reordered, added, or removed.
-      GOATCOUNTER_SITES: 'example.com,foobar.net'
+      GOATCOUNTER_SITES: 'toplinetalk.de,nueprice.com,example.com'
       # Timezone the dashboard is displayed in; applies to the whole
       # installation. Defaults to UTC.
       TZ: 'UTC'
@@ -47,6 +47,8 @@ services:
   # the Compose network; application replicas have no persistent local files.
   libsql:
     image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+    ports:
+      - '127.0.0.1:8081:8080'
     environment:
       SQLD_NODE: primary
       SQLD_DB_PATH: /data

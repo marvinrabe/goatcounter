@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/marvinrabe/goatcounter/internal/web"
 )
@@ -104,7 +103,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	if len(store.Sites) == 0 {
 		return fmt.Errorf("-sites must contain at least one site")
 	}
-	store.Timezone, err = datetime.LoadTimezone()
+	store.Timezone, err = analytics.LoadTimezone()
 	if err != nil {
 		return err
 	}

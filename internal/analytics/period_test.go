@@ -1,6 +1,7 @@
-package datetime
+package analytics
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,7 +30,7 @@ func TestMonthEndClamping(t *testing.T) {
 	}{
 		{"2024-01-31", "2024-02-29", 1}, {"2025-03-31", "2025-02-28", -1}, {"2024-02-29", "2025-02-28", 12},
 	} {
-		if got := AddPeriod(FromString(tt.date), tt.n, Month).Format(time.DateOnly); got != tt.want {
+		if got := AddPeriod(fromString(tt.date), tt.n, Month).Format(time.DateOnly); got != tt.want {
 			t.Errorf("%s + %d months = %s; want %s", tt.date, tt.n, got, tt.want)
 		}
 	}
@@ -44,9 +45,28 @@ func TestRangeString(t *testing.T) {
 		{"2025-12-30", "2026-01-02", "30 Dec 2025 – 2 Jan 2026"},
 		{"2026-08-02", "2026-08-02", "2 Aug 2026"},
 	} {
-		rng := NewRange(FromString(tt.start)).To(FromString(tt.end))
+		rng := NewRange(fromString(tt.start)).To(fromString(tt.end))
 		if got := rng.String(); got != tt.want {
 			t.Errorf("%s to %s: got %q, want %q", tt.start, tt.end, got, tt.want)
 		}
 	}
+}
+
+// fromString parses a fixture date; invalid input is a programming error.
+func fromString(s string) time.Time {
+	layout := "2006-01-02 15:04:05"
+	date := s
+	zone := ""
+	if i := strings.LastIndexByte(s, ' '); i > 0 && !strings.ContainsAny(s[i:], "0123456789") {
+		date = s[:i]
+		zone = " MST"
+	}
+	if len(date) < len(layout) {
+		layout = layout[:len(date)]
+	}
+	t, err := time.Parse(layout+zone, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }

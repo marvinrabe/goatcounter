@@ -30,7 +30,6 @@
 			n: options.event || '',
 			pr: options.event && options.props ? JSON.stringify(options.props) : '',
 			ns: !!options.no_session,
-			s: window.screen.width,
 			b: navigator.webdriver ? 153 : 0,
 		}
 		for (const [key, value] of Object.entries(data))

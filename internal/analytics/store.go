@@ -7,14 +7,13 @@ import (
 	"sync"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 // Store collects and queries the pageviews of the configured sites. The
 // settings are set before it's used and don't change.
 type Store struct {
 	DB       *database.DB
-	Timezone datetime.Timezone // Of the dashboard; days start at midnight here.
+	Timezone Timezone // Of the dashboard; days start at midnight here.
 	Sites    []Site
 
 	salts struct {
@@ -37,6 +36,6 @@ func (s *Store) Site(name string) (Site, bool) {
 // Query selects the pageviews of a site that the dashboard shows.
 type Query struct {
 	Site   Site
-	Range  datetime.Range
+	Range  Range
 	Filter PathFilter
 }

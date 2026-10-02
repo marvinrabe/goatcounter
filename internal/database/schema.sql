@@ -57,8 +57,7 @@ create table if not exists events (
 	browser_version  text     not null default '',      -- major.minor
 	os               text     not null default '',
 	os_version       text     not null default '',
-	width            integer  not null default 0,       -- Screen width in CSS pixels; 0 if unknown.
-	device           text     not null default '',      -- Migrated only: Mobile, Tablet, Laptop, Desktop.
+	device           text     not null default '',      -- Mobile, Tablet, Desktop; Laptop only in migrated rows.
 
 	country          text     not null default '',      -- ISO 3166-1 alpha-2.
 	language         text     not null default '',      -- ISO 639-3.

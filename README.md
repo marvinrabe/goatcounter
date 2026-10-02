@@ -21,8 +21,8 @@ stores them: the event `name` ("pageview" or a custom name), `hostname`
 without "www.", the URL `path` as sent (decoded, without query string, a
 trailing slash kept), custom event `props`, `source` ("Google", "LinkedIn",
 "news.ycombinator.com" or the `utm_source`), `referrer` (host and path), all
-five UTM parameters, browser and OS with major.minor versions, screen width,
-country, and language.
+five UTM parameters, browser and OS with major.minor versions, the device type
+(from the User-Agent), country, and language.
 
 The Plausible history is in the same table, with the same columns. A
 Plausible export isn't a list of visits but a separate daily total for each
@@ -69,8 +69,7 @@ the response is always an empty `204`.
 
 The script counts one pageview when the page first becomes visible and another
 when the browser restores it from the back/forward cache. It sends the
-hostname, path and query string, the referrer, the screen width, and an
-automation flag. The UTM parameters are read from the query string, which
+hostname, path and query string, the referrer, and an automation flag. The UTM parameters are read from the query string, which
 isn't stored.
 
 Once the script has loaded, use `window.goatcounter.count()` to count another
@@ -209,13 +208,13 @@ Code layout:
     cmd/goatcounter      The goatcounter command: serve and healthcheck.
     frontend/            JavaScript, CSS, and static files, built by Vite into
                          internal/web/dist/, which is embedded in the binary.
-    internal/analytics   Pageviews and sites: collecting and querying them.
+    internal/analytics   Pageviews and sites: collecting and querying them, for
+                         date ranges in the dashboard's timezone.
     internal/web         HTTP routes, middleware, and authentication.
       templates/         HTML templates.
       widgets/           The dashboard's widgets.
     internal/database    libSQL and SQLite connections, queries, and schema.sql.
     internal/enrich      Lookups for a pageview: bots, browser, country, etc.
-    internal/datetime    Date ranges and timezones for the dashboard.
     tools/               Plausible migration and fake test data.
 
 Use `-debug` for debug logs, including HTTP requests and SQL queries. Tests

@@ -41,7 +41,7 @@ func (s *Store) Collect(ctx context.Context, site Site, e Event) error {
 	err = s.DB.Exec(ctx, `insert into events (
 			site, ts, visitor, session, name, hostname, path, props,
 			source, referrer, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-			browser, browser_version, os, os_version, width,
+			browser, browser_version, os, os_version, device,
 			country, language
 		) values (
 			:site, :ts, :visitor,
@@ -52,7 +52,7 @@ func (s *Store) Collect(ctx context.Context, site Site, e Event) error {
 			), :session),
 			:name, :hostname, :path, :props,
 			:source, :referrer, :utm_source, :utm_medium, :utm_campaign, :utm_content, :utm_term,
-			:browser, :browser_version, :os, :os_version, :width,
+			:browser, :browser_version, :os, :os_version, :device,
 			:country, :language
 		)`, named(map[string]any{
 		"site": e.Site, "ts": e.CreatedAt.Unix(),
@@ -64,7 +64,7 @@ func (s *Store) Collect(ctx context.Context, site Site, e Event) error {
 		"utm_source": e.UTMSource, "utm_medium": e.UTMMedium, "utm_campaign": e.UTMCampaign,
 		"utm_content": e.UTMContent, "utm_term": e.UTMTerm,
 		"browser": e.Browser, "browser_version": e.BrowserVersion,
-		"os": e.OS, "os_version": e.OSVersion, "width": e.Width,
+		"os": e.OS, "os_version": e.OSVersion, "device": e.Device,
 		"country":  e.Country,
 		"language": e.Language,
 	})...)

@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 // DashboardMetrics contains visit-level totals. A visit (session) ends after
@@ -78,9 +76,9 @@ func Change(cur, prev float64) (float64, bool) {
 }
 
 // PrevRange is the period of the same length right before rng.
-func PrevRange(rng datetime.Range) datetime.Range {
+func PrevRange(rng Range) Range {
 	d := rng.End.Sub(rng.Start) + time.Second
-	return datetime.NewRange(rng.Start.Add(-d)).To(rng.End.Add(-d))
+	return NewRange(rng.Start.Add(-d)).To(rng.End.Add(-d))
 }
 
 // params gets the condition for the query's filter, and the parameters for
@@ -111,7 +109,7 @@ func (s *Store) localHour(utcHour string) (time.Time, error) {
 
 // Dashboard calculates totals and chart points together. Totals are
 // weighted by visits, rather than averaging the per-bucket rates.
-func (s *Store) Dashboard(ctx context.Context, q Query, group Group) (DashboardData, error) {
+func (s *Store) Dashboard(ctx context.Context, q Query, group Period) (DashboardData, error) {
 	loc := s.Timezone.Loc()
 	group = ChartGroup(q.Range.In(loc), group)
 
@@ -142,7 +140,7 @@ func (s *Store) Dashboard(ctx context.Context, q Query, group Group) (DashboardD
 
 // metricBuckets loads per-hour buckets in the local timezone, keyed as
 // "2006-01-02 15", and the totals for the period.
-func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[string]dashboardMetricBucket, DashboardMetrics, error) {
+func (s *Store) metricBuckets(ctx context.Context, q Query, group Period) (map[string]dashboardMetricBucket, DashboardMetrics, error) {
 	filter, params := q.params("path", "name")
 
 	// Each visit is counted in the hour of its first pageview. As in
@@ -179,7 +177,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 	var total dashboardMetricBucket
 	buckets := make(map[string]dashboardMetricBucket)
 	add := func(t time.Time, row dashboardMetricBucket) {
-		key := metricBucketStart(t, group).Format("2006-01-02 15")
+		key := StartOf(t, group).Format("2006-01-02 15")
 		b := buckets[key]
 		b.Visitors += row.Visitors
 		b.Visits += row.Visits
@@ -228,7 +226,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 		if err != nil {
 			return nil, DashboardMetrics{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
 		}
-		k := bucketVisitor{metricBucketStart(t, group).Format("2006-01-02 15"), row.Visitor}
+		k := bucketVisitor{StartOf(t, group).Format("2006-01-02 15"), row.Visitor}
 		if _, ok := seen[k]; !ok {
 			seen[k] = struct{}{}
 			b := buckets[k.key]
@@ -298,9 +296,9 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 	return buckets, metrics, nil
 }
 
-func metricPoints(ctx context.Context, buckets map[string]dashboardMetricBucket, rng datetime.Range, group Group) ([]DashboardMetricPoint, error) {
+func metricPoints(ctx context.Context, buckets map[string]dashboardMetricBucket, rng Range, group Period) ([]DashboardMetricPoint, error) {
 	var points []DashboardMetricPoint
-	for at := metricBucketStart(rng.Start, group); !at.After(rng.End); at = nextMetricBucket(at, group) {
+	for at := StartOf(rng.Start, group); !at.After(rng.End); at = AddPeriod(at, 1, group) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -311,7 +309,7 @@ func metricPoints(ctx context.Context, buckets map[string]dashboardMetricBucket,
 			Visits:    float64(b.Visits),
 			Pageviews: float64(b.Pageviews),
 		}
-		if group.Hourly() {
+		if group == Hour {
 			p.Hour = at.Hour()
 		}
 		if b.Visits > 0 {
@@ -329,56 +327,12 @@ func metricPoints(ctx context.Context, buckets map[string]dashboardMetricBucket,
 // ChartGroup coarsens long ranges without changing their dates. This bounds
 // empty chart buckets even while a date input contains a partially typed year.
 // Yearly charts have at most 10,000 points for the four-digit years we accept.
-func ChartGroup(rng datetime.Range, group Group) Group {
+func ChartGroup(rng Range, group Period) Period {
 	const maxPoints = 2400
-	for ; group < GroupYearly; group++ {
-		start := metricBucketStart(rng.Start, group)
-		var limit time.Time
-		switch group {
-		case GroupHourly:
-			limit = start.Add(maxPoints * time.Hour)
-		case GroupDaily:
-			limit = start.AddDate(0, 0, maxPoints)
-		case GroupWeekly:
-			limit = start.AddDate(0, 0, maxPoints*7)
-		case GroupMonthly:
-			limit = start.AddDate(0, maxPoints, 0)
-		}
-		if rng.End.Before(limit) {
-			return group
+	for _, g := range ChartGroups {
+		if g >= group && rng.End.Before(AddPeriod(StartOf(rng.Start, g), maxPoints, g)) {
+			return g
 		}
 	}
-	return GroupYearly
-}
-
-func metricBucketStart(t time.Time, group Group) time.Time {
-	if group.Hourly() {
-		return t.Truncate(time.Hour)
-	}
-	if group.Weekly() {
-		return datetime.StartOf(t, datetime.Week(false))
-	}
-	if group.Monthly() {
-		return datetime.StartOf(t, datetime.Month)
-	}
-	if group.Yearly() {
-		return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location())
-	}
-	return datetime.StartOf(t, datetime.Day)
-}
-
-func nextMetricBucket(t time.Time, group Group) time.Time {
-	if group.Hourly() {
-		return t.Add(time.Hour)
-	}
-	if group.Weekly() {
-		return t.AddDate(0, 0, 7)
-	}
-	if group.Monthly() {
-		return t.AddDate(0, 1, 0)
-	}
-	if group.Yearly() {
-		return t.AddDate(1, 0, 0)
-	}
-	return t.AddDate(0, 0, 1)
+	return Year
 }
