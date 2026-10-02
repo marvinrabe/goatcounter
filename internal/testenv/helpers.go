@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -51,21 +49,5 @@ func NewRequest(method, path string, body io.Reader) *http.Request {
 func MustUnmarshal(b []byte, v any) {
 	if err := json.Unmarshal(b, v); err != nil {
 		panic(err)
-	}
-}
-func ModuleRoot() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if dir == parent {
-			panic("cannot find module root")
-		}
-		dir = parent
 	}
 }

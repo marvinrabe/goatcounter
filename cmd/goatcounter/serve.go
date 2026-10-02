@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/handlers"
+	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
+	"github.com/marvinrabe/goatcounter/internal/web"
 )
 
 const usageServe = `
@@ -83,15 +82,11 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	}
 	defer closeDB(db)
 
-	tpl, err := fs.Sub(goatcounter.Templates, "tpl")
-	if err != nil {
-		return err
-	}
-	if err := handlers.LoadTemplates(tpl); err != nil {
+	if err := web.LoadTemplates(); err != nil {
 		return err
 	}
 
-	c := goatcounter.Config(ctx)
+	c := analytics.Config(ctx)
 	seenSites := make(map[string]bool)
 	for _, name := range strings.Split(*siteList, ",") {
 		name = strings.TrimSpace(strings.TrimRight(name, "/"))
@@ -103,7 +98,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 			return fmt.Errorf("duplicate site in -sites: %s", name)
 		}
 		seenSites[key] = true
-		s := goatcounter.Site{Key: name, LinkDomain: name}
+		s := analytics.Site{Key: name, LinkDomain: name}
 		s.Defaults()
 		c.Sites = append(c.Sites, s)
 	}
@@ -116,15 +111,15 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	}
 
 	timeout := 60
-	auth := handlers.Auth{Mode: handlers.AuthMode(*authMode)}
+	auth := web.Auth{Mode: web.AuthMode(*authMode)}
 	switch auth.Mode {
-	case handlers.AuthPublic:
-	case handlers.AuthBasic:
-		auth.BasicUsers, err = handlers.ParseBasicUsers(*basicAuth)
+	case web.AuthPublic:
+	case web.AuthBasic:
+		auth.BasicUsers, err = web.ParseBasicUsers(*basicAuth)
 		if err != nil {
 			return err
 		}
-	case handlers.AuthOIDC:
+	case web.AuthOIDC:
 		for name, value := range map[string]string{
 			"-oidc-issuer": *oidcIssuer, "-oidc-client-id": *oidcClientID,
 			"-oidc-client-secret": *oidcSecret, "-oidc-session-secret": *oidcSession,
@@ -137,7 +132,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 			return fmt.Errorf("-oidc-session-secret must contain at least 32 bytes")
 		}
 		oidcCtx, cancelOIDC := context.WithTimeout(ctx, 15*time.Second)
-		auth.OIDC, err = handlers.NewOIDCAuth(oidcCtx, handlers.OIDCConfig{
+		auth.OIDC, err = web.NewOIDCAuth(oidcCtx, web.OIDCConfig{
 			Issuer: *oidcIssuer, ClientID: *oidcClientID, ClientSecret: *oidcSecret,
 			SessionSecret: *oidcSession,
 		})
@@ -151,7 +146,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           handlers.NewBackend(db, timeout, handlers.NewRatelimits(), auth),
+		Handler:           web.New(db, timeout, web.NewRatelimits(), auth),
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,

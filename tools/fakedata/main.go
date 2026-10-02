@@ -18,10 +18,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
-	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 )
 
 // Day is what was stored for one day; visitors are unique per day.
@@ -99,16 +98,16 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 	}
 
 	ctx := context.Background()
-	db, err := libsqldriver.Open(ctx, database.ConnectOptions{Connect: connect})
+	db, err := database.Open(ctx, database.ConnectOptions{Connect: connect})
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	ctx = goatcounter.NewContext(ctx, db)
-	site := goatcounter.Site{Key: siteName, LinkDomain: siteName}
-	goatcounter.Config(ctx).Sites = []goatcounter.Site{site}
-	goatcounter.Config(ctx).Timezone = tz
-	ctx = goatcounter.WithSite(ctx, &site)
+	ctx = analytics.NewContext(ctx, db)
+	site := analytics.Site{Key: siteName, LinkDomain: siteName}
+	analytics.Config(ctx).Sites = []analytics.Site{site}
+	analytics.Config(ctx).Timezone = tz
+	ctx = analytics.WithSite(ctx, &site)
 
 	dist := func(aggregate, value, value2, metric string, fallback []weighted) ([]weighted, error) {
 		var w []weighted
@@ -183,7 +182,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 				start := at
 				event := r.IntN(8) == 0
 				for i := range n {
-					h := goatcounter.Hit{
+					h := analytics.Hit{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
 						Path: entry, Ref: ref, Width: agent.width,
 						Hostname: siteName, Language: "deu",
@@ -192,7 +191,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 					if i > 0 {
 						h.Path, h.Ref = pick(r, allPages).Value, "https://"+siteName+"/"
 					}
-					if err := goatcounter.Collect(ctx, h); err != nil {
+					if err := analytics.Collect(ctx, h); err != nil {
 						return err
 					}
 					if p, _, _ := cut(h.Path, "?"); !seenPage[p] {
@@ -205,13 +204,13 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 				}
 				if event {
 					at = at.Add(time.Duration(5+r.IntN(30)) * time.Second)
-					h := goatcounter.Hit{
+					h := analytics.Hit{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
 						Path: "/", Hostname: siteName, Name: "Outbound Link: Click",
 						Props:   `{"url":"https://www.roll-pastuch.de/"}`,
 						Country: loc.Value,
 					}
-					if err := goatcounter.Collect(ctx, h); err != nil {
+					if err := analytics.Collect(ctx, h); err != nil {
 						return err
 					}
 					if !hadEvent {

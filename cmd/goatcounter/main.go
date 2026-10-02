@@ -11,9 +11,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
-	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 )
 
 type command func(args []string, ready chan<- struct{}, stop chan struct{}) error
@@ -77,9 +76,9 @@ Usage: goatcounter [serve|healthcheck] [flags]
 func connectDB(connect string) (database.DB, context.Context, error) {
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelConnect()
-	db, err := libsqldriver.Open(connectCtx, database.ConnectOptions{
+	db, err := database.Open(connectCtx, database.ConnectOptions{
 		Connect: connect,
-		Schema:  goatcounter.Schema,
+		Schema:  database.Schema,
 		Create:  true,
 	})
 
@@ -87,7 +86,7 @@ func connectDB(connect string) (database.DB, context.Context, error) {
 		return nil, nil, err
 	}
 
-	return db, goatcounter.NewContext(context.Background(), db), nil
+	return db, analytics.NewContext(context.Background(), db), nil
 }
 
 func setupLog(debug bool) {

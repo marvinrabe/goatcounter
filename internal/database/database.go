@@ -5,6 +5,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"io"
 
@@ -20,11 +21,15 @@ type Database struct {
 }
 
 type ConnectOptions struct {
-	Connect                    string
-	Create                     bool
-	Schema                     string // Creates the tables in an empty database.
-	MaxOpenConns, MaxIdleConns int
+	Connect string
+	Create  bool
+	Schema  string // Creates the tables in an empty database.
 }
+
+// Schema creates GoatCounter's tables.
+//
+//go:embed schema.sql
+var Schema string
 
 func New(conn *sql.DB) DB {
 	// The driver name only selects sqlx's "?" placeholder style; prepare()

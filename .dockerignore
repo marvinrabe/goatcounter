@@ -4,7 +4,7 @@
 .test-results
 goatcounter-data
 node_modules
-public
+internal/web/dist
 goatcounter
 goatcounter.test
 .DS_Store

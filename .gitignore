@@ -2,7 +2,7 @@
 /goatcounter.test
 /goatcounter.exe
 goatcounter-data/
-/public/
+/internal/web/dist/
 /node_modules/
 
 .env

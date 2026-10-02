@@ -1,0 +1,35 @@
+package web
+
+import (
+	"io/fs"
+	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// static serves the files built by Vite.
+func static(r chi.Router) {
+	files := sub(distFiles, "dist")
+	server := http.FileServerFS(files)
+	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		info, err := fs.Stat(files, path)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		cache := "no-cache"
+		switch {
+		case r.URL.Path == "/count.js":
+			cache = "public, max-age=604800"
+		case strings.HasPrefix(r.URL.Path, "/assets/"):
+			cache = "public, max-age=31536000"
+		}
+		w.Header().Set("Cache-Control", cache)
+		if r.URL.Path == "/count.js" {
+			w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+		}
+		server.ServeHTTP(w, r)
+	})
+}

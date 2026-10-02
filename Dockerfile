@@ -5,8 +5,8 @@
 from docker.io/node:24-alpine as assets
 workdir /goatcounter
 copy package.json package-lock.json vite.config.js ./
-copy assets ./assets
-copy tpl ./tpl
+copy internal/web/assets ./internal/web/assets
+copy internal/web/templates ./internal/web/templates
 run --mount=type=cache,target=/root/.npm npm ci && npm run build
 
 ### Build GoatCounter
@@ -14,8 +14,8 @@ from docker.io/golang:1.27 as build
 workdir /goatcounter
 copy go.mod go.sum ./
 run --mount=type=cache,target=/go/pkg/mod go mod download
-copy --exclude=goatcounter-data --exclude=node_modules --exclude=public --exclude=Dockerfile . /goatcounter
-copy --from=assets /goatcounter/public ./public
+copy --exclude=goatcounter-data --exclude=node_modules --exclude=internal/web/dist --exclude=Dockerfile . /goatcounter
+copy --from=assets /goatcounter/internal/web/dist ./internal/web/dist
 # Pure Go, including SQLite, so the binary is static without a C toolchain.
 env CGO_ENABLED=0
 env GOTOOLCHAIN=auto

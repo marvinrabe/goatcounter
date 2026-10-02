@@ -6,18 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
-	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 )
 
 // Context creates a new test context.
 func Context(db database.DB) context.Context {
-	ctx := goatcounter.NewContext(context.Background(), db)
+	ctx := analytics.NewContext(context.Background(), db)
 
-	s := goatcounter.Site{Key: "example.com", LinkDomain: "example.com"}
+	s := analytics.Site{Key: "example.com", LinkDomain: "example.com"}
 	s.Defaults()
-	goatcounter.Config(ctx).Sites = []goatcounter.Site{s}
+	analytics.Config(ctx).Sites = []analytics.Site{s}
 	return ctx
 }
 
@@ -25,9 +24,9 @@ func Context(db database.DB) context.Context {
 func DB(t testing.TB) context.Context {
 	t.Helper()
 
-	db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{
-		Connect: libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db")),
-		Schema:  goatcounter.Schema,
+	db, err := database.Open(context.Background(), database.ConnectOptions{
+		Connect: database.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db")),
+		Schema:  database.Schema,
 		Create:  true,
 	})
 	if err != nil {
@@ -35,8 +34,8 @@ func DB(t testing.TB) context.Context {
 	}
 
 	ctx := Context(db)
-	site := goatcounter.Config(ctx).Sites[0]
-	ctx = goatcounter.WithSite(ctx, &site)
+	site := analytics.Config(ctx).Sites[0]
+	ctx = analytics.WithSite(ctx, &site)
 
 	t.Cleanup(func() {
 		db.Close()
@@ -47,13 +46,13 @@ func DB(t testing.TB) context.Context {
 
 // StoreHits stores hits through the collector. Hits from the same RemoteAddr
 // and UserAgentHeader are one visitor, and one visit within 30 minutes.
-func StoreHits(ctx context.Context, t testing.TB, hits ...goatcounter.Hit) {
+func StoreHits(ctx context.Context, t testing.TB, hits ...analytics.Hit) {
 	t.Helper()
 	for _, h := range hits {
 		if h.Path == "" {
 			h.Path = "/"
 		}
-		if err := goatcounter.Collect(ctx, h); err != nil {
+		if err := analytics.Collect(ctx, h); err != nil {
 			t.Fatalf("StoreHits: %v", err)
 		}
 	}
