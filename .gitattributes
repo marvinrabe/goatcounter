@@ -2,3 +2,4 @@
 /go.sum                            linguist-generated=true
 /internal/enrich/refspam_list.go   linguist-generated=true
 /internal/enrich/language_names.go linguist-generated=true
+/frontend/package-lock.json        linguist-generated=true

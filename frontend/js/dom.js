@@ -59,7 +59,7 @@ var is_visible = (elem) => !!elem && (elem.offsetWidth > 0 || elem.offsetHeight 
 // Send a GET request, with opt.data as the query string. opt.success is
 // called with the response, parsed as JSON if the server said it's JSON.
 //
-// Failures are reported as an "ajaxerror" event on document, which backend.js
+// Failures are reported as an "ajaxerror" event on document, which app.js
 // listens for; errors thrown by opt.success are left alone, so that they get
 // reported as a regular error rather than as a request failure.
 var ajax = function(url, opt) {

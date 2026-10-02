@@ -3,7 +3,7 @@
 .env.*
 .test-results
 goatcounter-data
-node_modules
+frontend/node_modules
 internal/web/dist
 goatcounter
 goatcounter.test

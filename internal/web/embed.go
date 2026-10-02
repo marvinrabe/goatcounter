@@ -10,7 +10,7 @@ import (
 var (
 	//go:embed templates/*
 	templateFiles embed.FS
-	// Built by Vite from assets/; run "npm run build" first.
+	// Built by Vite from /frontend; run "npm run build" there first.
 	//
 	//go:embed dist/*
 	distFiles embed.FS

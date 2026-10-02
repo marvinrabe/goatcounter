@@ -1,5 +1,5 @@
 import {page_dashboard} from './dashboard.js'
-import {$1, on} from './helper.js'
+import {$1, on} from './dom.js'
 
 ;(function() {
 	'use strict';

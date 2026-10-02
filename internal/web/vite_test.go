@@ -12,9 +12,9 @@ func TestAssets(t *testing.T) {
 	}
 
 	for _, source := range []string{
-		"assets/css/backend.css",
-		"assets/js/backend.js",
-		"assets/js/count.js",
+		"css/app.css",
+		"js/app.js",
+		"js/count.js",
 	} {
 		built, ok := assets[source]
 		if !ok {

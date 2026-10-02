@@ -10,7 +10,7 @@ import {
 	on,
 	paginate_button,
 	parse_html,
-} from './helper.js'
+} from './dom.js'
 import Chart from 'chart.js/auto'
 
 // Set up the entire dashboard page.

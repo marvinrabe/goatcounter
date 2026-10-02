@@ -2,22 +2,21 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 
-// The frontend lives with the Go package that embeds it. Paths are relative to
-// root, which is also what the manifest keys are relative to.
-const root = resolve(import.meta.dirname, 'internal/web')
+// Builds into the Go package that embeds the files. The manifest maps the
+// sources, relative to this directory, to the built files.
 const input = {
-	backend: resolve(root, 'assets/js/backend.js'),
-	count: resolve(root, 'assets/js/count.js'),
-	styles: resolve(root, 'assets/css/backend.css'),
+	app: resolve(import.meta.dirname, 'js/app.js'),
+	count: resolve(import.meta.dirname, 'js/count.js'),
+	styles: resolve(import.meta.dirname, 'css/app.css'),
 }
 export default defineConfig({
-	root,
+	root: import.meta.dirname,
 	plugins: [tailwindcss()],
-	publicDir: 'assets/static',
+	publicDir: 'static',
 	build: {
 		emptyOutDir: true,
 		manifest: 'manifest.json',
-		outDir: 'dist',
+		outDir: resolve(import.meta.dirname, '../internal/web/dist'),
 		rollupOptions: {
 			input,
 			output: {

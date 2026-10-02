@@ -3,18 +3,20 @@
 
 ### Build frontend assets
 from docker.io/node:24-alpine as assets
-workdir /goatcounter
-copy package.json package-lock.json vite.config.js ./
-copy internal/web/assets ./internal/web/assets
-copy internal/web/templates ./internal/web/templates
-run --mount=type=cache,target=/root/.npm npm ci && npm run build
+workdir /goatcounter/frontend
+copy frontend/package.json frontend/package-lock.json ./
+run --mount=type=cache,target=/root/.npm npm ci
+copy frontend ./
+# Tailwind finds the classes in the templates.
+copy internal/web/templates ../internal/web/templates
+run npm run build
 
 ### Build GoatCounter
 from docker.io/golang:1.27 as build
 workdir /goatcounter
 copy go.mod go.sum ./
 run --mount=type=cache,target=/go/pkg/mod go mod download
-copy --exclude=goatcounter-data --exclude=node_modules --exclude=internal/web/dist --exclude=Dockerfile . /goatcounter
+copy --exclude=goatcounter-data --exclude=frontend/node_modules --exclude=internal/web/dist --exclude=Dockerfile . /goatcounter
 copy --from=assets /goatcounter/internal/web/dist ./internal/web/dist
 # Pure Go, including SQLite, so the binary is static without a C toolchain.
 env CGO_ENABLED=0

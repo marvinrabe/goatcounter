@@ -201,18 +201,17 @@ You need Go 1.27 or newer and Node.js 22.12 or newer. Everything is pure Go,
 including SQLite ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)),
 so no C compiler is needed and `CGO_ENABLED=0` builds a static binary.
 
-    % npm ci
-    % npm run build
+    % (cd frontend && npm ci && npm run build)
     % go build ./cmd/goatcounter
 
 Code layout:
 
     cmd/goatcounter      The goatcounter command: serve and healthcheck.
+    frontend/            JavaScript, CSS, and static files, built by Vite into
+                         internal/web/dist/, which is embedded in the binary.
     internal/analytics   Pageviews and sites: collecting and querying them.
     internal/web         HTTP routes, middleware, and authentication.
       templates/         HTML templates.
-      assets/            JavaScript, CSS, and static files, built by Vite
-                         into dist/, which is embedded in the binary.
       widgets/           The dashboard's widgets.
     internal/database    libSQL and SQLite connections, queries, and schema.sql.
     internal/enrich      Lookups for a pageview: bots, browser, country, etc.
@@ -220,5 +219,5 @@ Code layout:
     tools/               Plausible migration and fake test data.
 
 Use `-debug` for debug logs, including HTTP requests and SQL queries. Tests
-are run with `go test ./...` and `npm test`; run `npm run build` first after
-changing frontend assets.
+are run with `go test ./...`, and `npm test` in frontend/; run `npm run build`
+there first after changing the frontend.

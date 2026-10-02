@@ -125,7 +125,7 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			return
 		}
 
-		styleURL, _ := assetURL("assets/css/backend.css")
+		styleURL, _ := assetURL("css/app.css")
 		err := t.ExecuteTemplate(w, "error.gohtml", struct {
 			Code     int
 			Error    error
