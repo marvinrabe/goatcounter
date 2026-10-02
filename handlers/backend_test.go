@@ -129,18 +129,6 @@ func BenchmarkCount(b *testing.B) {
 	}
 }
 
-func grep(pat, lines string) string {
-	s := strings.Split(lines, "\n")
-	r := make([]string, 0, len(s)/2)
-	re := regexp.MustCompile(pat)
-	for _, l := range s {
-		if re.MatchString(l) {
-			r = append(r, l)
-		}
-	}
-	return strings.Join(r, "\n")
-}
-
 func newBackend(ctx context.Context) chi.Router {
 	return NewBackend(database.MustGetDB(ctx), true,
 		"example.com", "", 10, NewRatelimits(), "", Auth{Mode: AuthPublic})
