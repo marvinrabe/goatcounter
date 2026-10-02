@@ -1,5 +1,4 @@
-// Package testutil contains small fixture and comparison helpers for tests.
-package testutil
+package testenv
 
 import (
 	"encoding/json"

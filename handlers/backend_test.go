@@ -15,7 +15,6 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func TestBackendSiteIndependentRoutes(t *testing.T) {
@@ -85,13 +84,13 @@ func TestBackendPagesMore(t *testing.T) {
 	r, rr := newTest(ctx, "GET", url, nil)
 	login(t, r)
 	handler.ServeHTTP(rr, r)
-	testutil.Code(t, rr, 200)
+	testenv.Code(t, rr, 200)
 
 	var body map[string]any
-	testutil.MustUnmarshal(rr.Body.Bytes(), &body)
+	testenv.MustUnmarshal(rr.Body.Bytes(), &body)
 	haveHTML := strings.Join(regexp.MustCompile(`data-id="[^"]+"`).FindAllString(body["html"].(string), -1), " ")
 	wantHTML := `data-id="/5" data-id="/4" data-id="/3" data-id="/2" data-id="/1"`
-	if d := testutil.Diff(haveHTML, wantHTML); d != "" {
+	if d := testenv.Diff(haveHTML, wantHTML); d != "" {
 		t.Error(d)
 	}
 	if body["more"] != false {

@@ -8,11 +8,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/testutil"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 )
 
 func TestStaticFiles(t *testing.T) {
-	t.Chdir(testutil.ModuleRoot())
+	t.Chdir(testenv.ModuleRoot())
 	for _, standalone := range []bool{false, true} {
 		ctx := goatcounter.NewConfig(context.Background())
 		// No database or configured sites: assets must be independent of both.

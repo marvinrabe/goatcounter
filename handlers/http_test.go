@@ -14,18 +14,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/marvinrabe/goatcounter/internal/testutil"
+	"github.com/marvinrabe/goatcounter/internal/testenv"
 )
 
 func init() {
 
-	files, _ := fs.Sub(os.DirFS(testutil.ModuleRoot()), "tpl")
+	files, _ := fs.Sub(os.DirFS(testenv.ModuleRoot()), "tpl")
 	err := LoadTemplates(files)
 	if err != nil {
 		panic(err)
 	}
 
-	testutil.DefaultHost = "test.example.com"
+	testenv.DefaultHost = "test.example.com"
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 }
 
@@ -34,7 +34,7 @@ func login(t *testing.T, r *http.Request) {
 	r.SetBasicAuth("test@example.com", "coconuts")
 }
 func newTest(ctx context.Context, method, path string, body io.Reader) (*http.Request, *httptest.ResponseRecorder) {
-	r, rr := testutil.NewRequest(method, path, body).WithContext(ctx), httptest.NewRecorder()
+	r, rr := testenv.NewRequest(method, path, body).WithContext(ctx), httptest.NewRecorder()
 	r.Header.Set("User-Agent", "GoatCounter test runner/1.0")
 	r.Host = "test"
 	return r, rr

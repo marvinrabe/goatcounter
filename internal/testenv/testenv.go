@@ -10,7 +10,6 @@ import (
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/database"
 	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
-	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 // Context creates a new test context.
@@ -35,7 +34,7 @@ func db(t testing.TB) context.Context {
 	conn := libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
 	os.Setenv("TESTENV_CONNECT", conn)
 
-	files := os.DirFS(testutil.ModuleRoot())
+	files := os.DirFS(ModuleRoot())
 	db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{
 		Connect: conn,
 		Files:   files,

@@ -11,7 +11,6 @@ import (
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
-	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
 
 func fmtCSP(h string) string {
@@ -63,15 +62,15 @@ func TestAddCSP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			var (
-				r  = testutil.NewRequest("GET", tt.path, nil)
+				r  = testenv.NewRequest("GET", tt.path, nil)
 				rr = httptest.NewRecorder()
 			)
 
 			mw.ServeHTTP(rr, r)
 
-			tt.want = testutil.NormalizeIndent(tt.want)
+			tt.want = testenv.NormalizeIndent(tt.want)
 			have := fmtCSP(rr.Header().Get("Content-Security-Policy"))
-			if d := testutil.Diff(have, tt.want); d != "" {
+			if d := testenv.Diff(have, tt.want); d != "" {
 				t.Error(d)
 			}
 		})
@@ -147,7 +146,7 @@ func TestSelectSite(t *testing.T) {
 func BenchmarkAddCSP(b *testing.B) {
 	var (
 		ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
-		r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
+		r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
 		rr  = httptest.NewRecorder()
 		mw  = addcsp("")(http.NewServeMux())
 	)
@@ -161,7 +160,7 @@ func BenchmarkRequestContext(b *testing.B) {
 	b.Run("without site", func(b *testing.B) {
 		var (
 			ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
-			r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
+			r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
 			rr  = httptest.NewRecorder()
 			mw  = requestContext(10 * time.Second)(http.NewServeMux())
 		)
@@ -174,7 +173,7 @@ func BenchmarkRequestContext(b *testing.B) {
 	b.Run("with site", func(b *testing.B) {
 		var (
 			ctx = testenv.DB(b)
-			r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
+			r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
 			rr  = httptest.NewRecorder()
 			mw  = requestContext(10 * time.Second)(selectSite(false)(http.NewServeMux()))
 		)
