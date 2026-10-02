@@ -1,6 +1,6 @@
 // Code generated from the ISO 639-3 list; DO NOT EDIT.
 
-package goatcounter
+package enrich
 
 // languageNames maps ISO 639-3 codes to English names.
 var languageNames = map[string]string{

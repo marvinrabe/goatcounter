@@ -45,7 +45,7 @@ func Collect(ctx context.Context, h Hit) error {
 			site, ts, visitor, session, name, hostname, path, props,
 			source, referrer, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
 			browser, browser_version, os, os_version, width,
-			country, region, city, language
+			country, language
 		) values (
 			:site, :ts, :visitor,
 			coalesce((
@@ -56,7 +56,7 @@ func Collect(ctx context.Context, h Hit) error {
 			:name, :hostname, :path, :props,
 			:source, :referrer, :utm_source, :utm_medium, :utm_campaign, :utm_content, :utm_term,
 			:browser, :browser_version, :os, :os_version, :width,
-			:country, :region, :city, :language
+			:country, :language
 		)`, map[string]any{
 		"site": h.Site, "ts": h.CreatedAt.Unix(),
 		"visitor": visitor, "prev_visitor": prevVisitor,
@@ -68,7 +68,7 @@ func Collect(ctx context.Context, h Hit) error {
 		"utm_content": h.UTMContent, "utm_term": h.UTMTerm,
 		"browser": h.Browser, "browser_version": h.BrowserVersion,
 		"os": h.OS, "os_version": h.OSVersion, "width": h.Width,
-		"country": h.Location.Country, "region": h.Location.Region, "city": h.Location.City,
+		"country":  h.Country,
 		"language": h.Language,
 	})
 	if err != nil {

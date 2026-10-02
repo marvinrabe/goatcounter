@@ -1,10 +1,8 @@
-package goatcounter
+package enrich
 
 import (
 	"net/url"
 	"strings"
-
-	"github.com/marvinrabe/goatcounter/internal/refspam"
 )
 
 // knownSources maps referrer hosts to the source names Plausible uses. A
@@ -61,12 +59,13 @@ func sourceName(host string) string {
 	return host
 }
 
-// referrerSource derives Plausible's source and referrer dimensions from a
-// Referer header. Internal referrals and referrer spam return empty values.
+// Source derives Plausible's source and referrer dimensions from a Referer
+// header. Internal referrals to linkDomain and referrer spam (refspam.go)
+// return empty values.
 //
 // The referrer is the host without "www." plus the path, without query
 // string, e.g. "google.com/url" or "news.ycombinator.com/item".
-func referrerSource(ref, linkDomain string) (source, referrer string) {
+func Source(ref, linkDomain string) (source, referrer string) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", ""
@@ -84,7 +83,7 @@ func referrerSource(ref, linkDomain string) (source, referrer string) {
 	default:
 		return "", ""
 	}
-	if host == "" || refspam.Is(host) {
+	if host == "" || isSpam(host) {
 		return "", ""
 	}
 	own := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(linkDomain)), "www.")

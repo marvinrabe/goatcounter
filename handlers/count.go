@@ -5,8 +5,7 @@ import (
 	"net/http"
 
 	"github.com/marvinrabe/goatcounter"
-	botcheck "github.com/marvinrabe/goatcounter/internal/bot"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/monoculum/formam/v3"
 )
 
@@ -23,20 +22,13 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Bots and prefetches aren't stored, and the client doesn't need to know.
-	bot := botcheck.Bot(r)
-	if bot == botcheck.BotPrefetch || botcheck.Is(bot) {
+	if enrich.IsBot(r) {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
 
-	hit := goatcounter.Hit{
-		Site:            Site(r.Context()).Key,
-		UserAgentHeader: r.UserAgent(),
-		CreatedAt:       datetime.Now(r.Context()),
-		RemoteAddr:      r.RemoteAddr,
-		Location:        goatcounter.LookupIP(r.Context(), r.RemoteAddr),
-		Language:        goatcounter.AcceptLanguage(r.Header.Get("Accept-Language")),
-	}
+	hit := goatcounter.HitFromRequest(r)
+	hit.Site = Site(r.Context()).Key
 	q := r.URL.Query()
 	if q.Get("s") == "" {
 		q.Del("s") // An unknown width is 0, not an error.

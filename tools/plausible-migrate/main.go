@@ -41,16 +41,18 @@ var (
 		"page": "path", "entry_page": "path", "exit_page": "path",
 		"operating_system": "os", "operating_system_version": "os_version",
 	}
+	// CSV columns that aren't stored: the collector only records the country.
+	ignored = []string{"region", "city"}
 	// CSV columns stored as a property in props.
 	asProps = map[string]string{"link_url": "url", "path": "path"}
 
 	dimensions = []string{
 		"hostname", "path", "name", "source", "referrer",
 		"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
-		"browser", "browser_version", "os", "os_version", "device", "country", "region",
+		"browser", "browser_version", "os", "os_version", "device", "country",
 	}
 	metrics = []string{
-		"city", "visitors", "visits", "pageviews", "bounces", "visit_duration", "events",
+		"visitors", "visits", "pageviews", "bounces", "visit_duration", "events",
 		"entrances", "exits", "total_scroll_depth", "total_scroll_depth_visits",
 		"total_time_on_page", "total_time_on_page_visits",
 	}
@@ -170,6 +172,7 @@ func migrateFile(ctx context.Context, f *zip.File, site, kind string, loc *time.
 		for i, c := range header[1:] {
 			v := row[i+1]
 			switch {
+			case slices.Contains(ignored, c):
 			case kind == "custom_props" && (c == "property" || c == "value"):
 				// Handled below.
 			case kind == "custom_events" && asProps[c] != "":

@@ -33,7 +33,7 @@ run <<EOF
 	echo 'goatcounter:x:1000:1000::/home/goatcounter:/sbin/nologin' > /rootfs/etc/passwd
 	echo 'goatcounter:x:1000:'                                      > /rootfs/etc/group
 
-	# Required for remote libSQL, OIDC, and explicit GeoIP updates.
+	# Required for remote libSQL, OIDC, and the bot and spam list updates.
 	cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/
 
 	chmod 1777 /rootfs/tmp

@@ -132,7 +132,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 	if err != nil {
 		return err
 	}
-	countries, err := dist("locations", "country", "region", "visits", []weighted{{"DE", "DE-HE", 5}, {"US", "", 1}})
+	countries, err := dist("locations", "country", "''", "visits", []weighted{{"DE", "", 5}, {"US", "", 1}})
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
 						Path: entry, Ref: ref, Width: agent.width,
 						Hostname: siteName, Language: "deu",
-						Location: goatcounter.GeoLocation{Country: loc.Value, Region: loc.Value2},
+						Country: loc.Value,
 					}
 					if i > 0 {
 						h.Path, h.Ref = pick(r, allPages).Value, "https://"+siteName+"/"
@@ -208,8 +208,8 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 					h := goatcounter.Hit{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
 						Path: "/", Hostname: siteName, Name: "Outbound Link: Click",
-						Props:    `{"url":"https://www.roll-pastuch.de/"}`,
-						Location: goatcounter.GeoLocation{Country: loc.Value, Region: loc.Value2},
+						Props:   `{"url":"https://www.roll-pastuch.de/"}`,
+						Country: loc.Value,
 					}
 					if err := goatcounter.Collect(ctx, h); err != nil {
 						return err

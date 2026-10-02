@@ -1,5 +1,6 @@
-// Bot signature data from isbot v1.1.0; see LICENSE and README.md.
-package bot
+// User-Agent signatures for IsBot, from isbot v1.1.0; see LICENSE.isbot.
+
+package enrich
 
 var clientLibraries = []string{
 	"Go-http-client/",

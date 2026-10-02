@@ -18,8 +18,9 @@ import (
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/handlers"
 	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/dataset"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
-	"github.com/marvinrabe/goatcounter/internal/geo"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
 	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"github.com/marvinrabe/goatcounter/internal/validation"
@@ -50,8 +51,18 @@ serve flags (all can also be set as GOATCOUNTER_«FLAG», e.g. GOATCOUNTER_DB):
   -listen      Address to listen on. Default: ":8080". Plain HTTP only; TLS is
                terminated by the proxy in front.
   -static      Serve static files from a different domain. Default: not set.
-  -geodb       Path to a City or Country mmdb GeoIP database. Default: the
-               bundled Country database. A City database adds regions.
+  -country-header
+               Request header with the visitor's country code, set by the CDN
+               in front, e.g. CDN-RequestCountryCode for bunny.net or
+               CF-IPCountry for Cloudflare. Only set it if all traffic goes
+               through that CDN, as anyone can send the header. Default: not
+               set.
+  -geodb       Path to a Country or City mmdb GeoIP database, for the country
+               without -country-header. Default: not set.
+  -data-updates
+               Update the bot and referrer spam lists from upstream once a
+               day. Default: true. Without it, or when an update fails, the
+               lists built into GoatCounter are used.
   -ratelimit   Limit requests to /count as count:requests/seconds, or
                count:none. Default: count:4/1.
 
@@ -75,6 +86,8 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		debugSQL     = f.Bool("debug-sql", false, "")
 		listen       = f.String("listen", ":8080", "")
 		geodbFlag    = f.String("geodb", "", "")
+		countryHdr   = f.String("country-header", "", "")
+		dataUpdates  = f.Bool("data-updates", true, "")
 		ratelimit    = f.String("ratelimit", "", "")
 		sitesFlag    = f.String("sites", "example.com", "")
 		authMode     = f.String("auth", "public", "")
@@ -110,7 +123,9 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		return v
 	}
 
-	defer geodb.Close()
+	if geodb != nil {
+		defer geodb.Close()
+	}
 	db, ctx, err := connectDB(*dbConnect, *dbConn)
 	if err != nil {
 		return err
@@ -120,8 +135,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		ctx = database.WithDB(ctx, db)
 	}
 	defer closeDB(db)
-
-	ctx = geo.With(ctx, geodb)
 
 	tpl, err := fs.Sub(goatcounter.Templates, "tpl")
 	if err != nil {
@@ -157,6 +170,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		return err
 	}
 	c.DomainStatic = *domainStatic
+	c.Geo = &enrich.Geo{Header: strings.TrimSpace(*countryHdr), DB: geodb}
 
 	timeout := 60
 	auth := handlers.Auth{Mode: handlers.AuthMode(*authMode)}
@@ -242,6 +256,11 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	slog.InfoContext(ctx, "GoatCounter ready",
 		"listen", ln.Addr().String(), "timezone", c.Timezone.String())
 	ready <- struct{}{}
+	if *dataUpdates {
+		updates, stopUpdates := context.WithCancel(ctx)
+		defer stopUpdates()
+		go dataset.Run(updates, enrich.Datasets()...)
+	}
 	var serveErr error
 	select {
 	case <-sig.Done():
@@ -277,7 +296,10 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 func defaultDB() string { return "" }
 
 func setupGeo(v *validation.Validator, geodbFlag string) *geoip2.Reader {
-	geodb, err := geo.Open(geodbFlag)
+	if geodbFlag == "" {
+		return nil
+	}
+	geodb, err := enrich.OpenGeoDB(geodbFlag)
 	if err != nil {
 		v.Append("-geodb", fmt.Sprintf("loading GeoIP database: %s", err))
 	}

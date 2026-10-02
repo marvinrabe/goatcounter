@@ -22,7 +22,7 @@ without "www.", the URL `path` as sent (decoded, without query string, a
 trailing slash kept), custom event `props`, `source` ("Google", "LinkedIn",
 "news.ycombinator.com" or the `utm_source`), `referrer` (host and path), all
 five UTM parameters, browser and OS with major.minor versions, screen width,
-country, ISO 3166-2 region, GeoNames city ID, and language.
+country, and language.
 
 The Plausible history is in the same table, with the same columns. A
 Plausible export isn't a list of visits but a separate daily total for each
@@ -142,10 +142,29 @@ Choose a mode with `GOATCOUNTER_AUTH`:
   comma-separated scopes to `openid`. The login is a signed cookie, so it works
   on every container.
 
-### GeoIP data
+### Locations
 
-The bundled GeoLite2 Country database is used unless `GOATCOUNTER_GEODB` names
-a City or Country mmdb file. Regions and cities need a City database.
+Behind a CDN that sends the visitor's country, set the header name:
+
+    GOATCOUNTER_COUNTRY_HEADER=CDN-RequestCountryCode   # bunny.net
+    GOATCOUNTER_COUNTRY_HEADER=CF-IPCountry             # Cloudflare
+
+bunny.net sends it on every request through a pull zone; the "Vary" country
+options are about caching and aren't needed. Only set it if all traffic goes
+through the CDN, as anyone can send the header.
+
+Without the header, `GOATCOUNTER_GEODB` can name a Country or City mmdb file.
+With neither, locations aren't recorded. Only the country is recorded; the
+Plausible migration drops regions and cities too.
+
+### Bot and referrer spam lists
+
+Bots are recognized by their User-Agent and by coming from a hosting
+provider's network; referrer spam from Matomo's list. All lists are built in,
+and the ones with an upstream – Matomo, and the networks of AWS, Google Cloud,
+Oracle, DigitalOcean, and Linode – are downloaded once a day. A failed download
+keeps the lists in use and is retried later. `GOATCOUNTER_DATA_UPDATES=false`
+turns the downloads off. `internal/enrich` has all lookups, a file for each.
 
 ### Docker
 

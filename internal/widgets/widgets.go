@@ -115,7 +115,6 @@ var Cards = []Card{
 	}},
 	{"audience", "Audience", []Tab{
 		{"locations", "Locations"},
-		{"regions", "Regions"},
 		{"languages", "Languages"},
 	}},
 }
@@ -129,12 +128,12 @@ func New(name string) Widget {
 		return &Pages{base: base{name: name}}
 
 	// Breakdowns with a detail view.
-	case "browsers", "systems", "sizes", "locations", "campaigns":
+	case "browsers", "systems", "sizes", "campaigns":
 		return &Breakdown{base: base{name: name}, detailKind: name}
 	case "toprefs":
 		return &Breakdown{base: base{name: name}, detailKind: "refpaths"}
 
-	case "languages", "entry_pages", "exit_pages", "events", "utm_mediums", "utm_sources", "regions":
+	case "languages", "entry_pages", "exit_pages", "events", "utm_mediums", "utm_sources", "locations":
 		return &Breakdown{base: base{name: name}}
 	}
 	return nil

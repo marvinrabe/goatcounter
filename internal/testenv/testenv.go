@@ -10,24 +10,12 @@ import (
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/database"
 	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
-	"github.com/marvinrabe/goatcounter/internal/geo"
 	"github.com/marvinrabe/goatcounter/internal/testutil"
 )
-
-func init() {
-	// Keep the extracted GeoIP database out of the source tree: geo.CacheDir is
-	// relative, and under "go test" the working directory is the package being
-	// tested, so every package that opens it would get its own copy. The
-	// filename is content-hashed, so sharing one directory across runs and
-	// packages is safe.
-	geo.CacheDir = filepath.Join(os.TempDir(), "goatcounter-test-geoip")
-}
 
 // Context creates a new test context.
 func Context(db database.DB) context.Context {
 	ctx := goatcounter.NewContext(context.Background(), db)
-	geodb, _ := geo.Open("")
-	ctx = geo.With(ctx, geodb)
 
 	s := goatcounter.Site{Key: "example.com", LinkDomain: "example.com"}
 	s.Defaults()

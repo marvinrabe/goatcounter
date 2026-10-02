@@ -3,11 +3,13 @@ package goatcounter
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
@@ -28,12 +30,12 @@ type Hit struct {
 	NoSession bool   `json:"ns,omitempty"`
 
 	// Set from the request.
-	Site            string      `json:"-"`
-	CreatedAt       time.Time   `json:"-"`
-	UserAgentHeader string      `json:"-"`
-	RemoteAddr      string      `json:"-"`
-	Language        string      `json:"-"`
-	Location        GeoLocation `json:"-"`
+	Site            string    `json:"-"`
+	CreatedAt       time.Time `json:"-"`
+	UserAgentHeader string    `json:"-"`
+	RemoteAddr      string    `json:"-"`
+	Language        string    `json:"-"`
+	Country         string    `json:"-"` // ISO 3166-1 alpha-2.
 
 	// Derived by Defaults().
 	Source, Referrer                                       string `json:"-"`
@@ -80,6 +82,20 @@ func (h *Hit) splitPath() {
 	first(&h.UTMTerm, "utm_term")
 }
 
+// HitFromRequest starts a hit with what the request tells: its country and
+// language. The rest is sent by count.js in the query string, and derived from
+// that by Defaults.
+func HitFromRequest(r *http.Request) Hit {
+	ctx := r.Context()
+	return Hit{
+		CreatedAt:       datetime.Now(ctx),
+		UserAgentHeader: r.UserAgent(),
+		RemoteAddr:      r.RemoteAddr,
+		Country:         Config(ctx).Geo.Country(r),
+		Language:        enrich.Language(r.Header.Get("Accept-Language")),
+	}
+}
+
 // Defaults normalizes the hit and derives the stored dimensions. It never
 // touches the database.
 func (h *Hit) Defaults(ctx context.Context) {
@@ -95,13 +111,12 @@ func (h *Hit) Defaults(ctx context.Context) {
 	}
 	h.Hostname = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(h.Hostname)), "www.")
 	h.splitPath()
-	h.Source, h.Referrer = referrerSource(h.Ref, MustGetSite(ctx).LinkDomain)
+	h.Source, h.Referrer = enrich.Source(h.Ref, MustGetSite(ctx).LinkDomain)
 	if h.UTMSource != "" {
 		h.Source = h.UTMSource
 	}
-
-	ua := parseUserAgent(h.UserAgentHeader)
-	h.Browser, h.BrowserVersion, h.OS, h.OSVersion = ua.Name, ua.Version, ua.OS, ua.OSVersion
+	ua := enrich.ParseUserAgent(h.UserAgentHeader)
+	h.Browser, h.BrowserVersion, h.OS, h.OSVersion = ua.Browser, ua.BrowserVersion, ua.OS, ua.OSVersion
 }
 
 // Validate the request before it's normalized. Props are normalized to a

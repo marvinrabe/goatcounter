@@ -1,8 +1,8 @@
-package goatcounter
+package enrich
 
 import "testing"
 
-func TestAcceptLanguage(t *testing.T) {
+func TestLanguage(t *testing.T) {
 	tests := []struct {
 		in   string
 		want string
@@ -30,7 +30,7 @@ func TestAcceptLanguage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			have := AcceptLanguage(tt.in)
+			have := Language(tt.in)
 			if have != tt.want {
 				t.Errorf("\nhave: %q\nwant: %q", have, tt.want)
 			}

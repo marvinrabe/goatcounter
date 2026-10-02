@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/geo"
-	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
 )
 
 func TestContext(t *testing.T) {
@@ -34,8 +32,6 @@ func TestNewContextPreservesParent(t *testing.T) {
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
 	defer cancel()
 	parent = context.WithValue(parent, requestKey{}, "request-id")
-	geodb := new(geoip2.Reader)
-	parent = geo.With(parent, geodb)
 	parent = NewConfig(parent)
 	Config(parent).DomainStatic = "static.example.com"
 	db := new(database.Database)
@@ -44,7 +40,7 @@ func TestNewContextPreservesParent(t *testing.T) {
 	if got := ctx.Value(requestKey{}); got != "request-id" {
 		t.Fatalf("parent value lost: %v", got)
 	}
-	if geo.Get(ctx) != geodb || database.MustGetDB(ctx) != db {
+	if database.MustGetDB(ctx) != db {
 		t.Fatal("application dependencies missing from context")
 	}
 	if Config(ctx) == Config(parent) || Config(ctx).DomainStatic != "" {

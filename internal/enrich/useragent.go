@@ -1,4 +1,4 @@
-package goatcounter
+package enrich
 
 import (
 	"strings"
@@ -29,11 +29,13 @@ var (
 	}
 )
 
-type userAgent struct{ Name, Version, OS, OSVersion string }
+// UserAgent is the browser and OS dimensions.
+type UserAgent struct{ Browser, BrowserVersion, OS, OSVersion string }
 
-// parseUserAgent returns the browser and OS, with versions truncated to
-// major.minor as in Plausible exports ("Chrome 120.0", "Mac 10.15").
-func parseUserAgent(raw string) userAgent {
+// ParseUserAgent gets the browser and OS from a User-Agent header, with
+// versions truncated to major.minor as in Plausible exports ("Chrome 120.0",
+// "Mac 10.15").
+func ParseUserAgent(raw string) UserAgent {
 	ua := useragent.Parse(raw)
 	version := func(s string) string {
 		if s == "" {
@@ -45,9 +47,9 @@ func parseUserAgent(raw string) userAgent {
 		}
 		return parts[0] + "." + parts[1]
 	}
-	r := userAgent{Name: ua.Name, Version: version(ua.Version), OS: ua.OS}
-	if n, ok := browserNames[r.Name]; ok {
-		r.Name = n
+	r := UserAgent{Browser: ua.Name, BrowserVersion: version(ua.Version), OS: ua.OS}
+	if n, ok := browserNames[r.Browser]; ok {
+		r.Browser = n
 	}
 	if n, ok := osNames[r.OS]; ok {
 		r.OS = n

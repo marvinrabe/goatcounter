@@ -9,6 +9,7 @@ import (
 
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
 // visitsCTE selects the matching pageviews as "hits", and the first of them
@@ -25,24 +26,9 @@ with hits as (
 	select session, min(ts) as ts, hostname, path, source, referrer,
 		utm_source, utm_medium, utm_campaign, utm_content, utm_term,
 		browser, browser_version, os, os_version, width,
-		country, region, city, language
+		country, language
 	from hits group by session
 )`
-
-// sizeCategory groups screen widths into the dashboard's device categories.
-const sizeCategory = `case
-	when width = 0    then 'unknown'
-	when width <= 600  then 'phone'
-	when width <= 1000 then 'tablet'
-	else 'desktop' end`
-
-// deviceCategory maps Plausible's devices to the same categories.
-const deviceCategory = `case device
-	when 'Mobile'  then 'phone'
-	when 'Tablet'  then 'tablet'
-	when 'Desktop' then 'desktop'
-	when 'Laptop'  then 'desktop'
-	else 'unknown' end`
 
 type breakdownQuery struct {
 	live     string // Selects id, name, count from collected rows.
@@ -80,12 +66,7 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 		return sameColumns("''", "trim(os || ' ' || os_version)",
 			"lower(os) = lower(:detail)", "operating_systems", "visits"), nil
 	case "locations":
-		if detail == "" {
-			return sameColumns("country", "country", "", "locations", "visits"), nil
-		}
-		return sameColumns("''", "region", "country = :detail", "locations", "visits"), nil
-	case "regions":
-		return sameColumns("region", "region", "region <> ''", "locations", "visits"), nil
+		return sameColumns("country", "country", "", "locations", "visits"), nil
 	case "languages":
 		// Plausible doesn't record languages.
 		q := sameColumns("language", "language", "language <> ''", "", "")
@@ -108,16 +89,16 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 	case "sizes":
 		if detail == "" {
 			return breakdownQuery{
-				live:     `select ` + sizeCategory + ` as id, '' as name, count(*) as count from visits group by 1`,
-				migrated: `select ` + deviceCategory + ` as id, '' as name, sum(visits) as count from events where :migrated group by 1`,
+				live:     `select ` + enrich.DeviceFromWidth + ` as id, '' as name, count(*) as count from visits group by 1`,
+				migrated: `select ` + enrich.DeviceFromPlausible + ` as id, '' as name, sum(visits) as count from events where :migrated group by 1`,
 				kind:     "devices",
 			}, nil
 		}
 		return breakdownQuery{
 			live: `select '' as id, '↔' || char(0xfe0e) || ' ' || width || 'px' as name, count(*) as count
-				from visits where ` + sizeCategory + ` = :detail and width > 0 group by width`,
+				from visits where ` + enrich.DeviceFromWidth + ` = :detail and width > 0 group by width`,
 			migrated: `select '' as id, device as name, sum(visits) as count
-				from events where :migrated and ` + deviceCategory + ` = :detail group by 2`,
+				from events where :migrated and ` + enrich.DeviceFromPlausible + ` = :detail group by 2`,
 			kind: "devices",
 		}, nil
 	case "exit_pages":
@@ -203,12 +184,12 @@ func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string
 	for i := range h.Stats {
 		s := &h.Stats[i]
 		switch kind {
-		case "locations", "regions":
-			if n := GeoName(ctx, s.Name); n != "" {
+		case "locations":
+			if n := enrich.CountryName(s.Name); n != "" {
 				s.Name = n
 			}
 		case "languages":
-			if n := languageNames[s.ID]; n != "" {
+			if n := enrich.LanguageName(s.ID); n != "" {
 				s.Name = n
 			}
 		case "toprefs", "pagerefs", "campaigns":

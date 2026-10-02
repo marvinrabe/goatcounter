@@ -1,10 +1,10 @@
-package refspam
+package enrich
 
 import (
 	"testing"
 )
 
-func TestRefspam(t *testing.T) {
+func TestIsSpam(t *testing.T) {
 	tests := []struct {
 		in   string
 		want bool
@@ -26,7 +26,7 @@ func TestRefspam(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			got := Is(tt.in)
+			got := isSpam(tt.in)
 			if got != tt.want {
 				t.Errorf("\ngot:  %t\nwant: %t", got, tt.want)
 			}
@@ -34,14 +34,14 @@ func TestRefspam(t *testing.T) {
 	}
 }
 
-func BenchmarkRefspam(b *testing.B) {
-	Is("notinthelist.com") // Run the sync.Once
+func BenchmarkIsSpam(b *testing.B) {
+	isSpam("notinthelist.com")
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	v := false
 	for n := 0; n < b.N; n++ {
-		v = Is("notinthelist.com")
+		v = isSpam("notinthelist.com")
 	}
 	_ = v
 }
