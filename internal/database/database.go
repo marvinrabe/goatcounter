@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/tursodatabase/libsql-client-go/libsql"
+	_ "github.com/tursodatabase/libsql-client-go/libsql"
 	_ "modernc.org/sqlite"
 )
 
@@ -35,11 +35,13 @@ type DB struct {
 func Open(ctx context.Context, connect string) (*DB, error) {
 	var conn *sql.DB
 	if isRemote(connect) {
-		connector, err := libsql.NewConnector(connect)
+		// The SQL driver accepts authToken in the URL; NewConnector only
+		// accepts it as a separate WithAuthToken option.
+		var err error
+		conn, err = sql.Open("libsql", connect)
 		if err != nil {
 			return nil, fmt.Errorf("database.Open: %w", err)
 		}
-		conn = sql.OpenDB(connector)
 		// Remote Hrana streams expire after a short period of inactivity, so
 		// don't keep idle connections; the HTTP transport still reuses its
 		// connections.

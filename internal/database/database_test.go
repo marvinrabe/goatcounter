@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,6 +59,41 @@ func TestOpenCreatesTables(t *testing.T) {
 			t.Fatal(err)
 		}
 		db.Close()
+	}
+}
+
+func TestOpenRemoteAuthToken(t *testing.T) {
+	// Stop at the HTTP boundary: opening the database must get past URL
+	// parsing and send the token as a header, not in the request URL.
+	const token = "test+token/with=encoding"
+	requests := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("unexpected query: %s", r.URL.RawQuery)
+		}
+		select {
+		case requests <- r.Header.Get("Authorization"):
+		default:
+		}
+		http.Error(w, "test database reached", http.StatusForbidden)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db, err := Open(ctx, server.URL+"?authToken="+url.QueryEscape(token))
+	if db != nil {
+		db.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "test database reached") {
+		t.Fatalf("expected test server error, got %v", err)
+	}
+	select {
+	case auth := <-requests:
+		if auth != "Bearer "+token {
+			t.Errorf("Authorization = %q; want %q", auth, "Bearer "+token)
+		}
+	default:
+		t.Fatal("database connection never reached the test server")
 	}
 }
 
