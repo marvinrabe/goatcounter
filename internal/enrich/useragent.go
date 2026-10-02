@@ -3,83 +3,75 @@ package enrich
 import (
 	"strings"
 
-	"github.com/mileusna/useragent"
+	"github.com/medama-io/go-useragent"
+	"github.com/medama-io/go-useragent/agents"
 )
+
+var uaParser = useragent.NewParser()
 
 // Browser and OS names as Plausible reports them, so imported and collected
 // rows group together.
 var (
-	browserNames = map[string]string{
-		useragent.Edge:           "Microsoft Edge",
-		useragent.MobileSafari:   "Safari",
-		useragent.OperaMini:      "Opera",
-		useragent.OperaTouch:     "Opera",
-		useragent.HeadlessChrome: "Chrome",
-		useragent.Msie:           "Internet Explorer",
-		useragent.FacebookApp:    "Mobile App",
-		useragent.InstagramApp:   "Mobile App",
-		useragent.TiktokApp:      "Mobile App",
+	browserNames = map[agents.Browser]string{
+		agents.BrowserEdge:      "Microsoft Edge",
+		agents.BrowserIE:        "Internet Explorer",
+		agents.BrowserOperaMini: "Opera",
 	}
-	osNames = map[string]string{
-		useragent.MacOS:     "Mac",
-		useragent.Linux:     "GNU/Linux",
-		useragent.ChromeOS:  "Chrome OS",
-		useragent.CrOS:      "Chrome OS",
-		useragent.WindowsNT: "Windows",
+	osNames = map[agents.OS]string{
+		agents.OSMacOS:    "Mac",
+		agents.OSLinux:    "GNU/Linux",
+		agents.OSChromeOS: "Chrome OS",
 	}
 )
 
-// Device names as Plausible reports them. Plausible tells laptops from
-// desktops by the screen width, which isn't collected; both are Desktop.
+// Device names as Plausible reports them, except that Plausible's laptops are
+// Desktop: Plausible tells them apart by the screen width, which isn't
+// collected. Plausible has no TVs; they're only in collected rows.
 const (
 	DeviceMobile  = "Mobile"
 	DeviceTablet  = "Tablet"
-	DeviceLaptop  = "Laptop" // Only in rows migrated from Plausible.
 	DeviceDesktop = "Desktop"
+	DeviceTV      = "TV"
 )
 
 // UserAgent is the browser, OS, and device dimensions.
-type UserAgent struct{ Browser, BrowserVersion, OS, OSVersion, Device string }
+type UserAgent struct{ Browser, BrowserVersion, OS, Device string }
 
 // ParseUserAgent gets the browser, OS, and device from a User-Agent header,
-// with versions truncated to major.minor as in Plausible exports ("Chrome
-// 120.0", "Mac 10.15"). The device is empty if it's unknown.
+// with the browser version truncated to major.minor as in Plausible exports
+// ("Chrome 120.0"). The device is empty if it's unknown.
 func ParseUserAgent(raw string) UserAgent {
-	ua := useragent.Parse(raw)
-	version := func(s string) string {
-		if s == "" {
-			return ""
-		}
-		parts := strings.SplitN(s, ".", 3)
-		if len(parts) == 1 {
-			parts = append(parts, "0")
-		}
-		return parts[0] + "." + parts[1]
+	ua := uaParser.Parse(raw)
+	r := UserAgent{
+		Browser:        string(ua.Browser()),
+		BrowserVersion: majorMinor(ua.BrowserVersion()),
+		OS:             string(ua.OS()),
 	}
-	r := UserAgent{Browser: ua.Name, BrowserVersion: version(ua.Version), OS: ua.OS}
-	switch {
-	case ua.OS == useragent.Android:
-		// Android tablets leave out "Mobile"; the parser counts them as phones.
-		r.Device = DeviceTablet
-		if strings.Contains(raw, "Mobile") {
-			r.Device = DeviceMobile
-		}
-	case ua.Tablet:
-		r.Device = DeviceTablet
-	case ua.Mobile:
-		r.Device = DeviceMobile
-	case ua.Desktop:
-		// iPads with Safari in desktop mode, the default, look like a Mac.
-		r.Device = DeviceDesktop
-	}
-	if n, ok := browserNames[r.Browser]; ok {
+	if n, ok := browserNames[ua.Browser()]; ok {
 		r.Browser = n
 	}
-	if n, ok := osNames[r.OS]; ok {
+	if n, ok := osNames[ua.OS()]; ok {
 		r.OS = n
 	}
-	switch r.OS {
-	case "GNU/Linux":
+
+	switch ua.Device() {
+	case agents.DeviceMobile:
+		r.Device = DeviceMobile
+		// Android tablets leave out "Mobile"; the parser counts them as phones.
+		if ua.OS() == agents.OSAndroid && !strings.Contains(raw, "Mobile") {
+			r.Device = DeviceTablet
+		}
+	case agents.DeviceTablet:
+		r.Device = DeviceTablet
+	case agents.DeviceDesktop:
+		// iPads with Safari in desktop mode, the default, look like a Mac.
+		r.Device = DeviceDesktop
+	case agents.DeviceTV:
+		r.Device = DeviceTV
+	}
+
+	switch ua.OS() {
+	case agents.OSLinux:
 		// Plausible reports common distributions as their own OS.
 		for _, distro := range []string{"Ubuntu", "Fedora", "Debian"} {
 			if strings.Contains(raw, distro) {
@@ -87,16 +79,23 @@ func ParseUserAgent(raw string) UserAgent {
 				break
 			}
 		}
-	case "Windows", "Android":
-		r.OSVersion = strings.TrimSuffix(version(ua.OSVersion), ".0")
-	case "iOS":
+	case agents.OSIOS:
 		if strings.Contains(raw, "iPad") {
 			r.OS = "iPadOS"
 		}
-		r.OSVersion = version(ua.OSVersion)
-	case "Chrome OS":
-	default:
-		r.OSVersion = version(ua.OSVersion)
 	}
 	return r
+}
+
+// majorMinor truncates a version to major.minor: "120.0.6099.71" is "120.0",
+// and "17" is "17.0".
+func majorMinor(v string) string {
+	if v == "" {
+		return ""
+	}
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) == 1 {
+		parts = append(parts, "0")
+	}
+	return parts[0] + "." + parts[1]
 }

@@ -137,27 +137,29 @@ func TestBreakdownMergesImported(t *testing.T) {
 
 // Collected and migrated devices are grouped into the dashboard categories;
 // Plausible's laptops are desktops.
-func TestSizes(t *testing.T) {
+func TestDevices(t *testing.T) {
 	store, ctx := testenv.Store(t), context.Background()
 	at := time.Date(2026, 6, 10, 9, 0, 0, 0, time.UTC)
 	phone := pageview(at, "10.0.0.2", "/a")
 	phone.UserAgentHeader = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 	unknown := pageview(at, "10.0.0.3", "/a")
 	unknown.UserAgentHeader = ""
-	testenv.StoreEvents(t, store, pageview(at, "10.0.0.1", "/a"), phone, unknown)
+	tv := pageview(at, "10.0.0.4", "/a")
+	tv.UserAgentHeader = "Mozilla/5.0 (SMART-TV; Linux; Tizen 4.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/2.1 Chrome/56.0.2924.0 TV Safari/537.36"
+	testenv.StoreEvents(t, store, pageview(at, "10.0.0.1", "/a"), phone, tv, unknown)
 	err := store.DB.Exec(ctx, `insert into events (site, ts, aggregate, name, device, visits) values
-		('example.com', unixepoch('2026-06-10'), 'devices', '', 'Laptop', 3),
+		('example.com', unixepoch('2026-06-10'), 'devices', '', 'Desktop', 3),
 		('example.com', unixepoch('2026-06-10'), 'devices', '', 'Tablet', 2)`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	stats, err := store.Sizes(ctx, query(store, day(at), PathFilter{}), false)
+	stats, err := store.Breakdown(ctx, query(store, day(at), PathFilter{}), "devices", "", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []BreakdownRow{{ID: SizePhones, Name: "Phones", Count: 1}, {ID: SizeTablets, Name: "Tablets", Count: 2},
-		{ID: SizeDesktop, Name: "Desktop", Count: 4}, {ID: SizeUnknown, Count: 1}}
+	want := []BreakdownRow{{Name: "Desktop", Count: 4}, {Name: "Tablet", Count: 2},
+		{Name: "", Count: 1}, {Name: "Mobile", Count: 1}, {Name: "TV", Count: 1}}
 	if !slices.Equal(stats.Rows, want) {
 		t.Errorf("\nhave: %+v\nwant: %+v", stats.Rows, want)
 	}

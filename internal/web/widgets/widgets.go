@@ -45,8 +45,8 @@ var Cards = []Card{
 	}},
 	{"technology", "Technology", []Kind{
 		{Name: "browsers", Label: "Browsers", Detail: "browsers"},
-		{Name: "systems", Label: "Operating systems", Detail: "systems"},
-		{Name: "sizes", Label: "Devices"},
+		{Name: "systems", Label: "Operating systems"},
+		{Name: "devices", Label: "Devices"},
 	}},
 	{"audience", "Audience", []Kind{
 		{Name: "locations", Label: "Locations"},
@@ -89,8 +89,6 @@ func (k Kind) Load(ctx context.Context, store *analytics.Store, q analytics.Quer
 		return store.Breakdown(ctx, q, k.Detail, key, pageSize, offset)
 	case k.Pages:
 		return store.Pages(ctx, q, pageSize, offset)
-	case k.Name == "sizes":
-		return store.Sizes(ctx, q, false)
 	}
 	return store.Breakdown(ctx, q, k.Name, "", pageSize, offset)
 }

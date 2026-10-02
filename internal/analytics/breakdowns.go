@@ -1,10 +1,8 @@
 package analytics
 
 import (
-	"cmp"
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/marvinrabe/goatcounter/internal/enrich"
@@ -30,13 +28,6 @@ type Breakdown struct {
 	Rows []BreakdownRow
 }
 
-const (
-	SizePhones  = "phone"
-	SizeTablets = "tablet"
-	SizeDesktop = "desktop"
-	SizeUnknown = "unknown"
-)
-
 // BreakdownRow.RefScheme values.
 const (
 	RefSchemeHTTP      = "h"
@@ -57,7 +48,7 @@ with views as (
 ), visits as (
 	select session, min(ts) as ts, hostname, path, source, referrer,
 		utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-		browser, browser_version, os, os_version, device,
+		browser, browser_version, os, device,
 		country, language
 	from views group by session
 )`
@@ -98,11 +89,7 @@ func breakdown(kind, detail, filter string) (breakdownQuery, error) {
 		return sameColumns("''", "trim(browser || ' ' || browser_version)",
 			"lower(browser) = lower(:detail)", "browsers", "visits"), nil
 	case "systems":
-		if detail == "" {
-			return sameColumns("''", "os", "", "operating_systems", "visits"), nil
-		}
-		return sameColumns("''", "trim(os || ' ' || os_version)",
-			"lower(os) = lower(:detail)", "operating_systems", "visits"), nil
+		return sameColumns("''", "os", "", "operating_systems", "visits"), nil
 	case "locations":
 		return sameColumns("country", "country", "", "locations", "visits"), nil
 	case "languages":
@@ -124,8 +111,8 @@ func breakdown(kind, detail, filter string) (breakdownQuery, error) {
 		return sameColumns("''", "utm_source", "utm_source <> ''", "sources", "visits"), nil
 	case "entry_pages":
 		return sameColumns("''", "path", "", "entry_pages", "entrances"), nil
-	case "sizes":
-		return sameColumns("device", "''", "", "devices", "visits"), nil
+	case "devices":
+		return sameColumns("''", "device", "", "devices", "visits"), nil
 	case "exit_pages":
 		return breakdownQuery{
 			live: `select '' as id, path as name, count(*) as count from (
@@ -228,41 +215,6 @@ func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string,
 			st.RefScheme = &scheme
 		}
 	}
-	return h, nil
-}
-
-// sizes is the dashboard device category of each device name; others are
-// unknown.
-var sizes = map[string]string{
-	enrich.DeviceMobile:  SizePhones,
-	enrich.DeviceTablet:  SizeTablets,
-	enrich.DeviceLaptop:  SizeDesktop,
-	enrich.DeviceDesktop: SizeDesktop,
-}
-
-// Sizes groups visits into the four dashboard device categories.
-func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (Breakdown, error) {
-	h, err := s.Breakdown(ctx, q, "sizes", "", 0, 0)
-	if err != nil {
-		return h, err
-	}
-	ns := []BreakdownRow{{ID: SizePhones, Name: "Phones"}, {ID: SizeTablets, Name: "Tablets"},
-		{ID: SizeDesktop, Name: "Desktop"}, {ID: SizeUnknown}}
-	for _, stat := range h.Rows {
-		size, ok := sizes[stat.ID]
-		if !ok {
-			size = SizeUnknown
-		}
-		for i := range ns {
-			if ns[i].ID == size {
-				ns[i].Count += stat.Count
-			}
-		}
-	}
-	if sortByCount {
-		slices.SortStableFunc(ns, func(a, b BreakdownRow) int { return cmp.Compare(b.Count, a.Count) })
-	}
-	h.Rows, h.More = ns, false
 	return h, nil
 }
 

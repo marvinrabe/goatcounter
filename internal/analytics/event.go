@@ -39,7 +39,7 @@ type Event struct {
 	// Derived by Defaults().
 	Source, Referrer                                       string `json:"-"`
 	UTMSource, UTMMedium, UTMCampaign, UTMContent, UTMTerm string `json:"-"`
-	Browser, BrowserVersion, OS, OSVersion, Device         string `json:"-"`
+	Browser, BrowserVersion, OS, Device                    string `json:"-"`
 }
 
 func (e *Event) Ignore() bool {
@@ -111,7 +111,7 @@ func (e *Event) Defaults(site Site) {
 		e.Source = e.UTMSource
 	}
 	ua := enrich.ParseUserAgent(e.UserAgentHeader)
-	e.Browser, e.BrowserVersion, e.OS, e.OSVersion, e.Device = ua.Browser, ua.BrowserVersion, ua.OS, ua.OSVersion, ua.Device
+	e.Browser, e.BrowserVersion, e.OS, e.Device = ua.Browser, ua.BrowserVersion, ua.OS, ua.Device
 }
 
 // Validate the request before it's normalized. Props are normalized to a

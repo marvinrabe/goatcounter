@@ -26,7 +26,7 @@
 --   exit_pages         path
 --   sources            source, referrer, utm_*
 --   browsers           browser, browser_version
---   operating_systems  os, os_version
+--   operating_systems  os
 --   devices            device
 --   locations          country
 --   custom_events      name, props ({"url": …} or {"path": …})
@@ -56,8 +56,7 @@ create table if not exists events (
 	browser          text     not null default '',
 	browser_version  text     not null default '',      -- major.minor
 	os               text     not null default '',
-	os_version       text     not null default '',
-	device           text     not null default '',      -- Mobile, Tablet, Desktop; Laptop only in migrated rows.
+	device           text     not null default '',      -- Mobile, Tablet, Desktop, TV.
 
 	country          text     not null default '',      -- ISO 3166-1 alpha-2.
 	language         text     not null default '',      -- ISO 639-3.

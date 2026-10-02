@@ -129,7 +129,7 @@ func TestServerDashboard(t *testing.T) {
 		t.Errorf("detail: %s", html)
 	}
 
-	r, rr := newTest("GET", "/load-widget?widget=sizes&key=phone", nil)
+	r, rr := newTest("GET", "/load-widget?widget=devices&key=Mobile", nil)
 	login(t, r)
 	handler.ServeHTTP(rr, r)
 	testenv.Code(t, rr, 400)

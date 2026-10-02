@@ -30,23 +30,25 @@ import (
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
 var (
 	// CSV columns stored under another name, to match the events table.
 	renamed = map[string]string{
 		"page": "path", "entry_page": "path", "exit_page": "path",
-		"operating_system": "os", "operating_system_version": "os_version",
+		"operating_system": "os",
 	}
-	// CSV columns that aren't stored: the collector only records the country.
-	ignored = []string{"region", "city"}
+	// CSV columns that aren't stored: the collector only records the country
+	// and no OS version.
+	ignored = []string{"region", "city", "operating_system_version"}
 	// CSV columns stored as a property in props.
 	asProps = map[string]string{"link_url": "url", "path": "path"}
 
 	dimensions = []string{
 		"hostname", "path", "name", "source", "referrer",
 		"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
-		"browser", "browser_version", "os", "os_version", "device", "country",
+		"browser", "browser_version", "os", "device", "country",
 	}
 	metrics = []string{
 		"visitors", "visits", "pageviews", "bounces", "visit_duration", "events",
@@ -186,6 +188,11 @@ func migrateFile(ctx context.Context, db *database.DB, f *zip.File, site, kind s
 				}
 				if !slices.Contains(dimensions, c) {
 					return 0, fmt.Errorf("unknown column %q", header[i+1])
+				}
+				// Plausible tells laptops from desktops by the screen width, which
+				// the collector doesn't record.
+				if c == "device" && v == "Laptop" {
+					v = enrich.DeviceDesktop
 				}
 				values[c] = v
 			}
