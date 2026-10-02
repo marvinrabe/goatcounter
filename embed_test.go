@@ -1,7 +1,6 @@
 package goatcounter_test
 
 import (
-	"context"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -22,7 +21,7 @@ func TestEmbed(t *testing.T) {
 }
 
 func TestAssets(t *testing.T) {
-	assets, err := AssetPaths(context.Background())
+	assets, err := AssetPaths()
 	if err != nil {
 		t.Fatal(err)
 	}

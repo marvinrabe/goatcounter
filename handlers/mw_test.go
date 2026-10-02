@@ -45,7 +45,7 @@ func TestAddCSP(t *testing.T) {
 		want string
 	}{
 		{"/", `
-			connect-src     'self' wss:
+			connect-src     'self'
 			default-src     'none'
 			font-src        'self'
 			form-action     'self'
@@ -59,24 +59,22 @@ func TestAddCSP(t *testing.T) {
 		{"/count", ``},
 	}
 
-	for _, base := range []string{"", "/stats"} {
-		mw := addcsp("", base)(http.NewServeMux())
-		for _, tt := range tests {
-			t.Run(base+tt.path, func(t *testing.T) {
-				var (
-					r  = testutil.NewRequest("GET", base+tt.path, nil)
-					rr = httptest.NewRecorder()
-				)
+	mw := addcsp("")(http.NewServeMux())
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			var (
+				r  = testutil.NewRequest("GET", tt.path, nil)
+				rr = httptest.NewRecorder()
+			)
 
-				mw.ServeHTTP(rr, r)
+			mw.ServeHTTP(rr, r)
 
-				tt.want = testutil.NormalizeIndent(tt.want)
-				have := fmtCSP(rr.Header().Get("Content-Security-Policy"))
-				if d := testutil.Diff(have, tt.want); d != "" {
-					t.Error(d)
-				}
-			})
-		}
+			tt.want = testutil.NormalizeIndent(tt.want)
+			have := fmtCSP(rr.Header().Get("Content-Security-Policy"))
+			if d := testutil.Diff(have, tt.want); d != "" {
+				t.Error(d)
+			}
+		})
 	}
 }
 
@@ -151,7 +149,7 @@ func BenchmarkAddCSP(b *testing.B) {
 		ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
 		r   = testutil.NewRequest("GET", "/", nil).WithContext(ctx)
 		rr  = httptest.NewRecorder()
-		mw  = addcsp("", "")(http.NewServeMux())
+		mw  = addcsp("")(http.NewServeMux())
 	)
 	b.ResetTimer()
 	for b.Loop() {

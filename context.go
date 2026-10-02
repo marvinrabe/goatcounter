@@ -22,8 +22,6 @@ type GlobalConfig struct {
 	Draining     atomic.Bool
 	Timezone     datetime.Timezone
 	DomainStatic string
-	BasePath     string
-	Dev          bool
 	Sites        []Site
 }
 

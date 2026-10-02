@@ -91,7 +91,7 @@ func TestValidateOIDCRedirectURL(t *testing.T) {
 	if err := ValidateOIDCRedirectURL("https://stats.example/auth/callback"); err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []string{"/auth/callback", "https://stats.example/other"} {
+	for _, value := range []string{"/auth/callback", "https://stats.example/other", "https://stats.example/stats/auth/callback"} {
 		if err := ValidateOIDCRedirectURL(value); err == nil {
 			t.Errorf("ValidateOIDCRedirectURL(%q) unexpectedly succeeded", value)
 		}

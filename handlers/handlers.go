@@ -23,24 +23,16 @@ type Globals struct {
 	Site            *goatcounter.Site
 	Sites           []goatcounter.Site
 	Path            string
-	Base            string
 	Static          string
 	StaticDomain    string
-	Dev             bool
 	TZName          string
-	TZOffset        int
 	TZOffsetDisplay string
 	HideUI          bool
-	assetPaths      map[string]string
-	assetErr        error
 }
 
 // Asset resolves a source asset to its Vite-generated, content-hashed URL.
 func (g Globals) Asset(name string) (string, error) {
-	paths, err := g.assetPaths, g.assetErr
-	if paths == nil && err == nil {
-		paths, err = goatcounter.AssetPaths(g.Context)
-	}
+	paths, err := goatcounter.AssetPaths()
 	if err != nil {
 		return "", err
 	}
@@ -54,27 +46,17 @@ func (g Globals) Asset(name string) (string, error) {
 func newGlobals(r *http.Request) Globals {
 	ctx := r.Context()
 	cfg := goatcounter.Config(ctx)
-	base := cfg.BasePath
-	path := strings.TrimPrefix(r.URL.Path, base)
-	if path == "" {
-		path = "/"
-	}
 	g := Globals{
 		Context: ctx,
 		Site:    goatcounter.GetSite(ctx),
 		Sites:   cfg.Sites,
-		Path:    path,
-		Base:    base,
-		Static:  base,
-		Dev:     cfg.Dev,
+		Path:    r.URL.Path,
 
 		TZName:          cfg.Timezone.Abbr(),
-		TZOffset:        cfg.Timezone.Offset(),
 		TZOffsetDisplay: cfg.Timezone.OffsetDisplay(),
 		StaticDomain:    r.Host,
 		HideUI:          r.URL.Query().Get("hideui") != "",
 	}
-	g.assetPaths, g.assetErr = goatcounter.AssetPaths(ctx)
 	if cfg.DomainStatic != "" {
 		g.Static = "//" + cfg.DomainStatic
 		g.StaticDomain = cfg.DomainStatic
@@ -149,10 +131,9 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 		err := t.ExecuteTemplate(w, "error.gohtml", struct {
 			Code     int
 			Error    error
-			Base     string
 			Path     string
 			StyleURL string
-		}{code, userErr, goatcounter.Config(r.Context()).BasePath, r.URL.Path, styleURL})
+		}{code, userErr, r.URL.Path, styleURL})
 		if err != nil {
 			slog.ErrorContext(r.Context(), "render error page", "error", err, requestAttrs(r))
 		}

@@ -15,8 +15,8 @@ image is "from scratch" and has no shell, curl, or wget).
 
 Flags:
 
-  -url         URL to check. Default: derive from GOATCOUNTER_LISTEN and
-               GOATCOUNTER_BASE_PATH (http://localhost:8080/status when unset).
+  -url         URL to check. Default: derive from GOATCOUNTER_LISTEN
+               (http://localhost:8080/status when unset).
   -timeout     Timeout for the request, in seconds. Default: 3
 `
 
@@ -41,7 +41,7 @@ func runHealthcheck(args []string, ready chan<- struct{}, stop chan struct{}) er
 		if host == "" || host == "0.0.0.0" || host == "::" {
 			host = "127.0.0.1"
 		}
-		target = "http://" + net.JoinHostPort(host, port) + os.Getenv("GOATCOUNTER_BASE_PATH") + "/status"
+		target = "http://" + net.JoinHostPort(host, port) + "/status"
 	}
 	client := &http.Client{Timeout: time.Duration(*timeout) * time.Second}
 	resp, err := client.Get(target)

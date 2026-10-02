@@ -35,15 +35,14 @@ type Auth struct {
 }
 
 type OIDCConfig struct {
-	Issuer, ClientID, ClientSecret, RedirectURL, SessionSecret, BasePath string
-	Scopes                                                               []string
+	Issuer, ClientID, ClientSecret, RedirectURL, SessionSecret string
+	Scopes                                                     []string
 }
 
 type OIDCAuth struct {
 	oauth2   oauth2.Config
 	verifier *oidc.IDTokenVerifier
 	secret   []byte
-	basePath string
 }
 
 type oidcState struct {
@@ -82,7 +81,7 @@ func NewOIDCAuth(ctx context.Context, cfg OIDCConfig) (*OIDCAuth, error) {
 			Scopes: uniqueStrings(append([]string{oidc.ScopeOpenID}, cfg.Scopes...)),
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		secret:   []byte(cfg.SessionSecret), basePath: cfg.BasePath,
+		secret:   []byte(cfg.SessionSecret),
 	}, nil
 }
 
@@ -163,7 +162,7 @@ func (a *OIDCAuth) middleware(next http.Handler) http.Handler {
 		verifier := oauth2.GenerateVerifier()
 		returnTo := r.URL.RequestURI()
 		if !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") {
-			returnTo = a.basePath + "/"
+			returnTo = "/"
 		}
 		value, err := a.encode(oidcState{
 			State: state, Nonce: nonce, Verifier: verifier, Return: returnTo,
@@ -221,15 +220,11 @@ func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 
 func (a *OIDCAuth) logout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, a.cookie(r, oidcSessionCookie, "", -time.Hour))
-	http.Redirect(w, r, a.basePath+"/", http.StatusFound)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (a *OIDCAuth) cookie(r *http.Request, name, value string, age time.Duration) *http.Cookie {
-	path := a.basePath
-	if path == "" {
-		path = "/"
-	}
-	return &http.Cookie{Name: name, Value: value, Path: path, HttpOnly: true,
+	return &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true,
 		Secure:   httpx.IsSecure(r),
 		SameSite: http.SameSiteLaxMode, MaxAge: int(age.Seconds())}
 }
@@ -300,8 +295,8 @@ func ValidateOIDCRedirectURL(value string) error {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return fmt.Errorf("OIDC redirect URL must be an absolute http(s) URL")
 	}
-	if !strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/auth/callback") {
-		return fmt.Errorf("OIDC redirect URL must end in /auth/callback")
+	if strings.TrimRight(u.Path, "/") != "/auth/callback" {
+		return fmt.Errorf("OIDC redirect URL must be /auth/callback on the GoatCounter domain")
 	}
 	return nil
 }

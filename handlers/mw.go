@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -68,16 +67,13 @@ func writeCSP(b *strings.Builder, k, v string) {
 	b.WriteByte(';')
 }
 
-func addcsp(domainStatic, basePath string) func(http.Handler) http.Handler {
+func addcsp(domainStatic string) func(http.Handler) http.Handler {
 	ds := []string{"'self'"}
 	if domainStatic != "" {
 		ds = append(ds, domainStatic)
 	}
 
-	var (
-		staticDomains = strings.Join(ds, " ")
-		wss           = "'self'" + " wss:"
-	)
+	staticDomains := strings.Join(ds, " ")
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +81,7 @@ func addcsp(domainStatic, basePath string) func(http.Handler) http.Handler {
 			// everywhere as a "better safe than sorry" approach. However, the
 			// /count gets called so often it makes sense to make an exception
 			// for it.
-			if r.URL.Path == basePath+"/count" {
+			if r.URL.Path == "/count" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -102,7 +98,7 @@ func addcsp(domainStatic, basePath string) func(http.Handler) http.Handler {
 			writeCSP(b, "script-src", static)
 			writeCSP(b, "style-src", static+" 'unsafe-inline'")
 
-			writeCSP(b, "connect-src", wss)
+			writeCSP(b, "connect-src", "'self'")
 			writeCSP(b, "img-src", static+" data:")
 			writeCSP(b, "frame-src", "'self'")
 
@@ -190,14 +186,4 @@ func requestLog(next http.Handler) http.Handler {
 		}
 		slog.With("module", "req").DebugContext(r.Context(), "HTTP request", "method", r.Method, "path", r.URL.Path, "elapsed", time.Since(start))
 	})
-}
-
-func clientReport(w http.ResponseWriter, r *http.Request) {
-	var report json.RawMessage
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&report); err != nil {
-		http.Error(w, "invalid report", http.StatusBadRequest)
-		return
-	}
-	slog.With("module", "client").InfoContext(r.Context(), "Browser report", "path", r.URL.Path, "report", string(report))
-	w.WriteHeader(http.StatusNoContent)
 }

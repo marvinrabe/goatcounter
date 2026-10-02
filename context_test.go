@@ -37,7 +37,7 @@ func TestNewContextPreservesParent(t *testing.T) {
 	geodb := new(geoip2.Reader)
 	parent = geo.With(parent, geodb)
 	parent = NewConfig(parent)
-	Config(parent).Dev = true
+	Config(parent).DomainStatic = "static.example.com"
 	db := new(database.Database)
 
 	ctx := NewContext(parent, db)
@@ -47,7 +47,7 @@ func TestNewContextPreservesParent(t *testing.T) {
 	if geo.Get(ctx) != geodb || database.MustGetDB(ctx) != db {
 		t.Fatal("application dependencies missing from context")
 	}
-	if Config(ctx) == Config(parent) || Config(ctx).Dev {
+	if Config(ctx) == Config(parent) || Config(ctx).DomainStatic != "" {
 		t.Fatal("new application context reused its parent's settings")
 	}
 	deadline, _ := parent.Deadline()

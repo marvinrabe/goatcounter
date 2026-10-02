@@ -9,7 +9,6 @@
 	{{/* Keep the first submit button so pressing Enter does not select a period. */}}
 	<button type="submit" tabindex="-1" class="absolute h-0 w-0 overflow-hidden border-0 p-0 opacity-0" aria-label="Submit"></button>
 	{{if .ShowRefs}}<input type="hidden" name="showrefs" value="{{.ShowRefs}}">{{end}}
-	<input type="hidden" id="hl-period" name="hl-period" value="{{.HLPeriod}}" disabled>
 
 	<div id="dash-main" class="flex flex-col gap-5 rounded-2xl border border-yellow-200 bg-yellow-50 p-4 md:flex-row md:items-start md:justify-between md:p-5 dark:border-yellow-300/20 dark:bg-yellow-300/10">
 		<div class="min-w-0">

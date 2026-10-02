@@ -80,7 +80,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	cfg := goatcounter.Config(ctx)
 	countDomain := cfg.DomainStatic
 	if countDomain == "" {
-		countDomain = r.Host + cfg.BasePath
+		countDomain = r.Host
 	}
 	return renderHTML(w, "dashboard.gohtml", struct {
 		Globals
@@ -95,7 +95,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		Total       int
 		Widgets     widgets.List
 		Cards       []widgets.Card
-	}{newGlobals(r), countDomain, rng, periods, highlightedPeriod(r, rng), group, allowGroups,
+	}{newGlobals(r), countDomain, rng, periods, highlightedPeriod(ctx, rng), group, allowGroups,
 		q.Get("filter"), args.ShowRefs, args.Total, wid, widgets.Cards})
 }
 
@@ -174,20 +174,12 @@ func (h backend) loadWidgets(r *http.Request, list widgets.List, args widgets.Ar
 	return ctx.Err()
 }
 
-// highlightedPeriod is the "Last …" shortcut to mark as selected, if the
-// dates still describe that shortcut; an edited URL may retain an unrelated
-// hl-period value.
-func highlightedPeriod(r *http.Request, rng datetime.Range) string {
-	q := r.URL.Query()
-	if q.Get("period-start") == "" || q.Get("period-end") == "" {
-		return defaultPeriod
-	}
-	p := q.Get("hl-period")
-	if !slices.Contains(periods, p) {
-		return ""
-	}
-	if want := lastPeriod(r.Context(), p); rng.Start.Equal(want.Start) && rng.End.Equal(want.End) {
-		return p
+// highlightedPeriod is the "Last …" shortcut that describes rng, if any.
+func highlightedPeriod(ctx context.Context, rng datetime.Range) string {
+	for _, p := range periods {
+		if want := lastPeriod(ctx, p); rng.Start.Equal(want.Start) && rng.End.Equal(want.End) {
+			return p
+		}
 	}
 	return ""
 }
@@ -215,12 +207,17 @@ func lastPeriod(ctx context.Context, period string) datetime.Range {
 	return rng.UTC()
 }
 
+// getPeriod gets the period from the query string: a "Last …" shortcut in
+// "period", or the dates in "period-start" and "period-end".
 func getPeriod(r *http.Request) (datetime.Range, error) {
 	var (
 		q   = r.URL.Query()
 		loc = goatcounter.Config(r.Context()).Timezone.Loc()
 		rng datetime.Range
 	)
+	if p := q.Get("period"); slices.Contains(periods, p) {
+		return lastPeriod(r.Context(), p), nil
+	}
 	if d := q.Get("period-start"); d != "" {
 		var err error
 		rng.Start, err = time.ParseInLocation("2006-01-02", d, loc)

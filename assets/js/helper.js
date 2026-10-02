@@ -56,35 +56,19 @@ var parse_html = function(html) {
 // Is this element visible, i.e. does it generate a layout box?
 var is_visible = (elem) => !!elem && (elem.offsetWidth > 0 || elem.offsetHeight > 0 || elem.getClientRects().length > 0)
 
-// Send an HTTP request.
-//
-// opt.data is an object which is sent as a query string for GET requests, and
-// as a form-encoded body for anything else. opt.success is called with the
-// response, parsed as JSON if the server said it's JSON.
+// Send a GET request, with opt.data as the query string. opt.success is
+// called with the response, parsed as JSON if the server said it's JSON.
 //
 // Failures are reported as an "ajaxerror" event on document, which backend.js
 // listens for; errors thrown by opt.success are left alone, so that they get
 // reported as a regular error rather than as a request failure.
 var ajax = function(url, opt) {
 	opt = opt || {}
-
-	let method = (opt.method || 'GET').toUpperCase(),
-		params = new URLSearchParams(),
-		base   = url  // Without the query string, for error reporting.
+	let params = new URLSearchParams()
 	Object.entries(opt.data || {}).forEach(([k, v]) => params.set(k, v === null || v === undefined ? '' : v))
+	let q = params.toString()
 
-	let init = {method: method, headers: {}}
-	if (method === 'GET' || method === 'HEAD') {
-		let q = params.toString()
-		if (q !== '')
-			url += (url.indexOf('?') === -1 ? '?' : '&') + q
-	}
-	else {
-		init.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
-		init.body = params.toString()
-	}
-
-	return fetch(url, init).
+	return fetch(q === '' ? url : `${url}?${q}`).
 		then((r) => {
 			if (!r.ok)
 				throw new Error(`${r.status} ${r.statusText}`)
@@ -92,7 +76,7 @@ var ajax = function(url, opt) {
 		}).
 		then(
 			(data) => { if (opt.success) opt.success(data) },
-			(err)  => { document.dispatchEvent(new CustomEvent('ajaxerror', {detail: {url: base, error: err.message}})) })
+			(err)  => { document.dispatchEvent(new CustomEvent('ajaxerror', {detail: {url: url, error: err.message}})) })
 }
 
 // Prevent a button/link from working while an AJAX request is in progress;

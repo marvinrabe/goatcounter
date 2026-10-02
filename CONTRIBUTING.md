@@ -6,18 +6,15 @@ spending just a few minutes.
 
 Running
 -------
-Install the frontend dependencies once, then run Vite and GoatCounter in
-separate terminals:
+Install the frontend dependencies once, then build the assets and run
+GoatCounter:
 
     % npm ci
-    % npm run dev
+    % npm run build
+    % go run ./cmd/goatcounter serve -db goatcounter.sqlite3
 
-    % goatcounter serve -dev
-
-The `-dev` flag reads templates and built static files from the filesystem.
-Template edits reload automatically; Go changes require rebuilding and
-restarting the application. Vite rebuilds `public/` when files in `assets/`
-change.
+Templates, assets, and migrations are embedded in the binary, so rebuild and
+restart after changing them.
 
 General notes
 -------------

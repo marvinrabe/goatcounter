@@ -1,11 +1,9 @@
 package goatcounter
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"os"
 	"sync"
 )
 
@@ -17,13 +15,8 @@ var embeddedAssetPaths = sync.OnceValues(func() (map[string]string, error) {
 	return readAssetPaths(Static)
 })
 
-// AssetPaths returns Vite's source-to-built-file mapping. Development builds
-// read the manifest on every request so `vite build --watch` is picked up
-// without restarting GoatCounter.
-func AssetPaths(ctx context.Context) (map[string]string, error) {
-	if ctx != nil && Config(ctx).Dev {
-		return readAssetPaths(os.DirFS("."))
-	}
+// AssetPaths returns Vite's source-to-built-file mapping.
+func AssetPaths() (map[string]string, error) {
 	return embeddedAssetPaths()
 }
 

@@ -10,34 +10,23 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/httpx"
 )
 
-func NewBackend(db database.DB, dev bool,
-	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits, auth Auth,
-) chi.Router {
-
-	root := chi.NewRouter()
-	r := root
-	if basePath != "" {
-		r = chi.NewRouter()
-		root.Mount(basePath, r)
-	}
-
-	backend{dashTimeout: dashTimeout}.Mount(r, db, dev, domainStatic, basePath, ratelimits, auth)
-
-	NewStatic(r, dev, basePath)
-
-	return root
+func NewBackend(db database.DB, domainStatic string, dashTimeout int, ratelimits Ratelimits, auth Auth) chi.Router {
+	r := chi.NewRouter()
+	backend{dashTimeout: dashTimeout}.Mount(r, db, domainStatic, ratelimits, auth)
+	NewStatic(r)
+	return r
 }
 
 type backend struct {
 	dashTimeout int
 }
 
-func (h backend) Mount(r chi.Router, db database.DB, dev bool, domainStatic, basePath string, ratelimits Ratelimits, auth Auth) {
+func (h backend) Mount(r chi.Router, db database.DB, domainStatic string, ratelimits Ratelimits, auth Auth) {
 	r.Use(
 		realIP,
 		wrapWriter,
 		middleware.Recoverer,
-		addcsp(domainStatic, basePath),
+		addcsp(domainStatic),
 		middleware.RedirectSlashes,
 		noStore,
 		middleware.Compress(5))
@@ -55,14 +44,8 @@ func (h backend) Mount(r chi.Router, db database.DB, dev bool, domainStatic, bas
 	health.Get("/status", status(db))
 	health.Head("/status", status(db))
 
-	{
-		rr := r.With(requestContext(3*time.Second), securityHeaders(nil))
-		rr.Post("/jserr", clientReport)
-		rr.Post("/csp", clientReport)
-
-		rate := rr.With(ratelimits.countMiddleware(dev), selectSite(true))
-		rate.Post("/count", httpx.Wrap(h.count))
-	}
+	r.With(requestContext(3*time.Second), securityHeaders(nil), ratelimits.countMiddleware(), selectSite(true)).
+		Post("/count", httpx.Wrap(h.count))
 
 	a := r.With(securityHeaders(http.Header{
 		"Strict-Transport-Security": []string{"max-age=63072000"}, // 2 years

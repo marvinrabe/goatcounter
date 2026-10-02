@@ -49,18 +49,14 @@ func (r *Ratelimits) SetCount(tokens uint64, interval time.Duration) {
 // countMiddleware applies the collector's limits after RealIP has normalized
 // the client address. Create the fallback store once per router: allocating a
 // memorystore per request would leak its cleanup goroutine.
-func (r Ratelimits) countMiddleware(dev bool) func(http.Handler) http.Handler {
-	// Localhost and development requests still receive rate-limit headers,
-	// but use a limit high enough to be effectively unrestricted. Localhost
-	// also includes a local reverse proxy without forwarding headers.
-	unlimitedTokens := uint64(1 << 14)
-	if dev {
-		unlimitedTokens = 1 << 30
-	}
-	unlimited := mustNewMem(unlimitedTokens, 1)
+func (r Ratelimits) countMiddleware() func(http.Handler) http.Handler {
+	// Localhost requests still receive rate-limit headers, but use a limit
+	// high enough to be effectively unrestricted. Localhost also includes a
+	// local reverse proxy without forwarding headers.
+	unlimited := mustNewMem(1<<14, 1)
 
 	return Ratelimit(true, func(req *http.Request) ([]limiter.Store, string) {
-		if dev || req.RemoteAddr == "127.0.0.1" {
+		if req.RemoteAddr == "127.0.0.1" {
 			return []limiter.Store{unlimited}, ""
 		}
 		return []limiter.Store{r.Count}, ""

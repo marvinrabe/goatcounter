@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -44,12 +43,12 @@ serve flags (all can also be set as GOATCOUNTER_«FLAG», e.g. GOATCOUNTER_DB):
   -basic-auth  Comma-separated username:password entries for -auth=basic.
   -oidc-issuer, -oidc-client-id, -oidc-client-secret, -oidc-redirect-url,
   -oidc-session-secret, -oidc-scopes
-               OIDC settings for -auth=oidc. The redirect URL must end in
-               /auth/callback. The session secret must be at least 32 bytes.
+               OIDC settings for -auth=oidc. The redirect URL must be
+               /auth/callback on the GoatCounter domain. The session secret
+               must be at least 32 bytes.
 
   -listen      Address to listen on. Default: ":8080". Plain HTTP only; TLS is
                terminated by the proxy in front.
-  -base-path   Path under which GoatCounter is available, e.g. "/stats".
   -static      Serve static files from a different domain. Default: not set.
   -geodb       Path to a City or Country mmdb GeoIP database. Default: the
                bundled Country database. A City database adds regions.
@@ -60,7 +59,6 @@ serve flags (all can also be set as GOATCOUNTER_«FLAG», e.g. GOATCOUNTER_DB):
                Total shutdown deadline in seconds. Default: 25.
   -drain-delay Seconds to keep serving after becoming unready. Default: 0.
 
-  -dev         Load assets from disk and use readable text logs.
   -debug       Enable debug logs, including HTTP requests.
   -debug-sql   Log SQL queries.
 
@@ -70,13 +68,11 @@ The dashboard timezone is set with TZ, e.g. TZ=Europe/Berlin; default UTC.
 func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	f := newFlags("cmdServe")
 	var (
-		basePath     = f.String("base-path", "", "")
 		domainStatic = f.String("static", "", "")
 		dbConnect    = f.String("db", defaultDB(), "")
 		dbConn       = f.String("dbconn", "4,2", "")
 		debugFlag    = f.Bool("debug", false, "")
 		debugSQL     = f.Bool("debug-sql", false, "")
-		dev          = f.Bool("dev", false, "")
 		listen       = f.String("listen", ":8080", "")
 		geodbFlag    = f.String("geodb", "", "")
 		ratelimit    = f.String("ratelimit", "", "")
@@ -98,17 +94,11 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	v := validation.New()
 
-	setupLog(*dev, *debugFlag)
-
-	if *dev {
-		if err := setupReload(); err != nil {
-			return err
-		}
-	}
+	setupLog(*debugFlag)
 
 	geodb := setupGeo(&v, *geodbFlag)
 	ratelimits := setupRatelimits(&v, *ratelimit)
-	setupDomains(&v, domainStatic, basePath)
+	setupDomains(&v, *domainStatic)
 
 	v.Range("-shutdown-timeout", int64(*shutdown), 1, 0)
 	v.Range("-drain-delay", int64(*drain), 0, int64(*shutdown-1))
@@ -121,7 +111,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	}
 
 	defer geodb.Close()
-	db, ctx, err := connectDB(*dbConnect, *dbConn, *dev)
+	db, ctx, err := connectDB(*dbConnect, *dbConn)
 	if err != nil {
 		return err
 	}
@@ -133,7 +123,11 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	ctx = geo.With(ctx, geodb)
 
-	if err := setupTpl(ctx, *dev); err != nil {
+	tpl, err := fs.Sub(goatcounter.Templates, "tpl")
+	if err != nil {
+		return err
+	}
+	if err := handlers.LoadTemplates(tpl); err != nil {
 		return err
 	}
 
@@ -163,8 +157,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		return err
 	}
 	c.DomainStatic = *domainStatic
-	c.Dev = *dev
-	c.BasePath = *basePath
 
 	timeout := 60
 	auth := handlers.Auth{Mode: handlers.AuthMode(*authMode)}
@@ -194,7 +186,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		oidcCtx, cancelOIDC := context.WithTimeout(ctx, 15*time.Second)
 		auth.OIDC, err = handlers.NewOIDCAuth(oidcCtx, handlers.OIDCConfig{
 			Issuer: *oidcIssuer, ClientID: *oidcClientID, ClientSecret: *oidcSecret,
-			RedirectURL: *oidcRedirect, SessionSecret: *oidcSession, BasePath: *basePath,
+			RedirectURL: *oidcRedirect, SessionSecret: *oidcSession,
 			Scopes: strings.Split(*oidcScopes, ","),
 		})
 		cancelOIDC()
@@ -207,11 +199,11 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	// Set up HTTP handler and servers.
 	hosts := map[string]http.Handler{
-		"*": handlers.NewBackend(db, *dev, c.DomainStatic, c.BasePath, timeout, ratelimits, auth),
+		"*": handlers.NewBackend(db, c.DomainStatic, timeout, ratelimits, auth),
 	}
 	if *domainStatic != "" {
 		// May not be needed, but just in case the DomainStatic isn't an external CDN.
-		hosts[hostWithoutPort(*domainStatic)] = handlers.NewStatic(chi.NewRouter(), *dev, c.BasePath)
+		hosts[hostWithoutPort(*domainStatic)] = handlers.NewStatic(chi.NewRouter())
 	}
 
 	server := &http.Server{
@@ -248,7 +240,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(ln) }()
 	slog.InfoContext(ctx, "GoatCounter ready",
-		"listen", ln.Addr().String(), "timezone", c.Timezone.String(), "dev", *dev)
+		"listen", ln.Addr().String(), "timezone", c.Timezone.String())
 	ready <- struct{}{}
 	var serveErr error
 	select {
@@ -283,52 +275,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 }
 
 func defaultDB() string { return "" }
-
-func setupReload() error {
-	if !fileExists("db/schema.gotxt") || !fileExists("tpl") || !fileExists("public") {
-		return errors.New("-dev flag was given but this doesn't seem like a GoatCounter source directory")
-	}
-	slog.Info("watching ./tpl for changes")
-	go watchTemplates("./tpl")
-	return nil
-}
-
-// watchTemplates polls dir and re-reads the templates whenever a file in it
-// changed. Polling once a second is plenty for a -dev flag, and saves pulling
-// in a filesystem notification library.
-func watchTemplates(dir string) {
-	last := templatesModified(dir)
-	for range time.Tick(time.Second) {
-		if m := templatesModified(dir); !m.Equal(last) {
-			last = m
-			if err := handlers.LoadTemplates(os.DirFS(dir)); err != nil {
-				slog.ErrorContext(context.Background(), "reload templates", "error", err)
-			} else {
-				slog.Info("reloaded templates")
-			}
-		}
-	}
-}
-
-// templatesModified reports the most recent mtime of any file in dir; a
-// removed file changes the total too, as the walk then skips it.
-func templatesModified(dir string) time.Time {
-	var newest time.Time
-	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil //nolint:nilerr // just skip what we can't read
-		}
-		fi, err := d.Info()
-		if err != nil {
-			return nil //nolint:nilerr
-		}
-		if fi.ModTime().After(newest) {
-			newest = fi.ModTime()
-		}
-		return nil
-	})
-	return newest
-}
 
 func setupGeo(v *validation.Validator, geodbFlag string) *geoip2.Reader {
 	geodb, err := geo.Open(geodbFlag)
@@ -369,37 +315,12 @@ func setupRatelimits(v *validation.Validator, ratelimit string) handlers.Ratelim
 	return h
 }
 
-func setupDomains(v *validation.Validator, domainStatic, basePath *string) {
-	*basePath = strings.Trim(*basePath, "/")
-	if *basePath != "" {
-		*basePath = "/" + *basePath
-	}
-
-	if *domainStatic != "" {
-		if p := strings.Index(*domainStatic, ":"); p > -1 {
-			v.Domain("-static", (*domainStatic)[:p])
-		} else {
-			v.Domain("-static", *domainStatic)
-		}
+func setupDomains(v *validation.Validator, domainStatic string) {
+	if domainStatic != "" {
+		v.Domain("-static", hostWithoutPort(domainStatic))
 	}
 }
 
-func setupTpl(ctx context.Context, dev bool) error {
-	fsys, err := embeddedOrDir(goatcounter.Templates, "tpl", dev)
-	if err != nil {
-		return err
-	}
-	err = handlers.LoadTemplates(fsys)
-	if err != nil {
-		if !dev {
-			return err
-		}
-		slog.ErrorContext(ctx, "load development templates", "error", err)
-	}
-	return nil
-}
-
-func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 func hostWithoutPort(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		return h

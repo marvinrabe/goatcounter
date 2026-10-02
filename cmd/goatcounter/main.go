@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"strconv"
@@ -29,7 +30,7 @@ func main() {
 		os.Setenv("TMPDIR", v)
 		os.Unsetenv("GOATCOUNTER_TMPDIR")
 	}
-	setupLog(false, false)
+	setupLog(false)
 	os.Exit(cmdMain(os.Args[1:], make(chan struct{}, 1), make(chan struct{})))
 }
 
@@ -76,7 +77,7 @@ Usage: goatcounter [serve|healthcheck] [flags]
   healthcheck  Check that a running instance is healthy; for Docker HEALTHCHECK.
 ` + usageServe + cmdHealthcheck
 
-func connectDB(connect, dbConn string, dev bool) (database.DB, context.Context, error) {
+func connectDB(connect, dbConn string) (database.DB, context.Context, error) {
 	var open, idle int
 	if dbConn != "" {
 		openS, idleS, ok := strings.Cut(dbConn, ",")
@@ -94,7 +95,7 @@ func connectDB(connect, dbConn string, dev bool) (database.DB, context.Context, 
 		}
 	}
 
-	fsys, err := embeddedOrDir(goatcounter.DB, "db", dev)
+	fsys, err := fs.Sub(goatcounter.DB, "db")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -116,20 +117,13 @@ func connectDB(connect, dbConn string, dev bool) (database.DB, context.Context, 
 	return db, goatcounter.NewContext(context.Background(), db), nil
 }
 
-func setupLog(dev, debug bool) {
+func setupLog(debug bool) {
 	level := slog.LevelInfo
 	if debug {
 		level = slog.LevelDebug
 	}
 	o := &slog.HandlerOptions{Level: level, AddSource: true}
-	var handler slog.Handler
-	if dev {
-		handler = slog.NewTextHandler(os.Stdout, o)
-	} else {
-		handler = slog.NewJSONHandler(os.Stdout, o)
-	}
-
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, o)))
 }
 
 // Bound final cleanup even if a driver is still closing a connection.
