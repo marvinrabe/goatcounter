@@ -165,8 +165,8 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 // ListVisitorBreakdown returns visits attributed to one value of a dashboard
 // dimension. A visit appears in only one row of each top-level breakdown.
 //
-// Migrated Plausible rows are included when there is no path filter, as
-// Plausible exports don't break down dimensions by page.
+// Migrated Plausible rows are only included when the filter matches every
+// pageview, as Plausible exports don't break down dimensions by page.
 func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string, rng datetime.Range, pathFilter PathFilter, limit, offset int) error {
 	q, err := breakdown(kind, detail)
 	if err != nil {
@@ -183,7 +183,7 @@ func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string
 	}
 
 	union := q.live
-	if q.migrated != "" && pathFilter.Empty() {
+	if q.migrated != "" && pathFilter.AllPageviews() {
 		union += "\nunion all\n" + q.migrated
 	}
 	// Collected and migrated rows with the same ID (or name) are one row.

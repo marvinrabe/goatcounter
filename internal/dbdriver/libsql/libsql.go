@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
-	_ "modernc.org/sqlite"
 	remotelibsql "github.com/tursodatabase/libsql-client-go/libsql"
 	"github.com/tursodatabase/libsql-client-go/sqliteparserutils"
+	_ "modernc.org/sqlite"
 )
 
 // FileConnect returns a connection string for a local database path.

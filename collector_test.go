@@ -183,3 +183,41 @@ func TestCollectEvents(t *testing.T) {
 		t.Errorf("props %q: %v", props, err)
 	}
 }
+
+func TestFilteredMigratedTotals(t *testing.T) {
+	ctx := testenv.DB(t)
+	at := time.Date(2026, 6, 10, 9, 0, 0, 0, time.UTC)
+	// One live bounce on /a.
+	testenv.StoreHits(ctx, t, hit(at, "10.0.0.1", "/a"))
+	// A migrated day with 4 visits, 3 of which saw /a and 2 /b: some saw both.
+	err := database.Exec(ctx, `insert into events (site, ts, aggregate, name, path, visitors, visits, pageviews, bounces, visit_duration) values
+		('example.com', unixepoch('2026-06-10'), 'visitors', '', '', 4, 4, 9, 1, 400),
+		('example.com', unixepoch('2026-06-10'), 'pages', '', '/a', 3, 3, 5, 0, 0),
+		('example.com', unixepoch('2026-06-10'), 'pages', '', '/b', 2, 2, 4, 0, 0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		filter            string
+		visits, pageviews int
+		bounceRate        float64
+	}{
+		{"", 1 + 4, 1 + 9, 100 * 2.0 / 5},
+		// Matches every pageview, so the same as no filter.
+		{"is:pageview", 1 + 4, 1 + 9, 100 * 2.0 / 5},
+		// The 3 + 2 page visits are capped at the day's 4 visits; the bounce
+		// rate only has the live visit, as it's unknown per page.
+		{"/", 1 + 4, 1 + 9, 100},
+		{"/a", 1 + 3, 1 + 5, 100},
+		{"/b", 2, 4, 0},
+	} {
+		m, err := GetDashboardData(ctx, day(at), NewPathFilter(tt.filter), GroupDaily)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Metrics.Visits != tt.visits || m.Metrics.Pageviews != tt.pageviews || m.Metrics.BounceRate != tt.bounceRate {
+			t.Errorf("filter %q: %+v; want visits=%d pageviews=%d bounce=%v",
+				tt.filter, m.Metrics, tt.visits, tt.pageviews, tt.bounceRate)
+		}
+	}
+}

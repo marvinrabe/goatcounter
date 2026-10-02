@@ -52,6 +52,9 @@ type dashboardMetricBucket struct {
 	Pageviews int     `db:"pageviews"`
 	Bounces   int     `db:"bounces"`
 	Duration  float64 `db:"duration"`
+	// Visits whose bounce and duration are known; the bounce rate and visit
+	// duration are relative to these.
+	RateVisits int `db:"rate_visits"`
 }
 
 func (m DashboardMetrics) ViewsPerVisit() float64 {
@@ -153,6 +156,7 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		select
 			strftime('%Y-%m-%d %H', started, 'unixepoch')      as hour,
 			count(*)                                           as visits,
+			count(*)                                           as rate_visits,
 			sum(pageviews)                                     as pageviews,
 			sum(pageviews = 1 and custom_events = 0)           as bounces,
 			sum(duration)                                      as duration
@@ -172,11 +176,13 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		b.Pageviews += row.Pageviews
 		b.Bounces += row.Bounces
 		b.Duration += row.Duration
+		b.RateVisits += row.RateVisits
 		buckets[key] = b
 		total.Visits += row.Visits
 		total.Pageviews += row.Pageviews
 		total.Bounces += row.Bounces
 		total.Duration += row.Duration
+		total.RateVisits += row.RateVisits
 	}
 	for _, row := range rows {
 		t, err := localHour(ctx, row.Hour)
@@ -223,23 +229,44 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 	}
 	totalVisitors = len(seenTotal)
 
-	// Migrated Plausible rows are daily totals, at midnight. A filtered report
-	// can only use the per-page totals; bounce and duration can't be
-	// reconstructed by path.
-	kind := "visitors"
-	if !pathFilter.Empty() {
-		kind = "pages"
-	}
-	iparams := rangeParams(ctx, rng, pathFilter, "path", "")
-	iparams["kind"] = kind
-	var migrated []dashboardMetricBucket
-	err = database.Select(ctx, &migrated, `
+	// Migrated Plausible rows are daily totals, at midnight.
+	query := `
 		select strftime('%Y-%m-%d %H', ts, 'unixepoch') as hour,
 			sum(visitors) as visitors, sum(visits) as visits, sum(pageviews) as pageviews,
-			sum(bounces) as bounces, sum(visit_duration) as duration
+			sum(bounces) as bounces, sum(visit_duration) as duration, sum(visits) as rate_visits
 		from events
-		where site = :site and aggregate = :kind and ts >= :start and ts <= :end and :filter
-		group by ts`, iparams)
+		where site = :site and aggregate = 'visitors' and ts >= :start and ts <= :end
+		group by ts`
+	if !pathFilter.AllPageviews() {
+		// With a filter only the per-page totals can be used. Pageviews add
+		// up, but a visit to several matching pages is in each of their rows,
+		// and Plausible doesn't say which pages were in the same visit. The sum
+		// can't be more than the day's visits, though: with a filter that
+		// matches every page this gives the exact number, and with a filter
+		// that matches one page per visit the sum is exact. The bounce rate
+		// and duration aren't known per page, so these visits are left out of
+		// them.
+		query = `
+			with pages as (
+				select ts, sum(visitors) as visitors, sum(visits) as visits, sum(pageviews) as pageviews
+				from events
+				where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and :filter
+				group by ts
+			), days as (
+				select ts, sum(visitors) as visitors, sum(visits) as visits
+				from events
+				where site = :site and aggregate = 'visitors' and ts >= :start and ts <= :end
+				group by ts
+			)
+			select strftime('%Y-%m-%d %H', pages.ts, 'unixepoch') as hour,
+				min(pages.visitors, coalesce(days.visitors, pages.visitors)) as visitors,
+				min(pages.visits, coalesce(days.visits, pages.visits))       as visits,
+				pages.pageviews                                               as pageviews,
+				0 as bounces, 0 as duration, 0 as rate_visits
+			from pages left join days using (ts)`
+	}
+	var migrated []dashboardMetricBucket
+	err = database.Select(ctx, &migrated, query, rangeParams(ctx, rng, pathFilter, "path", ""))
 	if err != nil {
 		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData migrated: %w", err)
 	}
@@ -253,9 +280,9 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 	}
 
 	metrics := DashboardMetrics{Visitors: totalVisitors, Visits: total.Visits, Pageviews: total.Pageviews}
-	if total.Visits > 0 {
-		metrics.BounceRate = 100 * float64(total.Bounces) / float64(total.Visits)
-		metrics.VisitDurationSeconds = total.Duration / float64(total.Visits)
+	if total.RateVisits > 0 {
+		metrics.BounceRate = 100 * float64(total.Bounces) / float64(total.RateVisits)
+		metrics.VisitDurationSeconds = total.Duration / float64(total.RateVisits)
 	}
 	return buckets, metrics, nil
 }
@@ -278,8 +305,10 @@ func metricPoints(ctx context.Context, buckets map[string]dashboardMetricBucket,
 		}
 		if b.Visits > 0 {
 			p.ViewsPerVisit = float64(b.Pageviews) / float64(b.Visits)
-			p.BounceRate = float64(b.Bounces) / float64(b.Visits) * 100
-			p.VisitDuration = b.Duration / float64(b.Visits)
+		}
+		if b.RateVisits > 0 {
+			p.BounceRate = float64(b.Bounces) / float64(b.RateVisits) * 100
+			p.VisitDuration = b.Duration / float64(b.RateVisits)
 		}
 		points = append(points, p)
 	}

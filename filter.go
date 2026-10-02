@@ -25,7 +25,13 @@ type PathFilter struct {
 	onlyPageview bool
 }
 
-func (p PathFilter) Empty() bool    { return p.query == "" }
+func (p PathFilter) Empty() bool { return p.query == "" }
+
+// AllPageviews reports if the filter matches every pageview, like "is:pageview"
+// alone. Pageview statistics are then the same as without a filter.
+func (p PathFilter) AllPageviews() bool {
+	return p.Empty() || (p.like == "%%" && !p.not && !p.onlyEvent)
+}
 func (p PathFilter) String() string { return p.query }
 
 // NewPathFilter parses a filter query.
