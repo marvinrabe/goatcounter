@@ -67,14 +67,7 @@ func writeCSP(b *strings.Builder, k, v string) {
 	b.WriteByte(';')
 }
 
-func addcsp(domainStatic string) func(http.Handler) http.Handler {
-	ds := []string{"'self'"}
-	if domainStatic != "" {
-		ds = append(ds, domainStatic)
-	}
-
-	staticDomains := strings.Join(ds, " ")
-
+func addcsp() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Only really needs to run on HTML pages; but best to add it
@@ -86,20 +79,17 @@ func addcsp(domainStatic string) func(http.Handler) http.Handler {
 				return
 			}
 
-			static := staticDomains
-
 			b := new(strings.Builder)
 			b.Grow(1024)
 			writeCSP(b, "default-src", "'none'")
-			writeCSP(b, "font-src", static)
+			writeCSP(b, "font-src", "'self'")
 			writeCSP(b, "form-action", "'self'")
 			writeCSP(b, "frame-ancestors", "'none'")
-			writeCSP(b, "manifest-src", static)
-			writeCSP(b, "script-src", static)
-			writeCSP(b, "style-src", static+" 'unsafe-inline'")
-
+			writeCSP(b, "manifest-src", "'self'")
+			writeCSP(b, "script-src", "'self'")
+			writeCSP(b, "style-src", "'self' 'unsafe-inline'")
 			writeCSP(b, "connect-src", "'self'")
-			writeCSP(b, "img-src", static+" data:")
+			writeCSP(b, "img-src", "'self' data:")
 			writeCSP(b, "frame-src", "'self'")
 
 			w.Header()["Content-Security-Policy"] = []string{b.String()}

@@ -77,11 +77,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 
-	cfg := goatcounter.Config(ctx)
-	countDomain := cfg.DomainStatic
-	if countDomain == "" {
-		countDomain = r.Host
-	}
+	countDomain := r.Host
 	return renderHTML(w, "dashboard.gohtml", struct {
 		Globals
 		CountDomain string

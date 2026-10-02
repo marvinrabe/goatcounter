@@ -23,7 +23,7 @@ func TestStatus(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	ctx := goatcounter.NewContext(context.Background(), db)
-	router := NewBackend(db, "", 10, Ratelimits{}, Auth{Mode: AuthBasic})
+	router := NewBackend(db, 10, Ratelimits{}, Auth{Mode: AuthBasic})
 
 	check := func(method string, code int, body string) {
 		t.Helper()
@@ -42,14 +42,11 @@ func TestStatus(t *testing.T) {
 	}
 	check(http.MethodGet, http.StatusOK, "OK")
 	check(http.MethodHead, http.StatusOK, "")
-	goatcounter.Config(ctx).Draining.Store(true)
-	check(http.MethodGet, http.StatusServiceUnavailable, "draining\n")
 	live := httptest.NewRecorder()
 	router.ServeHTTP(live, httptest.NewRequest(http.MethodGet, "/live", nil).WithContext(ctx))
 	if live.Code != http.StatusNotFound {
 		t.Errorf("removed /live route = %d; want 404", live.Code)
 	}
-	goatcounter.Config(ctx).Draining.Store(false)
 
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/status", nil).WithContext(ctx))
@@ -63,6 +60,6 @@ func TestStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(http.MethodGet, http.StatusOK, "OK")
-	router = NewBackend(db, "", 10, Ratelimits{}, Auth{Mode: AuthBasic})
+	router = NewBackend(db, 10, Ratelimits{}, Auth{Mode: AuthBasic})
 	check(http.MethodGet, http.StatusServiceUnavailable, "database unreachable\n")
 }

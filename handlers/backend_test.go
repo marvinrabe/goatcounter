@@ -24,7 +24,7 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth := Auth{Mode: AuthBasic, BasicUsers: users}
-	router := NewBackend(nil, "", 10, Ratelimits{}, auth)
+	router := NewBackend(nil, 10, Ratelimits{}, auth)
 	for _, tt := range []struct {
 		path, authorization string
 		code                int
@@ -43,7 +43,7 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 	}
 
 	auth = Auth{Mode: AuthOIDC, OIDC: &OIDCAuth{}}
-	router = NewBackend(nil, "", 10, Ratelimits{}, auth)
+	router = NewBackend(nil, 10, Ratelimits{}, auth)
 	for path, code := range map[string]int{
 		"/auth/callback?error=access_denied": http.StatusUnauthorized,
 		"/auth/logout":                       http.StatusFound,
@@ -138,5 +138,5 @@ func BenchmarkCount(b *testing.B) {
 }
 
 func newBackend(ctx context.Context) chi.Router {
-	return NewBackend(database.MustGetDB(ctx), "example.com", 10, Ratelimits{}, Auth{Mode: AuthPublic})
+	return NewBackend(database.MustGetDB(ctx), 10, Ratelimits{}, Auth{Mode: AuthPublic})
 }

@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
@@ -19,10 +18,6 @@ func status(db database.DB) http.HandlerFunc {
 		lastOK time.Time
 	)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if goatcounter.Config(r.Context()).Draining.Load() {
-			http.Error(w, "draining", http.StatusServiceUnavailable)
-			return
-		}
 		mu.Lock()
 		fresh := time.Since(lastOK) < time.Minute
 		mu.Unlock()

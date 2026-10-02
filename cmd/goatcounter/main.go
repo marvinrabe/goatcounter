@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,32 +74,13 @@ Usage: goatcounter [serve|healthcheck] [flags]
   healthcheck  Check that a running instance is healthy; for Docker HEALTHCHECK.
 ` + usageServe + cmdHealthcheck
 
-func connectDB(connect, dbConn string) (database.DB, context.Context, error) {
-	var open, idle int
-	if dbConn != "" {
-		openS, idleS, ok := strings.Cut(dbConn, ",")
-		if !ok {
-			return nil, nil, errors.New("-dbconn flag: must be as max_open,max_idle")
-		}
-		var err error
-		open, err = strconv.Atoi(openS)
-		if err != nil {
-			return nil, nil, fmt.Errorf("-dbconn flag: %w", err)
-		}
-		idle, err = strconv.Atoi(idleS)
-		if err != nil {
-			return nil, nil, fmt.Errorf("-dbconn flag: %w", err)
-		}
-	}
-
+func connectDB(connect string) (database.DB, context.Context, error) {
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelConnect()
 	db, err := libsqldriver.Open(connectCtx, database.ConnectOptions{
-		Connect:      connect,
-		Schema:       goatcounter.Schema,
-		Create:       true,
-		MaxOpenConns: open,
-		MaxIdleConns: idle,
+		Connect: connect,
+		Schema:  goatcounter.Schema,
+		Create:  true,
 	})
 
 	if err != nil {

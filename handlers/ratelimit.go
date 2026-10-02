@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -28,22 +27,6 @@ type Ratelimits struct {
 
 func NewRatelimits() Ratelimits {
 	return Ratelimits{Count: mustNewMem(4, time.Second)}
-}
-
-// ClearCount disables the collector limit and releases its store.
-// Configure limits before mounting the routes.
-func (r *Ratelimits) ClearCount() {
-	if r.Count != nil {
-		r.Count.Close(context.Background())
-		r.Count = nil
-	}
-}
-
-// SetCount replaces the collector limit, releasing the previous store.
-// Configure limits before mounting the routes.
-func (r *Ratelimits) SetCount(tokens uint64, interval time.Duration) {
-	r.ClearCount()
-	r.Count = mustNewMem(tokens, interval)
 }
 
 // countMiddleware applies the collector's limits after RealIP has normalized

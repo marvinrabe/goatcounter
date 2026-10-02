@@ -26,7 +26,7 @@ General notes
     large dependency trees. So it's probably best to communicate in the issue if
     you're planning to do that.
 
-- Use `-debug` to enable debug logs and `-debug-sql` to trace SQL queries.
+- Use `-debug` to enable debug logs, including HTTP requests and SQL queries.
 
 - Tests can be run with `go test ./...`; run `npm run build` first after
   changing frontend assets.

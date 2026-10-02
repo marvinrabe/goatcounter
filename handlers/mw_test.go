@@ -59,7 +59,7 @@ func TestAddCSP(t *testing.T) {
 		{"/count", ``},
 	}
 
-	mw := addcsp("")(http.NewServeMux())
+	mw := addcsp()(http.NewServeMux())
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			var (
@@ -149,7 +149,7 @@ func BenchmarkAddCSP(b *testing.B) {
 		ctx = goatcounter.WithSite(context.Background(), &goatcounter.Site{})
 		r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
 		rr  = httptest.NewRecorder()
-		mw  = addcsp("")(http.NewServeMux())
+		mw  = addcsp()(http.NewServeMux())
 	)
 	b.ResetTimer()
 	for b.Loop() {

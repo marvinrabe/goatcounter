@@ -33,7 +33,7 @@ func TestNewContextPreservesParent(t *testing.T) {
 	defer cancel()
 	parent = context.WithValue(parent, requestKey{}, "request-id")
 	parent = NewConfig(parent)
-	Config(parent).DomainStatic = "static.example.com"
+	Config(parent).Sites = []Site{{Key: "example.com"}}
 	db := new(database.Database)
 
 	ctx := NewContext(parent, db)
@@ -43,7 +43,7 @@ func TestNewContextPreservesParent(t *testing.T) {
 	if database.MustGetDB(ctx) != db {
 		t.Fatal("application dependencies missing from context")
 	}
-	if Config(ctx) == Config(parent) || Config(ctx).DomainStatic != "" {
+	if Config(ctx) == Config(parent) || Config(ctx).Sites != nil {
 		t.Fatal("new application context reused its parent's settings")
 	}
 	deadline, _ := parent.Deadline()

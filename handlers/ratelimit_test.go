@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,27 +9,6 @@ import (
 
 	"github.com/sethvargo/go-limiter"
 )
-
-func TestConfigureCountLimit(t *testing.T) {
-	limits := NewRatelimits()
-	t.Cleanup(limits.ClearCount)
-	previous := limits.Count
-	limits.SetCount(2, time.Minute)
-	if _, _, _, _, err := previous.Take(context.Background(), "visitor"); !errors.Is(err, limiter.ErrStopped) {
-		t.Errorf("previous store was not closed: %v", err)
-	}
-	if tokens, _, _, ok, err := limits.Count.Take(context.Background(), "visitor"); err != nil || !ok || tokens != 2 {
-		t.Errorf("new limit: tokens=%d ok=%t error=%v", tokens, ok, err)
-	}
-	previous = limits.Count
-	limits.ClearCount()
-	if limits.Count != nil {
-		t.Error("collector limit was not disabled")
-	}
-	if _, _, _, _, err := previous.Take(context.Background(), "visitor"); !errors.Is(err, limiter.ErrStopped) {
-		t.Errorf("disabled store was not closed: %v", err)
-	}
-}
 
 func TestRatelimit(t *testing.T) {
 	for _, disabled := range []bool{true, false} {

@@ -3,7 +3,6 @@ package goatcounter
 import (
 	"context"
 	"strings"
-	"sync/atomic"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
@@ -17,12 +16,10 @@ const (
 )
 
 // GlobalConfig holds settings shared by all requests and background jobs.
-// Settings are initialized before serving; only Draining changes at runtime.
+// Settings are initialized before serving and don't change at runtime.
 type GlobalConfig struct {
-	Draining     atomic.Bool
-	Timezone     datetime.Timezone
-	DomainStatic string
-	Sites        []Site
+	Timezone datetime.Timezone
+	Sites    []Site
 }
 
 func (c *GlobalConfig) Site(name string) (Site, bool) {

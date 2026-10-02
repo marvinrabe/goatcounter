@@ -122,13 +122,11 @@ pageview, so no transaction, queue, or sticky session is needed, and an idle
 container makes no database requests. Each container reads the daily salt
 once a day.
 
-Rate limits (`-ratelimit`, default 4 requests per second per IP) are per
+`/count` is limited to 4 requests per second per IP and User-Agent, per
 container.
 
-`/status` is the health check; it verifies database connectivity and returns
-503 while shutting down. On SIGTERM a container becomes unhealthy, waits
-`GOATCOUNTER_DRAIN_DELAY` seconds (default 0), and finishes requests within
-`GOATCOUNTER_SHUTDOWN_TIMEOUT` seconds (default 25). The Docker image has a
+`/status` is the health check; it verifies database connectivity. On SIGTERM a
+container finishes requests within 25 seconds. The Docker image has a
 `HEALTHCHECK` running `goatcounter healthcheck`.
 
 ### Dashboard authentication
@@ -163,8 +161,7 @@ Bots are recognized by their User-Agent and by coming from a hosting
 provider's network; referrer spam from Matomo's list. All lists are built in,
 and the ones with an upstream – Matomo, and the networks of AWS, Google Cloud,
 Oracle, DigitalOcean, and Linode – are downloaded once a day. A failed download
-keeps the lists in use and is retried later. `GOATCOUNTER_DATA_UPDATES=false`
-turns the downloads off. `internal/enrich` has all lookups, a file for each.
+keeps the lists in use and is retried later. `internal/enrich` has all lookups, a file for each.
 
 ### Docker
 

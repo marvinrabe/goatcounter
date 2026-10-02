@@ -20,7 +20,6 @@ type Globals struct {
 	Site            *goatcounter.Site
 	Sites           []goatcounter.Site
 	Path            string
-	Static          string
 	StaticDomain    string
 	TZName          string
 	TZOffsetDisplay string
@@ -37,7 +36,7 @@ func (g Globals) Asset(name string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("asset %q is missing from Vite manifest", name)
 	}
-	return g.Static + "/" + file, nil
+	return "/" + file, nil
 }
 
 func newGlobals(r *http.Request) Globals {
@@ -54,11 +53,6 @@ func newGlobals(r *http.Request) Globals {
 		StaticDomain:    r.Host,
 		HideUI:          r.URL.Query().Get("hideui") != "",
 	}
-	if cfg.DomainStatic != "" {
-		g.Static = "//" + cfg.DomainStatic
-		g.StaticDomain = cfg.DomainStatic
-	}
-
 	return g
 }
 

@@ -9,9 +9,9 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
-func NewBackend(db database.DB, domainStatic string, dashTimeout int, ratelimits Ratelimits, auth Auth) chi.Router {
+func NewBackend(db database.DB, dashTimeout int, ratelimits Ratelimits, auth Auth) chi.Router {
 	r := chi.NewRouter()
-	backend{dashTimeout: dashTimeout}.Mount(r, db, domainStatic, ratelimits, auth)
+	backend{dashTimeout: dashTimeout}.Mount(r, db, ratelimits, auth)
 	NewStatic(r)
 	return r
 }
@@ -20,12 +20,12 @@ type backend struct {
 	dashTimeout int
 }
 
-func (h backend) Mount(r chi.Router, db database.DB, domainStatic string, ratelimits Ratelimits, auth Auth) {
+func (h backend) Mount(r chi.Router, db database.DB, ratelimits Ratelimits, auth Auth) {
 	r.Use(
 		realIP,
 		wrapWriter,
 		middleware.Recoverer,
-		addcsp(domainStatic),
+		addcsp(),
 		middleware.RedirectSlashes,
 		noStore,
 		middleware.Compress(5))
