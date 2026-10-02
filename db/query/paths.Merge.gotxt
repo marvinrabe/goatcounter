@@ -1,9 +1,0 @@
-with x as (
-	select {{.SelectCTE}} from {{.Table}}
-	where path_id in (:paths)
-	group by {{.Group}}
-)
-insert into {{.Table}} ({{.Columns}})
-	-- "where true" is needed for SQLite: https://www.sqlite.org/lang_upsert.html#parsing_ambiguity
-	select {{.Select}} from x where true
-{{.OnConflict}}

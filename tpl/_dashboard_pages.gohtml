@@ -1,0 +1,7 @@
+<div class="widget pages-list text-sm" data-widget="pages">
+	{{if .Err}}<em class="text-red-600 dark:text-red-400">Error: {{.Err.Error}}</em>
+	{{else}}
+		<div class="hchart" data-widget="pages">{{template "_chart.gohtml" .Chart}}</div>
+		{{if .More}}{{template "_load_btns" true}}{{end}}
+	{{end}}
+</div>

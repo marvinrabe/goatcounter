@@ -3,51 +3,28 @@ package widgets
 import (
 	"context"
 	"errors"
-	"fmt"
-	"html/template"
 	"log/slog"
 	"runtime/debug"
 	"sync"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/parse"
 )
 
+// Pages lists the visits for every path, and the referrers for one of them.
 type Pages struct {
-	id     int
-	loaded bool
-	err    error
-	html   template.HTML
+	base
 
-	RefsForPath      goatcounter.PathID
-	Limit, LimitRefs int
-	Display          int
-	More             bool
-	Pages            goatcounter.HitLists
-	Refs             goatcounter.HitStats
-	Max              int
-	Exclude          []goatcounter.PathID
-	WithStats        bool // Include per-page time series for API clients.
+	RefsForPath string
+	More        bool
+	Pages       goatcounter.HitLists
+	Refs        goatcounter.HitStats
 }
 
-func (w Pages) Name() string { return "pages" }
-func (w Pages) Type() string { return "full-width" }
-func (w Pages) Label() string {
-	return "Paths overview"
-}
-func (w *Pages) SetHTML(h template.HTML) { w.html = h }
-func (w Pages) HTML() template.HTML      { return w.html }
-func (w *Pages) SetErr(h error)          { w.err = h }
-func (w Pages) Err() error               { return w.err }
-func (w Pages) ID() int                  { return w.id }
-
-func (w *Pages) SetDetail(d string) {
-	w.RefsForPath, _ = parse.Int[goatcounter.PathID](d, 10)
-}
+func (w *Pages) SetDetail(d string) { w.RefsForPath = d }
 
 func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
-	if w.RefsForPath > 0 {
-		err := w.Refs.ListVisitorBreakdown(ctx, "pagerefs", fmt.Sprint(w.RefsForPath), a.Rng, a.PathFilter, w.LimitRefs, a.Offset)
+	if w.RefsForPath != "" {
+		err := w.Refs.ListVisitorBreakdown(ctx, "pagerefs", w.RefsForPath, a.Rng, a.PathFilter, refPageSize, a.Offset)
 		return w.Refs.More, err
 	}
 
@@ -55,77 +32,34 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 		wg      sync.WaitGroup
 		refsErr error
 	)
-	if a.ShowRefs > 0 {
+	if a.ShowRefs != "" {
 		wg.Go(func() {
 			defer func() {
 				if p := recover(); p != nil {
 					slog.ErrorContext(ctx, "background task panic", "panic", p, "stack", string(debug.Stack()))
 				}
 			}()
-			refsErr = w.Refs.ListVisitorBreakdown(ctx, "pagerefs", fmt.Sprint(a.ShowRefs), a.Rng, a.PathFilter, w.LimitRefs, a.Offset)
+			refsErr = w.Refs.ListVisitorBreakdown(ctx, "pagerefs", a.ShowRefs, a.Rng, a.PathFilter, refPageSize, 0)
 		})
 	}
 
 	var err error
-	if w.WithStats {
-		w.Display, w.More, err = w.Pages.ListVisitorPages(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group, true)
-	} else {
-		w.Display, w.More, err = w.Pages.ListVisitorPages(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group, false)
-	}
-
+	_, w.More, err = w.Pages.ListVisitorPages(ctx, a.Rng, a.PathFilter, pageSize, a.Offset)
 	wg.Wait()
-
-	for _, p := range w.Pages {
-		if p.Max > w.Max {
-			w.Max = p.Max
-		}
-	}
-
-	w.loaded = true
 	return w.More, errors.Join(err, refsErr)
 }
 
-func (w Pages) RenderHTML(ctx context.Context, shared SharedData) (string, any) {
-	if w.RefsForPath > 0 {
-		return "_dashboard_pages_refs.gohtml", struct {
-			Context context.Context
-			Site    *goatcounter.Site
-			ID      int
-			Loaded  bool
-			Err     error
-
-			Refs  goatcounter.HitStats
-			Count int
-		}{ctx, shared.Site, w.id, w.loaded, w.err,
-			w.Refs, shared.Total}
+func (w Pages) RenderHTML(ctx context.Context, a Args) (string, any) {
+	if w.RefsForPath != "" {
+		return "_chart.gohtml", newChart(w.Refs, a.Total, false, nameDirect, a.RowsOnly)
 	}
-
-	t := "_dashboard_pages_text"
-	if shared.RowsOnly {
-		t += "_rows"
+	chart := pagesChart(w.Pages, a.Total, a.ShowRefs, w.Refs, a.RowsOnly)
+	if a.RowsOnly {
+		return "_chart.gohtml", chart
 	}
-	t += ".gohtml"
-
-	return t, struct {
-		Context context.Context
-		ID      int
-		Loaded  bool
-		Err     error
-		Pages   goatcounter.HitLists
-		Group   goatcounter.Group
-		Max     int
-
-		TotalDisplay int
-		Total        int
-		MorePages    bool
-
-		Refs     goatcounter.HitStats
-		ShowRefs goatcounter.PathID
-	}{
-		Context: ctx,
-		ID:      w.id, Loaded: w.loaded, Err: w.err, Pages: w.Pages,
-		Group: shared.Args.Group, Max: w.Max,
-		TotalDisplay: w.Display, Total: shared.Total, MorePages: w.More,
-		Refs: w.Refs, ShowRefs: shared.Args.ShowRefs,
-	}
+	return "_dashboard_pages.gohtml", struct {
+		Err   error
+		Chart Chart
+		More  bool
+	}{w.err, chart, w.More}
 }

@@ -8,17 +8,7 @@ import (
 	"time"
 )
 
-type clockKey struct{}
-
-func Now(ctx context.Context) time.Time {
-	if t, ok := ctx.Value(clockKey{}).(time.Time); ok {
-		return t.UTC()
-	}
-	return time.Now().UTC()
-}
-func WithNow(ctx context.Context, t time.Time) context.Context {
-	return context.WithValue(ctx, clockKey{}, t)
-}
+func Now(context.Context) time.Time { return time.Now().UTC() }
 
 type Period int
 

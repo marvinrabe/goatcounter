@@ -42,33 +42,25 @@ func cmdMain(args []string, ready chan<- struct{}, stop chan struct{}) int {
 		default:
 		}
 	}()
-	cmd := "help"
-	if len(args) > 0 {
+	cmd := "serve"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
-	}
-	if cmd == "-h" || cmd == "--help" || cmd == "-help" {
-		cmd = "help"
-	}
-	for _, a := range args {
-		if a == "-h" || a == "-help" || a == "--help" {
-			args = append([]string{cmd}, args...)
-			cmd = "help"
-			break
-		}
 	}
 	var run command
 	switch cmd {
-	case "help":
-		run = cmdHelp
 	case "serve":
 		run = cmdServe
 	case "healthcheck":
 		run = runHealthcheck
-	case "geodb-update":
-		run = cmdGeoDB
 	default:
-		fmt.Fprintf(stderr, "unknown command: %q\n%s", cmd, usage[""])
+		fmt.Fprintf(stderr, "unknown command: %q\n%s", cmd, usage)
 		return 1
+	}
+	for _, a := range args {
+		if a == "-h" || a == "-help" || a == "--help" {
+			fmt.Fprintln(stdout, strings.TrimSpace(usage))
+			return 0
+		}
 	}
 	if err := run(args, ready, stop); err != nil {
 		fmt.Fprintln(stderr, err)
@@ -76,6 +68,13 @@ func cmdMain(args []string, ready chan<- struct{}, stop chan struct{}) int {
 	}
 	return 0
 }
+
+const usage = `
+Usage: goatcounter [serve|healthcheck] [flags]
+
+  serve        Start the HTTP server (the default).
+  healthcheck  Check that a running instance is healthy; for Docker HEALTHCHECK.
+` + usageServe + cmdHealthcheck
 
 func connectDB(connect, dbConn string, dev bool) (database.DB, context.Context, error) {
 	var open, idle int
@@ -140,6 +139,6 @@ func closeDB(db database.DB) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		slog.InfoContext(context.Background(), "Database close timed out; exiting with durable work left for another replica")
+		slog.InfoContext(context.Background(), "Database close timed out")
 	}
 }

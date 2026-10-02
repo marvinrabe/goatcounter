@@ -1,39 +1,18 @@
 <div id="dash-widgets">
-	{{$widgets := .Widgets}}
-	{{(index ($widgets.Get "totalpages") 0).HTML}}
+	{{.Widgets.HTML "totals"}}
 	<div class="hcharts dashboard-grid mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-		<section class="dashboard-card min-w-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-			<div class="card-tabs flex min-h-14 items-end gap-5 border-b border-slate-200 dark:border-neutral-800 px-5"><span class="card-tab border-b-2 border-fuchsia-500 dark:border-fuchsia-400 pb-3 pt-4 text-sm font-semibold text-slate-900 dark:text-neutral-100">Pages</span><span class="ml-auto pb-3 text-xs text-slate-500 dark:text-neutral-400">Visitors</span></div>
-			<div class="card-panel active min-h-56 p-5">{{(index ($widgets.Get "pages") 0).HTML}}</div>
-		</section>
-		<section class="dashboard-card min-w-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-card-tabs data-card="acquisition">
-			<div class="card-tabs flex min-h-14 items-end gap-5 overflow-x-auto border-b border-slate-200 dark:border-neutral-800 px-5" role="tablist" aria-label="Acquisition">
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="sources" aria-selected="true">Sources</button>
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="campaigns" aria-selected="false">Campaigns</button>
+		{{range .Cards}}
+		<section class="dashboard-card min-w-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-card-tabs data-card="{{.Name}}">
+			<div class="card-tabs flex min-h-14 items-end gap-5 overflow-x-auto border-b border-slate-200 dark:border-neutral-800 px-5" role="tablist" aria-label="{{.Label}}">
+				{{range $i, $t := .Tabs}}
+				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="{{.Widget}}" aria-selected="{{eq $i 0}}">{{.Label}}</button>
+				{{end}}
 				<span class="ml-auto pb-3 text-xs text-slate-500 dark:text-neutral-400">Visitors</span>
 			</div>
-			<div class="card-panel active min-h-56 p-5" data-panel="sources">{{(index ($widgets.Get "toprefs") 0).HTML}}</div>
-			<div class="card-panel min-h-56 p-5" data-panel="campaigns" hidden>{{(index ($widgets.Get "campaigns") 0).HTML}}</div>
+			{{range $i, $t := .Tabs}}
+			<div class="card-panel min-h-56 p-5" data-panel="{{.Widget}}"{{if $i}} hidden{{end}}>{{$.Widgets.HTML .Widget}}</div>
+			{{end}}
 		</section>
-		<section class="dashboard-card min-w-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-card-tabs data-card="technology">
-			<div class="card-tabs flex min-h-14 items-end gap-5 overflow-x-auto border-b border-slate-200 dark:border-neutral-800 px-5" role="tablist" aria-label="Technology">
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="browsers" aria-selected="true">Browsers</button>
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="systems" aria-selected="false">Operating systems</button>
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="sizes" aria-selected="false">Devices</button>
-				<span class="ml-auto pb-3 text-xs text-slate-500 dark:text-neutral-400">Visitors</span>
-			</div>
-			<div class="card-panel active min-h-56 p-5" data-panel="browsers">{{(index ($widgets.Get "browsers") 0).HTML}}</div>
-			<div class="card-panel min-h-56 p-5" data-panel="systems" hidden>{{(index ($widgets.Get "systems") 0).HTML}}</div>
-			<div class="card-panel min-h-56 p-5" data-panel="sizes" hidden>{{(index ($widgets.Get "sizes") 0).HTML}}</div>
-		</section>
-		<section class="dashboard-card min-w-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-card-tabs data-card="audience">
-			<div class="card-tabs flex min-h-14 items-end gap-5 overflow-x-auto border-b border-slate-200 dark:border-neutral-800 px-5" role="tablist" aria-label="Audience">
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="locations" aria-selected="true">Locations</button>
-				<button type="button" class="card-tab cursor-pointer whitespace-nowrap border-b-2 border-transparent pb-3 pt-4 text-sm font-semibold text-slate-500 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-100 aria-selected:border-fuchsia-500 dark:aria-selected:border-fuchsia-400 aria-selected:text-slate-900 dark:aria-selected:text-neutral-100" data-panel="languages" aria-selected="false">Languages</button>
-				<span class="ml-auto pb-3 text-xs text-slate-500 dark:text-neutral-400">Visitors</span>
-			</div>
-			<div class="card-panel active min-h-56 p-5" data-panel="locations">{{(index ($widgets.Get "locations") 0).HTML}}</div>
-			<div class="card-panel min-h-56 p-5" data-panel="languages" hidden>{{(index ($widgets.Get "languages") 0).HTML}}</div>
-		</section>
+		{{end}}
 	</div>
 </div>

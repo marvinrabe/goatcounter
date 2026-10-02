@@ -26,23 +26,34 @@
 			site,
 			p: options.path != null ? options.path : location.pathname + location.search,
 			r: options.referrer != null ? options.referrer : document.referrer,
-			e: !!options.event,
+			h: location.hostname,
+			n: options.event || '',
+			pr: options.event && options.props ? JSON.stringify(options.props) : '',
 			ns: !!options.no_session,
 			s: window.screen.width,
 			b: navigator.webdriver ? 153 : 0,
-			// Cache-bust the image fallback; some browsers ignore cache headers.
-			rnd: Math.random().toString(36).slice(2),
 		}
 		for (const [key, value] of Object.entries(data))
 			url.searchParams.set(key, value)
 
 		try {
-			if (typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url.href))
+			if (navigator.sendBeacon(url.href))
 				return
 		} catch (_) {
-			// A blocked beacon can still work as an image request.
+			// Fall back to fetch() if the beacon is blocked or fails.
 		}
-		new Image().src = url.href
+		fetch(url.href, {method: 'POST', keepalive: true, mode: 'no-cors'}).catch(() => {})
+	}
+
+	// Count clicks on links to other sites, as Plausible's outbound link
+	// tracking does.
+	if (!counter.no_outbound) {
+		document.addEventListener('click', (event) => {
+			const link = event.target?.closest?.('a[href]')
+			if (!link || !/^https?:$/.test(link.protocol) || link.host === location.host)
+				return
+			counter.count({event: 'Outbound Link: Click', props: {url: link.href}})
+		}, true)
 	}
 
 	if (!counter.no_onload) {

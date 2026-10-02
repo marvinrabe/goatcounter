@@ -26,7 +26,7 @@ func TestStatus(t *testing.T) {
 			t.Cleanup(func() { db.Close() })
 			ctx := goatcounter.NewContext(context.Background(), db)
 			goatcounter.Config(ctx).BasePath = base
-			router := NewBackend(db, false, "", base, 10, Ratelimits{}, "", Auth{Mode: AuthBasic})
+			router := NewBackend(db, false, "", base, 10, Ratelimits{}, Auth{Mode: AuthBasic})
 
 			check := func(method string, code int, body string) {
 				t.Helper()
@@ -60,9 +60,13 @@ func TestStatus(t *testing.T) {
 				t.Errorf("POST /status: got %d; want 405", w.Code)
 			}
 
+			// A successful check is reused for a minute, so probes don't keep
+			// the database busy; a new router has no recent check.
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
 			}
+			check(http.MethodGet, http.StatusOK, "OK")
+			router = NewBackend(db, false, "", base, 10, Ratelimits{}, Auth{Mode: AuthBasic})
 			check(http.MethodGet, http.StatusServiceUnavailable, "database unreachable\n")
 		})
 	}

@@ -9,188 +9,265 @@ import (
 
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
-	"github.com/marvinrabe/goatcounter/internal/parse"
 )
 
-// visitorRows selects the first matching pageview in each session. This is the
-// same visit definition used by dashboard_metrics.Series; events do not create
-// visits or contribute to visitor breakdowns.
-const visitorRows = `
-with ranked as (
-	select hits.*,
-		row_number() over (partition by hits.session order by datetime(hits.created_at), hits.hit_id) as visit_row
-	from hits
-	join paths using (path_id)
-	where datetime(hits.created_at) >= datetime(:start)
-		and datetime(hits.created_at) <= datetime(:end)
-		and paths.event = 0 and :filter
-), visits as (select * from ranked where visit_row = 1)
-`
+// visitsCTE selects the matching pageviews as "hits", and the first of them
+// in each session as "visits". A visit takes its source, browser, location,
+// etc. from that first pageview. Custom events never create visits.
+//
+// SQLite takes the bare columns of an aggregate query with a single min()
+// from the row with the minimum, so this needs no window functions.
+const visitsCTE = `
+with hits as (
+	select * from events
+	where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter
+), visits as (
+	select session, min(ts) as ts, hostname, path, source, referrer,
+		utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+		browser, browser_version, os, os_version, width,
+		country, region, city, language
+	from hits group by session
+)`
 
-// ListVisitorBreakdown returns visits attributed to one value of a dashboard
-// dimension. A session can appear in only one row of each top-level breakdown.
-func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string, rng datetime.Range, pathFilter PathFilter, limit, offset int) error {
-	var query string
+// sizeCategory groups screen widths into the dashboard's device categories.
+const sizeCategory = `case
+	when width = 0    then 'unknown'
+	when width <= 600  then 'phone'
+	when width <= 1000 then 'tablet'
+	else 'desktop' end`
+
+// deviceCategory maps Plausible's devices to the same categories.
+const deviceCategory = `case device
+	when 'Mobile'  then 'phone'
+	when 'Tablet'  then 'tablet'
+	when 'Desktop' then 'desktop'
+	when 'Laptop'  then 'desktop'
+	else 'unknown' end`
+
+type breakdownQuery struct {
+	live     string // Selects id, name, count from collected rows.
+	migrated string // Selects id, name, count from migrated rows; may be empty.
+	kind     string // Aggregate of the migrated rows.
+}
+
+// sameColumns is a breakdown that selects the id and name expressions from
+// the collected visits, and from the migrated rows of kind, summing metric.
+func sameColumns(id, name, where, kind, metric string) breakdownQuery {
+	if where == "" {
+		where = "1=1"
+	}
+	return breakdownQuery{
+		live: `select ` + id + ` as id, ` + name + ` as name, count(*) as count
+			from visits where ` + where + ` group by 1, 2`,
+		migrated: `select ` + id + ` as id, ` + name + ` as name, sum(` + metric + `) as count
+			from events where :migrated and ` + where + ` group by 1, 2`,
+		kind: kind,
+	}
+}
+
+func breakdown(kind, detail string) (breakdownQuery, error) {
 	switch kind {
 	case "browsers":
 		if detail == "" {
-			query = `select browsers.name as name, count(*) as count from visits
-				join browsers using (browser_id) group by browsers.name
-				order by count desc, name asc limit :limit offset :offset`
-		} else {
-			query = `select trim(browsers.name || ' ' || browsers.version) as name, count(*) as count from visits
-				join browsers using (browser_id) where lower(browsers.name) = lower(:detail)
-				group by browsers.name, browsers.version order by count desc, name asc limit :limit offset :offset`
+			return sameColumns("''", "browser", "", "browsers", "visits"), nil
 		}
+		return sameColumns("''", "trim(browser || ' ' || browser_version)",
+			"lower(browser) = lower(:detail)", "browsers", "visits"), nil
 	case "systems":
 		if detail == "" {
-			query = `select systems.name as name, count(*) as count from visits
-				join systems using (system_id) group by systems.name
-				order by count desc, name asc limit :limit offset :offset`
-		} else {
-			query = `select trim(systems.name || ' ' || systems.version) as name, count(*) as count from visits
-				join systems using (system_id) where lower(systems.name) = lower(:detail)
-				group by systems.name, systems.version order by count desc, name asc limit :limit offset :offset`
+			return sameColumns("''", "os", "", "operating_systems", "visits"), nil
 		}
+		return sameColumns("''", "trim(os || ' ' || os_version)",
+			"lower(os) = lower(:detail)", "operating_systems", "visits"), nil
 	case "locations":
 		if detail == "" {
-			query = `select locations.iso_3166_2 as id, locations.country_name as name, count(*) as count from visits
-				join locations on locations.iso_3166_2 = substr(visits.location, 1, 2)
-				group by locations.iso_3166_2, locations.country_name
-				order by count desc, id asc limit :limit offset :offset`
-		} else {
-			query = `select coalesce(locations.region_name, '(unknown)') as name, count(*) as count from visits
-				join locations on locations.iso_3166_2 = visits.location
-				where locations.country = :detail group by locations.iso_3166_2, name
-				order by count desc, name asc limit :limit offset :offset`
+			return sameColumns("country", "country", "", "locations", "visits"), nil
 		}
+		return sameColumns("''", "region", "country = :detail", "locations", "visits"), nil
+	case "regions":
+		return sameColumns("region", "region", "region <> ''", "locations", "visits"), nil
 	case "languages":
-		query = `select languages.iso_639_3 as id, languages.name as name, count(*) as count from visits
-			join languages on languages.iso_639_3 = visits.language
-			group by languages.iso_639_3, languages.name
-			order by count desc, id asc limit :limit offset :offset`
-	case "sizes":
-		query = `select cast(coalesce(visits.width, 0) as integer) as name, count(*) as count from visits
-			group by name order by count desc, name asc`
-		if detail != "" {
-			query = `select '↔ ' || cast(coalesce(visits.width, 0) as integer) || 'px' as name, count(*) as count from visits
-				where ((:detail = 'unknown' and (visits.width is null or visits.width = 0))
-					or (:detail = 'phone' and visits.width > 0 and visits.width <= 600)
-					or (:detail = 'tablet' and visits.width > 600 and visits.width <= 1000)
-					or (:detail = 'desktop' and visits.width > 1000))
-				group by cast(visits.width as integer) order by count desc, name asc limit :limit offset :offset`
-		}
+		// Plausible doesn't record languages.
+		q := sameColumns("language", "language", "language <> ''", "", "")
+		q.migrated = ""
+		return q, nil
+	case "toprefs":
+		return sameColumns("''", "coalesce(nullif(source, ''), referrer)", "", "sources", "visits"), nil
 	case "campaigns":
 		if detail == "" {
-			query = `select cast(campaigns.campaign_id as text) as id, campaigns.name as name, count(*) as count from visits
-				join campaigns on campaigns.campaign_id = visits.campaign
-				group by campaigns.campaign_id, campaigns.name
-				order by count desc, id asc limit :limit offset :offset`
-		} else {
-			query = `select coalesce(refs.ref, '') as name, count(*) as count from visits
-				left join refs using (ref_id) where visits.campaign = :detail
-				group by refs.ref order by count desc, name asc limit :limit offset :offset`
+			return sameColumns("utm_campaign", "utm_campaign", "utm_campaign <> ''", "sources", "visits"), nil
 		}
-	case "toprefs":
-		query = `select coalesce(refs.ref, '') as name, refs.ref_scheme as ref_scheme, count(*) as count from visits
-			left join refs using (ref_id)
-			where (:has_domain = 0 or refs.ref not like :own_ref)
-			group by visits.ref_id order by count desc, name asc limit :limit offset :offset`
+		return sameColumns("''", "coalesce(nullif(referrer, ''), source)",
+			"lower(utm_campaign) = lower(:detail)", "sources", "visits"), nil
+	case "utm_mediums":
+		return sameColumns("''", "utm_medium", "utm_medium <> ''", "sources", "visits"), nil
+	case "utm_sources":
+		return sameColumns("''", "utm_source", "utm_source <> ''", "sources", "visits"), nil
+	case "entry_pages":
+		return sameColumns("''", "path", "", "entry_pages", "entrances"), nil
+	case "sizes":
+		if detail == "" {
+			return breakdownQuery{
+				live:     `select ` + sizeCategory + ` as id, '' as name, count(*) as count from visits group by 1`,
+				migrated: `select ` + deviceCategory + ` as id, '' as name, sum(visits) as count from events where :migrated group by 1`,
+				kind:     "devices",
+			}, nil
+		}
+		return breakdownQuery{
+			live: `select '' as id, '↔' || char(0xfe0e) || ' ' || width || 'px' as name, count(*) as count
+				from visits where ` + sizeCategory + ` = :detail and width > 0 group by width`,
+			migrated: `select '' as id, device as name, sum(visits) as count
+				from events where :migrated and ` + deviceCategory + ` = :detail group by 2`,
+			kind: "devices",
+		}, nil
+	case "exit_pages":
+		return breakdownQuery{
+			live: `select '' as id, path as name, count(*) as count from (
+					select session, max(ts), path from hits group by session
+				) group by 2`,
+			migrated: `select '' as id, path as name, sum(exits) as count from events
+				where :migrated group by 2`,
+			kind: "exit_pages",
+		}, nil
+	case "events":
+		// Unique visitors with the event, as in Plausible.
+		return breakdownQuery{
+			live: `select '' as id, name, count(distinct visitor) as count from events
+				where site = :site and aggregate = '' and ts >= :start and ts <= :end and name <> 'pageview' and :filter
+				group by 2`,
+			// Plausible's own "engagement" events measure scroll depth and
+			// time on page, and aren't custom events.
+			migrated: `select '' as id, name, sum(visitors) as count from events
+				where :migrated and name <> 'engagement' group by 2`,
+			kind: "custom_events",
+		}, nil
 	case "refpaths":
-		query = `select paths.path as name, count(distinct matched.session) as count from ranked matched
-			join visits on visits.session = matched.session
-			join refs on refs.ref_id = visits.ref_id
-			join paths on paths.path_id = matched.path_id
-			where lower(refs.ref) = lower(:detail)
-			group by matched.path_id, paths.path order by count desc, name asc limit :limit offset :offset`
+		// The pages reached in visits from this source.
+		return breakdownQuery{
+			live: `select '' as id, hits.path as name, count(distinct hits.session) as count
+				from hits join visits using (session)
+				where lower(coalesce(nullif(visits.source, ''), visits.referrer)) = lower(:detail)
+				group by 2`,
+		}, nil
 	case "pagerefs":
-		// A page can be reached more than once in a session. Attribute it to
-		// the first matching page hit so the referral rows sum to its count.
-		query = `select coalesce(refs.ref, '') as name, refs.ref_scheme as ref_scheme, count(*) as count from (
-				select visits.ref_id, row_number() over (partition by visits.session order by datetime(visits.created_at), visits.hit_id) as path_row
-				from ranked visits where visits.path_id = :detail
-			) page_visits left join refs using (ref_id) where path_row = 1
-			group by page_visits.ref_id order by count desc, name asc limit :limit offset :offset`
-	default:
-		return fmt.Errorf("unknown visitor breakdown: %s", kind)
+		// The source of the first pageview of this page in each visit, so
+		// the rows add up to the page's visits.
+		return breakdownQuery{
+			live: `select '' as id, coalesce(nullif(source, ''), referrer) as name, count(*) as count from (
+					select session, min(ts), source, referrer from hits
+					where path = :detail group by session
+				) group by 2`,
+		}, nil
 	}
-	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
-	site := MustGetSite(ctx)
-	err := database.Select(ctx, &h.Stats, visitorRows+query, filterParams, map[string]any{
-		"start": rng.Start, "end": rng.End, "filter": filterSQL,
-		"detail": detail, "limit": limit + 1, "offset": offset,
-		"has_domain": site.LinkDomain != "", "own_ref": site.LinkDomainURL(false) + "%",
-	})
+	return breakdownQuery{}, fmt.Errorf("unknown visitor breakdown: %s", kind)
+}
+
+// ListVisitorBreakdown returns visits attributed to one value of a dashboard
+// dimension. A visit appears in only one row of each top-level breakdown.
+//
+// Migrated Plausible rows are included when there is no path filter, as
+// Plausible exports don't break down dimensions by page.
+func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string, rng datetime.Range, pathFilter PathFilter, limit, offset int) error {
+	q, err := breakdown(kind, detail)
+	if err != nil {
+		return err
+	}
+	params := rangeParams(ctx, rng, pathFilter, "path", "name")
+	params["detail"] = detail
+	params["limit"] = limit + 1
+	params["offset"] = offset
+	params["kind"] = q.kind
+	params["migrated"] = database.SQL(`site = :site and aggregate = :kind and ts >= :start and ts <= :end`)
+	if limit <= 0 {
+		params["limit"] = -1
+	}
+
+	union := q.live
+	if q.migrated != "" && pathFilter.Empty() {
+		union += "\nunion all\n" + q.migrated
+	}
+	// Collected and migrated rows with the same ID (or name) are one row.
+	err = database.Select(ctx, &h.Stats, visitsCTE+`
+		select min(id) as id, min(name) as name, sum(count) as count from (`+union+`)
+		group by case when id <> '' then lower(id) else lower(name) end
+		order by count desc, name asc
+		limit :limit offset :offset`, params)
 	if err != nil {
 		return fmt.Errorf("ListVisitorBreakdown(%s): %w", kind, err)
 	}
-	if kind == "sizes" && detail != "" {
-		for i := range h.Stats {
-			h.Stats[i].Name = strings.ReplaceAll(h.Stats[i].Name, "↔", "↔\ufe0e")
-		}
-	}
-	if (kind != "sizes" || detail != "") && len(h.Stats) > limit {
-		h.More = true
+	h.More = limit > 0 && len(h.Stats) > limit
+	if h.More {
 		h.Stats = h.Stats[:limit]
+	}
+
+	for i := range h.Stats {
+		s := &h.Stats[i]
+		switch kind {
+		case "locations", "regions":
+			if n := GeoName(ctx, s.Name); n != "" {
+				s.Name = n
+			}
+		case "languages":
+			if n := languageNames[s.ID]; n != "" {
+				s.Name = n
+			}
+		case "toprefs", "pagerefs", "campaigns":
+			if kind == "campaigns" && detail == "" {
+				continue
+			}
+			scheme := RefSchemeGenerated
+			if strings.Contains(s.Name, ".") && !strings.Contains(s.Name, " ") {
+				scheme = RefSchemeHTTP
+			}
+			s.RefScheme = &scheme
+		}
 	}
 	return nil
 }
 
-// ListVisitorSizes groups visit-level widths into the four dashboard device
-// categories, using the same boundaries as ListSizes.
+// ListVisitorSizes groups visits into the four dashboard device categories.
 func (h *HitStats) ListVisitorSizes(ctx context.Context, rng datetime.Range, pathFilter PathFilter, sortByCount bool) error {
 	if err := h.ListVisitorBreakdown(ctx, "sizes", "", rng, pathFilter, 0, 0); err != nil {
 		return err
 	}
 	ns := []HitStat{{ID: SizePhones}, {ID: SizeTablets}, {ID: SizeDesktop}, {ID: SizeUnknown}}
 	for _, stat := range h.Stats {
-		width, _ := parse.Int[int16](stat.Name, 10)
-		switch {
-		case width == 0:
-			ns[3].Count += stat.Count
-		case width <= 600:
-			ns[0].Count += stat.Count
-		case width <= 1000:
-			ns[1].Count += stat.Count
-		default:
-			ns[2].Count += stat.Count
+		for i := range ns {
+			if ns[i].ID == stat.ID {
+				ns[i].Count += stat.Count
+			}
 		}
 	}
 	if sortByCount {
-		slices.SortFunc(ns, func(a, b HitStat) int { return cmp.Compare(b.Count, a.Count) })
+		slices.SortStableFunc(ns, func(a, b HitStat) int { return cmp.Compare(b.Count, a.Count) })
 	}
-	h.Stats = ns
-	h.More = false
+	h.Stats, h.More = ns, false
 	return nil
 }
 
-// ListVisitorPages counts a session once on each page it reached. The first
-// matching hit to a page determines the chart bucket and referral drilldown.
-func (h *HitLists) ListVisitorPages(ctx context.Context, rng datetime.Range, pathFilter PathFilter, exclude []PathID, limit int, group Group, withStats bool) (int, bool, error) {
-	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
-	query := `with ranked as (
-		select hits.session, hits.path_id, hits.created_at,
-			row_number() over (partition by hits.session, hits.path_id order by datetime(hits.created_at), hits.hit_id) as path_row
-		from hits join paths using (path_id)
-		where datetime(hits.created_at) >= datetime(:start)
-			and datetime(hits.created_at) <= datetime(:end)
-			and paths.event = 0 and :filter
-			{{if .exclude}}and hits.path_id not in (:exclude){{end}}
-	), hourly as (
-		select path_id, substr(datetime(created_at, :offset2), 0, 14) as hour, count(*) as total
-		from ranked where path_row = 1 group by path_id, hour
-	), page_counts as (
-		select path_id, sum(total) as count, json_group_object(hour, total) as stats2
-		from hourly group by path_id order by count desc, path_id desc limit :limit
-	)
-	select page_counts.path_id, paths.path, paths.event, page_counts.count,
-		coalesce(page_counts.stats2, '{}') as stats2
-	from page_counts join paths using (path_id) order by count desc, path_id desc`
-	err := database.Select(ctx, h, query, filterParams, map[string]any{
-		"start": rng.Start, "end": rng.End, "filter": filterSQL,
-		"exclude": exclude, "limit": limit + 1,
-		"offset2": fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-	})
+// ListVisitorPages counts the unique visitors of each page, as Plausible
+// does; visitors are unique per day.
+func (h *HitLists) ListVisitorPages(ctx context.Context, rng datetime.Range, pathFilter PathFilter, limit, offset int) (int, bool, error) {
+	params := rangeParams(ctx, rng, pathFilter, "path", "name")
+	iparams := rangeParams(ctx, rng, pathFilter, "path", "")
+	params["ifilter"] = iparams["filter"]
+	params["limit"] = limit + 1
+	params["offset"] = offset
+
+	err := database.Select(ctx, h, `
+		with pages as (
+			select path, count(distinct visitor) as n from events
+			where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter
+			group by path
+			union all
+			select path, sum(visitors) from events
+			where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and :ifilter
+			group by path
+		)
+		select path, sum(n) as count from pages
+		group by path
+		order by count desc, path asc
+		limit :limit offset :offset`, params)
 	if err != nil {
 		return 0, false, fmt.Errorf("ListVisitorPages: %w", err)
 	}
@@ -199,13 +276,8 @@ func (h *HitLists) ListVisitorPages(ctx context.Context, rng datetime.Range, pat
 		*h = (*h)[:limit]
 	}
 	var displayed int
-	for i := range *h {
-		if withStats {
-			(*h)[i].sum(ctx, rng, group)
-		} else {
-			(*h)[i].Stats2 = nil
-		}
-		displayed += (*h)[i].Count
+	for _, p := range *h {
+		displayed += p.Count
 	}
 	return displayed, more, nil
 }

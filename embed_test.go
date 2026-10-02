@@ -10,7 +10,7 @@ import (
 )
 
 func TestEmbed(t *testing.T) {
-	err := fstest.TestFS(DB, "db/schema.gotxt", "db/languages.sql")
+	err := fstest.TestFS(DB, "db/schema.gotxt")
 	if err != nil {
 		t.Fatal(err)
 	}

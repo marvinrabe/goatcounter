@@ -26,9 +26,6 @@ services:
       # Comma-separated site names. Each name is stored as the stable key with
       # collected data, so entries can be reordered, added, or removed.
       GOATCOUNTER_SITES: 'example.com,foobar.net'
-      # Enables /api for JSON and MCP clients. Remove or empty this value to
-      # disable the endpoint; dashboard authentication never grants API access.
-      GOATCOUNTER_API_TOKEN: '${GOATCOUNTER_API_TOKEN:-}'
       # Timezone the dashboard is displayed in; applies to the whole
       # installation. Defaults to UTC.
       TZ: 'UTC'

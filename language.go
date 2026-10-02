@@ -6,12 +6,12 @@ import (
 )
 
 // AcceptLanguage gets the ISO 639-3 code for the language with the highest
-// quality value in an Accept-Language header, or nil if the header is empty or
+// quality value in an Accept-Language header, or "" if the header is empty or
 // has no language we know about.
 //
 // Only the language itself is stored, not the region or script: "nl-BE" and
 // "nl" are both recorded as "nld".
-func AcceptLanguage(header string) *string {
+func AcceptLanguage(header string) string {
 	var (
 		best  string
 		bestQ float64
@@ -50,10 +50,7 @@ func AcceptLanguage(header string) *string {
 		}
 	}
 
-	if best == "" {
-		return nil
-	}
-	return &best
+	return best
 }
 
 // Two-letter ISO 639-1 codes as sent by browsers, mapped to the ISO 639-3 codes

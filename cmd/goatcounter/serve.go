@@ -18,7 +18,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/handlers"
-	"github.com/marvinrabe/goatcounter/internal/cron"
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/geo"
@@ -28,107 +27,44 @@ import (
 )
 
 const usageServe = `
-Start a HTTP server for this GoatCounter installation.
+serve flags (all can also be set as GOATCOUNTER_«FLAG», e.g. GOATCOUNTER_DB):
 
-GoatCounter tracks the sites listed in GOATCOUNTER_SITES. Dashboard access is
-configured with GOATCOUNTER_AUTH.
-
-Static files and templates are compiled in the binary and aren't needed to run
-GoatCounter. But they're loaded from the filesystem if GoatCounter is started
-with -dev.
-
-Environment:
-
-  All of the flags take the defaults from $GOATCOUNTER_«FLAG», where «FLAG» is
-  the flag name. The commandline flag will override the environment variable.
-
-  For example:
-
-    GOATCOUNTER_LISTEN=:80
-    GOATCOUNTER_STORE_EVERY=60
-    GOATCOUNTER_SITES=example.com,foobar.net
-    GOATCOUNTER_API_TOKEN=a-long-random-secret
-    GOATCOUNTER_AUTH=basic
-    GOATCOUNTER_BASIC_AUTH=admin:a-long-random-password
-
-  Additional environment variables:
-
-
-    GOATCOUNTER_TMPDIR  Alternative way to set TMPDIR; takes precedence over
-                        TMPDIR. Mainly intended for cases where TMPDIR can't be
-                        used (e.g. when the capability bit is set on Linux).
-
-Flags:
-
-  -db          Local database path or remote libSQL URL.
-               Required; no implicit local database.
-               Remote example: libsql://your-database.turso.io?authToken=TOKEN
+  -db          Local database path or remote libSQL URL. Required.
+               Remote example: libsql://your-database.example?authToken=TOKEN
                An empty database is initialized automatically on startup.
 
-  -dbconn      Set maximum number of connections, as max_open,max_idle
-
-               There is no maximum if max_open is -1, and idle connections are
-               not retained if max_idle is -1 The default is 4,2.
-
-               Local SQLite files use one connection to avoid
-               write contention. Remote databases honor max_open and disable
-               idle reuse because remote streams expire.
-
-  -listen      Address to listen on. Default: ":8080". See "goatcounter help
-               listen" for detailed documentation.
-
-  -base-path   Path under which GoatCounter is available. Usually GoatCounter
-               runs on its own domain or subdomain ("stats.example.com"), but
-               in some cases it's useful to run GoatCounter under a path
-               ("example.com/stats"), in which case you'll need to set this to
-               "/stats".
-
-  -static      Serve static files from a different domain, such as a CDN or
-               cookieless domain. Default: not set.
-
-  -geodb       Explicit path to a City or Country mmdb GeoIP database.
-               Defaults to the bundled Country database. No files are
-               discovered and no downloads are performed during startup.
-               Use geodb-update separately to download a newer Cities file.
-
-  -shutdown-timeout
-               Total HTTP/worker shutdown deadline in seconds. Default: 25.
-
-  -drain-delay Seconds to keep serving after becoming unready, giving a load
-               balancer time to remove this replica. Default: 0; Kubernetes: 5.
-
-  -ratelimit   Limit requests to /count. Syntax: count:num-requests/seconds.
-               Default: count:4/1 (4 requests per second).
-               Use count:none to disable the collector limit.
-               Only the count limit is supported.
-
-  -store-every How often to process durable queued pageviews, in seconds.
-               Pageviews are saved before acknowledgement; processing makes them
-               visible in the dashboard. The default is 10 seconds.
+  -dbconn      Maximum connections as max_open,max_idle. Default: 4,2.
+               Local SQLite files always use one connection. Remote databases
+               don't keep idle connections, as remote streams expire.
 
   -sites       Comma-separated site names accepted by the collector and shown
-               in the dashboard selector. The site name itself is stored
-               with every data row. Default: example.com.
+               in the dashboard selector. Default: example.com.
 
-  -api-token   Bearer token for the JSON API and MCP endpoint at /api. The API
-               is disabled when this is empty (the default).
-
-  -auth        Dashboard authentication: public, basic, or oidc. Default:
-               public.
-
+  -auth        Dashboard authentication: public, basic, or oidc. Default: public.
   -basic-auth  Comma-separated username:password entries for -auth=basic.
-
   -oidc-issuer, -oidc-client-id, -oidc-client-secret, -oidc-redirect-url,
   -oidc-session-secret, -oidc-scopes
-               OIDC provider and client settings for -auth=oidc. The redirect
-               URL must end in /auth/callback. The session secret must contain
-               at least 32 bytes.
+               OIDC settings for -auth=oidc. The redirect URL must end in
+               /auth/callback. The session secret must be at least 32 bytes.
+
+  -listen      Address to listen on. Default: ":8080". Plain HTTP only; TLS is
+               terminated by the proxy in front.
+  -base-path   Path under which GoatCounter is available, e.g. "/stats".
+  -static      Serve static files from a different domain. Default: not set.
+  -geodb       Path to a City or Country mmdb GeoIP database. Default: the
+               bundled Country database. A City database adds regions.
+  -ratelimit   Limit requests to /count as count:requests/seconds, or
+               count:none. Default: count:4/1.
+
+  -shutdown-timeout
+               Total shutdown deadline in seconds. Default: 25.
+  -drain-delay Seconds to keep serving after becoming unready. Default: 0.
 
   -dev         Load assets from disk and use readable text logs.
-               Normal operation writes structured JSON logs to stdout.
-
   -debug       Enable debug logs, including HTTP requests.
   -debug-sql   Log SQL queries.
+
+The dashboard timezone is set with TZ, e.g. TZ=Europe/Berlin; default UTC.
 `
 
 func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
@@ -144,9 +80,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		listen       = f.String("listen", ":8080", "")
 		geodbFlag    = f.String("geodb", "", "")
 		ratelimit    = f.String("ratelimit", "", "")
-		storeEvery   = f.Int("store-every", 10, "")
 		sitesFlag    = f.String("sites", "example.com", "")
-		apiToken     = f.String("api-token", "", "")
 		authMode     = f.String("auth", "public", "")
 		basicAuth    = f.String("basic-auth", "", "")
 		oidcIssuer   = f.String("oidc-issuer", "", "")
@@ -176,7 +110,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	ratelimits := setupRatelimits(&v, *ratelimit)
 	setupDomains(&v, domainStatic, basePath)
 
-	v.Range("-store-every", int64(*storeEvery), 1, 0)
 	v.Range("-shutdown-timeout", int64(*shutdown), 1, 0)
 	v.Range("-drain-delay", int64(*drain), 0, int64(*shutdown-1))
 	if *dbConnect == "" {
@@ -274,7 +207,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	// Set up HTTP handler and servers.
 	hosts := map[string]http.Handler{
-		"*": handlers.NewBackend(db, *dev, c.DomainStatic, c.BasePath, timeout, ratelimits, *apiToken, auth),
+		"*": handlers.NewBackend(db, *dev, c.DomainStatic, c.BasePath, timeout, ratelimits, auth),
 	}
 	if *domainStatic != "" {
 		// May not be needed, but just in case the DomainStatic isn't an external CDN.
@@ -312,7 +245,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	defer ln.Close()
 	sig, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGTERM, os.Interrupt)
 	defer stopSignals()
-	runner := cron.Start(ctx, time.Duration(*storeEvery)*time.Second)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(ln) }()
 	slog.InfoContext(ctx, "GoatCounter ready",
@@ -340,17 +272,13 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	if shutdownErr != nil {
 		server.Close()
 	}
-	workerErr := runner.Stop(shutdownCtx)
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		return serveErr
 	}
 	if shutdownErr != nil {
 		return fmt.Errorf("HTTP shutdown: %w", shutdownErr)
 	}
-	if workerErr != nil {
-		return fmt.Errorf("worker shutdown: %w", workerErr)
-	}
-	slog.InfoContext(ctx, "Shutdown complete; pending pageviews remain in the shared database")
+	slog.InfoContext(ctx, "Shutdown complete")
 	return nil
 }
 

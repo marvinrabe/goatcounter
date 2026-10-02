@@ -3,20 +3,15 @@ package database
 import (
 	"bytes"
 	"database/sql/driver"
-	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"reflect"
 	"strings"
 	"text/template"
-	"uuid"
 )
 
 // SQL is a trusted SQL fragment, never a value supplied by a client.
 type SQL string
-
-var TemplateFuncMap template.FuncMap
 
 func Template(query string, params ...any) ([]byte, error) {
 	data := map[string]any{}
@@ -29,7 +24,6 @@ func Template(query string, params ...any) ([]byte, error) {
 		"auto_increment": func(...bool) string { return "integer primary key autoincrement" },
 		"blob":           func() string { return "blob" },
 	}
-	maps.Copy(funcs, TemplateFuncMap)
 	t, err := template.New("sql").Funcs(funcs).Parse(query)
 	if err != nil {
 		return nil, err
@@ -37,29 +31,6 @@ func Template(query string, params ...any) ([]byte, error) {
 	var b bytes.Buffer
 	err = t.Execute(&b, data)
 	return b.Bytes(), err
-}
-
-func Load(db DB, name string) (string, bool, error) {
-	if db.files == nil {
-		return "", false, fmt.Errorf("database: no query files configured")
-	}
-	name = strings.TrimPrefix(name, "load:")
-	names := []string{name}
-	if !strings.HasSuffix(name, ".sql") && !strings.HasSuffix(name, ".gotxt") {
-		names = []string{name + ".sql", name + ".gotxt"}
-	}
-	for _, name := range names {
-		for _, prefix := range []string{"db/query/", "query/"} {
-			b, err := fs.ReadFile(db.files, prefix+name)
-			if err == nil {
-				return string(b), strings.Contains(string(b), "{{"), nil
-			}
-			if !errors.Is(err, fs.ErrNotExist) {
-				return "", false, err
-			}
-		}
-	}
-	return "", false, fmt.Errorf("database: query %q: %w", name, fs.ErrNotExist)
 }
 
 func (db *Database) prepare(query string, params ...any) (string, []any, error) {
@@ -71,13 +42,6 @@ func (db *Database) prepare(query string, params ...any) (string, []any, error) 
 		} else {
 			positional = append(positional, p)
 		}
-	}
-	if strings.HasPrefix(query, "load:") {
-		loaded, _, err := Load(db, query)
-		if err != nil {
-			return "", nil, err
-		}
-		query = loaded
 	}
 	if strings.Contains(query, "{{") {
 		b, err := Template(query, data)
@@ -95,10 +59,7 @@ func (db *Database) prepare(query string, params ...any) (string, []any, error) 
 		if literal, ok := v.(SQL); ok {
 			return bind(string(literal), depth+1)
 		}
-		if id, ok := v.(uuid.UUID); ok {
-			v = id[:]
-		}
-		// Scanner/Valuer types (UUIDs and comma-separated slices) are scalar values.
+		// Valuer types are scalar values.
 		if _, ok := v.(driver.Valuer); !ok && v != nil {
 			rv := reflect.ValueOf(v)
 			if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() != reflect.Uint8 {

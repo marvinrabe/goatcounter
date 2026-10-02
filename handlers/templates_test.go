@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/widgets"
 )
 
 func TestTemplateReloadAndEscaping(t *testing.T) {
@@ -54,12 +54,12 @@ func TestRenderHTMLBuffersErrors(t *testing.T) {
 
 func TestChartTemplatesEscapeData(t *testing.T) {
 	name := `/path/<script>alert("x")</script>`
-	data := horizontalChartPages(goatcounter.HitLists{{Path: name, PathID: 123, Count: 1234}}, 1234, 0, goatcounter.HitStats{}, 7, false)
+	data := widgets.Chart{Pages: true, Rows: []widgets.ChartRow{{Page: true, Link: true, Key: name, Name: name, Count: 1234, Percentage: "100%"}}}
 	got, err := renderTemplate("_chart.gohtml", data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`class="rows pages"`, `data-id="123"`, `data-count="1234"`, `class="bar absolute`, `style="width: 100%"`, `&lt;script&gt;`, "1\u202f234"} {
+	for _, want := range []string{`class="rows pages"`, `data-id="/path/&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;"`, `data-detail-total="1234"`, `class="bar absolute`, `style="width: 100%"`, `&lt;script&gt;`, "1\u202f234"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
 		}

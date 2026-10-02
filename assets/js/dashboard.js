@@ -10,7 +10,6 @@ import {
 	on,
 	paginate_button,
 	parse_html,
-	parse_rows,
 } from './helper.js'
 import Chart from 'chart.js/auto'
 
@@ -19,16 +18,28 @@ import Chart from 'chart.js/auto'
 
 	// Set up the entire dashboard page.
 	var page_dashboard = function() {
-		;[dashboard_widgets, hdr_select_period, hdr_datepicker, hdr_filter,
-		].forEach((f) => f.call())
+		;[bind_header, bind_widgets, bind_metric_chart].forEach((f) => f.call())
+		init_widgets()
 	}
 	window.page_dashboard = page_dashboard  // Directly setting window loses the name attr 🤷
 
-	// Set up all the dashboard widget contents (but not the header).
-	var dashboard_widgets = function() {
-		;[init_metric_switcher, init_card_tabs, init_metric_chart, paginate_pages, hchart_detail].forEach((f) => f.call())
+	// Set up the widget contents; this runs again after they're reloaded.
+	var init_widgets = function() {
+		$$('.totals').forEach((totals) => {
+			let saved = $$('.metric[data-metric]', totals).find((b) => b.dataset.metric === dashboard_view().metric)
+			if (saved)
+				select_metric(totals, saved)
+		})
+		$$('[data-card-tabs]').forEach((card) => {
+			let saved = $$('.card-tab[data-panel]', card).find((t) => t.dataset.panel === dashboard_view()[card.dataset.card])
+			if (saved)
+				select_card_tab(card, saved)
+		})
+		redraw_metric_chart()
+		highlight_filter()
 	}
 
+	// The selected metric and tabs are remembered for the browser tab.
 	var dashboard_view_key = 'goatcounter-dashboard-view'
 	var dashboard_view = function() {
 		try {
@@ -46,134 +57,46 @@ import Chart from 'chart.js/auto'
 	}
 
 	var select_metric = function(totals, button) {
-		$$('.metric', totals).forEach((candidate) => {
-			let active = candidate === button
-			candidate.classList.toggle('metric-active', active)
-			candidate.setAttribute('aria-pressed', active ? 'true' : 'false')
-		})
+		$$('.metric', totals).forEach((m) => m.setAttribute('aria-pressed', m === button ? 'true' : 'false'))
 		let chart = $1('.chart[data-series]', totals)
 		if (chart)
 			chart.dataset.metric = button.dataset.metric
 	}
 
-	var init_metric_switcher = function() {
-		$$('.totals').forEach(function(totals) {
-			if (totals.dataset.metricBound === 't') return
-			totals.dataset.metricBound = 't'
-
-			let saved = dashboard_view().metric,
-				savedButton = $$('.metric[data-metric]', totals).find((button) => button.dataset.metric === saved)
-			if (savedButton)
-				select_metric(totals, savedButton)
-
-			totals.addEventListener('click', function(e) {
-				let button = e.target.closest('.metric[data-metric]')
-				if (!button) return
-				let metric = button.dataset.metric,
-					chart = $1('.chart[data-series]', totals)
-				if (!chart || chart.dataset.metric === metric) return
-				select_metric(totals, button)
-				save_dashboard_view('metric', metric)
-				redraw_metric_chart()
-			})
-		})
-	}
-
 	var select_card_tab = function(card, tab) {
-		$$('.card-tab[data-panel]', card).forEach((candidate) => {
-			let active = candidate === tab
-			candidate.classList.toggle('active', active)
-			candidate.setAttribute('aria-selected', active ? 'true' : 'false')
-		})
-		$$('.card-panel[data-panel]', card).forEach((panel) => {
-			let active = panel.dataset.panel === tab.dataset.panel
-			panel.hidden = !active
-			panel.classList.toggle('active', active)
-		})
+		$$('.card-tab[data-panel]', card).forEach((t) => t.setAttribute('aria-selected', t === tab ? 'true' : 'false'))
+		$$('.card-panel[data-panel]', card).forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.panel })
 	}
-
-	var init_card_tabs = function() {
-		$$('[data-card-tabs]').forEach(function(card) {
-			if (card.dataset.tabsBound === 't') return
-			card.dataset.tabsBound = 't'
-
-			let saved = dashboard_view()[card.dataset.card],
-				savedTab = $$('.card-tab[data-panel]', card).find((tab) => tab.dataset.panel === saved)
-			if (savedTab)
-				select_card_tab(card, savedTab)
-
-			card.addEventListener('click', function(e) {
-				let tab = e.target.closest('.card-tab[data-panel]')
-				if (!tab) return
-				select_card_tab(card, tab)
-				save_dashboard_view(card.dataset.card, tab.dataset.panel)
-			})
-		})
-	}
-
-	// Direct element children of elem, which is what jQuery's ">div" did.
-	var child_divs = (elem) => Array.from(elem.children).filter((c) => c.tagName === 'DIV')
-
-	// Keep the largest page count across paginated requests.
-	var get_original_scale = function() { return parseInt($1('.count-list-pages')?.getAttribute('data-max'), 10) }
 
 	// Get the number of visits in the current dashboard selection.
-	var get_total = () => $1('.js-total-utc')?.textContent || ''
+	var get_total = () => $1('#dash-total')?.textContent || ''
 
-	// Reload a single widget.
-	var reload_widget = function(wid, data, done) {
-		data = data || {}
-		data['widget'] = wid
-		data['group']  = $1('#hl-group').value
-		data['max']    = get_original_scale()
-		data['total']  = get_total()
-
-		ajax(BASE_PATH + '/load-widget', {
-			data: append_period(data),
-			success: function(data) {
-				if (done)
-					done()
-				else {
-					$$(`[data-widget="${wid}"]`).forEach((e) => { e.innerHTML = data.html })
-					dashboard_widgets()
-					highlight_filter()
-				}
-			},
-		})
-	}
-
-	// Reload all widgets on the dashboard.
-	let reload_dashboard = (done) => {
-		ajax(`${BASE_PATH}/`, {
-			data: append_period({
-				group:     $1('#hl-group').value,
-				max:       get_original_scale(),
-				reload:    't',
-			}),
-			success: function(data) {
-				$1('#dash-timerange').innerHTML = data.timerange
-				$1('.js-total').textContent = data.total
-				$1('.js-total-utc').textContent = data.total
-				$$('.widget-loaded', parse_html(data.widgets)).forEach((elem) => {
-					$1(`[data-widget="${elem.dataset.widget}"]`)?.replaceWith(elem)
-				})
-
-				dashboard_widgets()
-				highlight_filter()
-				if (done)
-					done()
-			},
-		})
-	}
-
-	// Append period-start and period-end values to the data object.
+	// Add the current dashboard selection to the data object.
 	var append_period = function(data) {
 		data = data || {}
 		data['site']         = $1('#site-selector').value
 		data['period-start'] = $1('#period-start').value
 		data['period-end']   = $1('#period-end').value
 		data['filter']       = $1('#filter-paths').value
+		data['group']        = $1('#hl-group').value
 		return data
+	}
+
+	// Reload all widgets on the dashboard.
+	var reload_dashboard = function(done) {
+		ajax(`${BASE_PATH}/`, {
+			data: append_period({reload: 't'}),
+			success: function(data) {
+				$1('#dash-timerange').innerHTML = data.timerange
+				$1('#dash-total').textContent = data.total
+				$$('.widget', parse_html(data.widgets)).forEach((elem) => {
+					$1(`.widget[data-widget="${elem.dataset.widget}"]`)?.replaceWith(elem)
+				})
+				init_widgets()
+				if (done)
+					done()
+			},
+		})
 	}
 
 	// Set the start and end period and submit the form.
@@ -183,46 +106,7 @@ import Chart from 'chart.js/auto'
 		$1('#dash-form').requestSubmit()
 	}
 
-	let filter_kw = /(\b(?:at:start|at:end|is:event|is:pageview|in:path)|\B:not)\b/g
-
-	// Highlight a filter pattern in the path.
-	let highlight_filter = () => {
-		let val = $1('#filter-paths').value,
-			s   = val.replace(filter_kw, '').trim()
-		if (s === '')
-			return
-
-		let start   = '',
-			end     = '',
-			inPath  = false,
-			kw      = val.match(filter_kw) || []
-		for (let k of kw) {
-			if (k === ':not')
-				return
-			else if (k === 'at:start')
-				start = '^'
-			else if (k === 'at:end')
-				end = '$'
-			else if (k === 'in:path')
-				inPath = true
-		}
-		if (!inPath)
-			inPath = true
-		let where = []
-		if (inPath)
-			where.push('.rlink')
-
-		$$('.pages-list .rows.pages').forEach((rows) => {
-			$$(where.join(','), rows).forEach((elem) => {
-				if ($1('b', elem))  // Don't apply twice after pagination
-					return
-				elem.innerHTML = elem.innerHTML.replace(new RegExp(start + quote_re(s) + end, 'gi'), '<b>$&</b>')
-			})
-		})
-	}
-
-	// Fill in start/end periods from buttons.
-	var hdr_select_period = function() {
+	var bind_header = function() {
 		// Keep month-based shortcuts on the final day of short months, as the
 		// dashboard's date range calculation does.
 		let subtract_months = (date, months) => {
@@ -233,31 +117,31 @@ import Chart from 'chart.js/auto'
 			date.setDate(Math.min(day, last))
 		}
 
-		on('#dash-select-group', 'click', 'button', function(e) {
+		// Keep the highlighted period when changing the grouping.
+		on('#dash-select-group', 'click', 'button', function() {
 			$1('#hl-period').removeAttribute('disabled')
 		})
 
 		on('#dash-select-period', 'click', 'button', function(e) {
 			e.preventDefault()
 
-			var start = new Date(), end = new Date()
+			let start = new Date(), end = new Date()
 			// Adjust the browser's "now" to the timezone from the user
 			// settings, which is what the dashboard displays; near midnight
 			// the two can be on different dates. The back/forward buttons
 			// below need no adjustment, as they operate on the displayed
 			// dates, which are already in that timezone.
 			if (TZ_OFFSET) {
-				var offset = (start.getTimezoneOffset() + TZ_OFFSET) / 60
+				let offset = (start.getTimezoneOffset() + TZ_OFFSET) / 60
 				start.setHours(start.getHours() + offset)
 				end.setHours(end.getHours() + offset)
 			}
 			switch (this.value) {
-				case 'day':       /* Do nothing */ break
-				case 'week':      start.setDate(start.getDate() - 7);   break;
-				case 'month':     subtract_months(start, 1);  break;
-				case 'quarter':   subtract_months(start, 3);  break;
-				case 'half-year': subtract_months(start, 6);  break;
-				case 'year':      subtract_months(start, 12); break;
+				case 'week':      start.setDate(start.getDate() - 7); break
+				case 'month':     subtract_months(start, 1);          break
+				case 'quarter':   subtract_months(start, 3);          break
+				case 'half-year': subtract_months(start, 6);          break
+				case 'year':      subtract_months(start, 12);         break
 			}
 
 			let p = $1('#hl-period')
@@ -268,35 +152,25 @@ import Chart from 'chart.js/auto'
 
 		on('#dash-move', 'click', 'button', function(e) {
 			e.preventDefault()
-			var start = get_date($1('#period-start').value),
-			    end   = get_date($1('#period-end').value)
-
-			switch (this.value) {
-				case 'day-b':     start.setDate(start.getDate()     - 1); end.setDate(end.getDate()     - 1); break;
-				case 'week-b':    start.setDate(start.getDate()     - 7); end.setDate(end.getDate()     - 7); break;
-				case 'month-b':   start.setMonth(start.getMonth()   - 1); end.setMonth(end.getMonth()   - 1); break;
-				case 'year-b':    start.setYear(start.getFullYear() - 1); end.setYear(end.getFullYear() - 1); break;
-				case 'day-f':     start.setDate(start.getDate()     + 1); end.setDate(end.getDate()     + 1); break;
-				case 'week-f':    start.setDate(start.getDate()     + 7); end.setDate(end.getDate()     + 7); break;
-				case 'month-f':   start.setMonth(start.getMonth()   + 1); end.setMonth(end.getMonth()   + 1); break;
-				case 'year-f':    start.setYear(start.getFullYear() + 1); end.setYear(end.getFullYear() + 1); break;
+			let start = get_date($1('#period-start').value),
+				end   = get_date($1('#period-end').value),
+				[unit, dir] = this.value.split('-'),
+				n = dir === 'b' ? -1 : 1
+			switch (unit) {
+				case 'day':   start.setDate(start.getDate() + n);         end.setDate(end.getDate() + n);         break
+				case 'week':  start.setDate(start.getDate() + 7 * n);     end.setDate(end.getDate() + 7 * n);     break
+				case 'month': start.setMonth(start.getMonth() + n);       end.setMonth(end.getMonth() + n);       break
+				case 'year':  start.setFullYear(start.getFullYear() + n); end.setFullYear(end.getFullYear() + n); break
 			}
-			if (start.getDate() === 1 && this.value.substr(0, 5) === 'month')
+			// Moving a whole month should end at the end of the month.
+			if (unit === 'month' && start.getDate() === 1)
 				end = new Date(start.getFullYear(), start.getMonth() + 1, 0)
-
-			set_period(start, end);
+			set_period(start, end)
 		})
-	}
 
-	// Setup datepicker fields.
-	var hdr_datepicker = function() {
 		on('#dash-form', 'submit', function(e) {
-			// Remove the "off" checkbox placeholders.
-			$$('#dash-form :checked').forEach((c) => {
-				$$(`input[name="${c.name}"][value="off"]`).forEach((i) => { i.disabled = true })
-			})
-
 			if (get_date($1('#period-start').value) <= get_date($1('#period-end').value)) {
+				// Send the clicked group button's value, not the current one.
 				if (e.submitter?.name === 'group')
 					$1('#hl-group').disabled = true
 				return
@@ -315,293 +189,105 @@ import Chart from 'chart.js/auto'
 			if (this.value && this.value !== this.defaultValue)
 				this.form.requestSubmit()
 		})
-	}
 
-	// Reload the dashboard when typing in the filter input, so the user won't
-	// have to press "enter".
-	let hdr_filter = () => {
-		const input = $1('#filter-paths')
-		highlight_filter()
-
+		// Reload the dashboard when typing in the filter input, so the user
+		// won't have to press enter.
+		let input = $1('#filter-paths'), timer
 		on(input, 'keydown', (e) => {
-			if (e.keyCode === 13)
+			if (e.key === 'Enter')
 				e.preventDefault()
 		})
-
-		let timer
-		on(input, 'input', (e) => {
+		on(input, 'input', () => {
 			clearTimeout(timer)
 			timer = setTimeout(() => {
-				push_query({filter: e.target.value, showrefs: null})
-				const loading = document.createElement('span')
+				push_query({filter: input.value, showrefs: null})
+				let loading = document.createElement('span')
 				loading.className = 'absolute right-3 top-2 animate-pulse text-slate-400'
 				loading.textContent = '…'
-				e.target.insertAdjacentElement('afterend', loading)
+				input.insertAdjacentElement('afterend', loading)
 				reload_dashboard(() => loading.remove())
 			}, 300)
 		})
 	}
 
-	// Save current view.
-	var metric_chart = null
-	var metric_chart_bound = false
-
-	var redraw_metric_chart = function() {
-		metric_chart?.destroy()
-		metric_chart = null
-
-		let c = $1('.totals .chart[data-series]'),
-			canvas = c && $1('canvas', c)
-		if (!canvas)
-			return
-
-		metric_chart = draw_metric_chart(c, canvas, JSON.parse(c.dataset.series))
-	}
-
-	var init_metric_chart = function() {
-		redraw_metric_chart()
-		if (metric_chart_bound)
-			return
-		metric_chart_bound = true
-
-		window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw_metric_chart)
-		new MutationObserver(function(mutations) {
-			if (mutations.some((m) => m.type === 'attributes' && m.attributeName === 'class'))
-				redraw_metric_chart()
-		}).observe(document.documentElement, {attributes: true})
-	}
-
-	var draw_metric_chart = function(c, canvas, series) {
-		let dark = window.matchMedia('(prefers-color-scheme: dark)').matches,
-			metric = c.dataset.metric,
-			points = series.points,
-			line = dark ? '#f0abfc' : '#c026d3',
-			fill = dark ? 'rgba(240, 171, 252, .12)' : 'rgba(192, 38, 211, .10)',
-			grid = dark ? '#404040' : '#e2e8f0',
-			muted = dark ? '#a3a3a3' : '#94a3b8',
-			ctx = canvas.getContext('2d'),
-			chart = new Chart(ctx, {
-				type: 'line',
-				data: {
-					labels: points.map((point) => metric_point_label(point, series.group)),
-					datasets: [{
-						data: points.map((point) => point[metric]),
-						borderColor: line,
-						backgroundColor: fill,
-						borderWidth: 1.25,
-						fill: true,
-						pointRadius: points.length <= 90 ? 2 : 0,
-						pointHoverRadius: 3,
-						pointHitRadius: 12,
-						tension: 0,
-					}],
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: false,
-					animation: false,
-					interaction: {mode: 'index', intersect: false},
-					plugins: {
-						legend: {display: false},
-						tooltip: {
-							displayColors: false,
-							callbacks: {
-								label: (item) => format_metric(metric, item.parsed.y),
-							},
-						},
-					},
-					scales: {
-						x: {
-							border: {display: false},
-							grid: {display: false},
-							ticks: {autoSkip: true, maxTicksLimit: 8, maxRotation: 0, color: muted},
-						},
-						y: {
-							beginAtZero: true,
-							max: metric === 'bounce_rate' ? 100 : undefined,
-							border: {display: false},
-							grid: {color: grid},
-							ticks: {
-								color: muted,
-								precision: metric === 'visits' || metric === 'pageviews' ? 0 : undefined,
-								callback: (value) => format_metric_tick(metric, value),
-							},
-						},
-					},
-				},
-			})
-
-		return chart
-	}
-
-	var metric_point_label = function(point, group) {
-		if (group === 'year')
-			return point.day.slice(0, 4)
-		if (group === 'hour')
-			return `${format_date(point.day, true)} ${String(point.hour ?? 0).padStart(2, '0')}:00`
-		if (group === 'week') {
-			let end = get_date(point.day)
-			end.setDate(end.getDate() + 6)
-			return `${format_date(point.day, true)} – ${format_date(end, true)}`
-		}
-		if (group === 'month') {
-			let date = get_date(point.day)
-			return `${monthsShort[date.getMonth()]} ${date.getFullYear()}`
-		}
-		return format_date(point.day, true)
-	}
-
-	var format_metric_tick = function(metric, value) {
-		if (metric === 'bounce_rate')
-			return `${value}%`
-		if (metric === 'visit_duration')
-			return format_duration(value, false)
-		if (metric === 'views_per_visit')
-			return Number(value).toFixed(1)
-		return format_int(Math.round(value))
-	}
-
-	var format_metric = function(metric, value) {
-		if (metric === 'visits' || metric === 'pageviews')
-			return `${format_int(Math.round(value))} ${metric === 'visits' ? 'visits' : 'pageviews'}`
-		if (metric === 'views_per_visit')
-			return `${value.toFixed(2)} views per visit`
-		if (metric === 'bounce_rate')
-			return `${value.toFixed(0)}% bounce rate`
-
-		return `${format_duration(value, true)} visit duration`
-	}
-
-	var format_duration = function(value, includeSeconds) {
-		let seconds = Math.round(value),
-			hours = Math.floor(seconds / 3600),
-			minutes = Math.floor((seconds % 3600) / 60),
-			parts = []
-		if (hours) parts.push(`${hours}h`)
-		if (minutes) parts.push(`${minutes}m`)
-		if (includeSeconds || parts.length === 0) parts.push(`${seconds % 60}s`)
-		return parts.join(' ')
-	}
-
-	// Paginate the main path overview.
-	var paginate_pages = function() {
-		let sz = $$('.pages-list .rows.pages > [data-id]').length
-		on('.pages-list >.load-btns .load-less', 'click', function(e) {
-			e.preventDefault()
-			$$('.pages-list .rows.pages > [data-id]').slice(sz).forEach((r) => r.remove())
-			this.style.display = 'none'
-			let more = this.previousElementSibling
-			if (more?.classList.contains('load-more'))
-				more.style.display = 'inline'
+	// The widgets are replaced when reloading, so all events are delegated
+	// from the document.
+	var bind_widgets = function() {
+		on(document, 'click', '.totals .metric[data-metric]', function() {
+			let totals = this.closest('.totals'),
+				chart  = $1('.chart[data-series]', totals)
+			if (!chart || chart.dataset.metric === this.dataset.metric)
+				return
+			select_metric(totals, this)
+			save_dashboard_view('metric', this.dataset.metric)
+			redraw_metric_chart()
 		})
 
-		on('.pages-list >.load-btns .load-more', 'click', function(e) {
-			e.preventDefault()
+		on(document, 'click', '[data-card-tabs] .card-tab[data-panel]', function() {
+			let card = this.closest('[data-card-tabs]')
+			select_card_tab(card, this)
+			save_dashboard_view(card.dataset.card, this.dataset.panel)
+		})
 
+		// "Show more" and "Show less" of the charts and the pages list. The
+		// links are in the element with the widget name, and the key and total
+		// for a detail.
+		let data_rows = (rows) => $$(':scope > .hchart-row', rows)
+
+		on(document, 'click', '.load-btns .load-less', function(e) {
+			e.preventDefault()
+			let btns = this.closest('.load-btns'),
+				rows = $1('.rows', btns.parentElement)
+			data_rows(rows).slice(+rows.dataset.pagesize).forEach((r) => {
+				if (r.nextElementSibling?.classList.contains('detail'))
+					r.nextElementSibling.remove()
+				r.remove()
+			})
+			this.classList.add('hidden')
+			$1('.load-more', btns).classList.remove('hidden')
+		})
+
+		on(document, 'click', '.load-btns .load-more', function(e) {
+			e.preventDefault()
 			let btn   = this,
-				next  = btn.nextElementSibling,
-				less  = next?.classList.contains('load-less') ? next : null,
-				pages = btn.closest('.pages-list')
+				btns  = btn.closest('.load-btns'),
+				less  = $1('.load-less', btns),
+				chart = btns.parentElement,
+				rows  = $1('.rows', chart)
+			if (!rows.dataset.pagesize)
+				rows.dataset.pagesize = data_rows(rows).length
+
 			let done = paginate_button(btn, () => {
 				ajax(`${BASE_PATH}/load-widget`, {
 					data: append_period({
-						widget:    pages.getAttribute('data-widget'),
-						group:     $1('#hl-group').value,
-						exclude:   $$('.count-list-pages .rows.pages > [data-id]', pages).map((e) => e.dataset.id).join(','),
-						max:       get_original_scale(),
-						total:     get_total(),
+						widget: chart.dataset.widget,
+						key:    chart.dataset.key || '',
+						total:  chart.dataset.total || get_total(),
+						offset: data_rows(rows).length,
 					}),
 					success: function(data) {
-						if (less)
-							less.style.display = 'inline'
-						$1('.count-list-pages .rows.pages', pages).insertAdjacentHTML('beforeend', data.html)
-
-						// Update scale in case it's higher than the previous maximum value.
-						if (data.max > get_original_scale()) {
-							$$('.count-list-pages').forEach((e) => {
-								e.setAttribute('data-max', data.max)
-							})
-						}
-
+						rows.insertAdjacentHTML('beforeend', data.html)
 						highlight_filter()
-						btn.style.display = data.more ? 'inline-block' : 'none'
-						if (less) {
-							less.classList.toggle('border-l', data.more)
-							less.classList.toggle('pl-3', data.more)
-						}
-
-						$$('.total-display', pages).forEach((t) => {
-							t.textContent = format_int(parseInt(t.textContent.replace(/[^0-9]/, ''), 10) + data.total_display)
-						})
-
-						done()
-					},
-				})
-			})
-		})
-	}
-
-	// Paginate and show details for the horizontal charts.
-	var hchart_detail = function() {
-		// Paginate the horizontal charts.
-		on('.hcharts', 'click', '.hchart > .load-less', function(e) {
-			e.preventDefault()
-			let rows = $1('.rows', this.closest('.hchart')),
-				sz   = rows._pagesize || 6
-			child_divs(rows).slice(sz).forEach((r) => r.remove())
-			this.style.display = 'none'
-			let more = this.previousElementSibling
-			if (more?.classList.contains('load-more'))
-				more.style.display = 'inline'
-		})
-
-		on('.hcharts', 'click', '.hchart > .load-more', function(e) {
-			e.preventDefault();
-
-			let btn   = this,
-				next  = btn.nextElementSibling,
-				less  = next?.classList.contains('load-less') ? next : null,
-				chart = btn.closest('.hchart'),
-				key   = chart.getAttribute('data-key'),
-				rows  = Array.from(chart.children).find((c) => c.classList.contains('rows'))
-			if (rows && !rows._pagesize)
-				rows._pagesize = rows.children.length
-			let done = paginate_button(btn, () => {
-				ajax(`${BASE_PATH}/load-widget`, {
-					data: append_period({
-						widget: chart.getAttribute('data-widget'),
-						total:  chart.getAttribute('data-total') || get_total(),
-						key:    key,
-						offset: child_divs(rows).filter((d) => !d.classList.contains('hchart')).length,
-					}),
-					success: function(data) {
-						if (less)
-							less.style.display = 'inline'
-						parse_rows(data.html).forEach((d) => rows.appendChild(d))
-						if (less) {
-							less.classList.toggle('border-l', data.more)
-							less.classList.toggle('pl-3', data.more)
-							less.classList.toggle('ml-3', data.more)
-						}
-						if (!data.more)
-							btn.style.display = 'none'
+						btn.classList.toggle('hidden', !data.more)
+						less.classList.remove('hidden')
+						less.classList.toggle('border-l', data.more)
+						less.classList.toggle('pl-3', data.more)
 						done()
 					},
 				})
 			})
 		})
 
-		// Load detail.
-		on('.hchart', 'click', '.load-detail', function(e) {
+		// Show the detail of a row, or the referrers of a path.
+		on(document, 'click', '.hchart .load-detail', function(e) {
 			e.preventDefault()
 
-			var btn    = this,
-				row    = btn.closest('div[data-key]'),
+			let row    = this.closest('.hchart-row'),
 				chart  = row.closest('.hchart'),
-				widget = chart.getAttribute('data-widget'),
-				key    = row.getAttribute('data-key'),
+				widget = chart.dataset.widget,
+				key    = row.dataset.key,
 				isPage = row.hasAttribute('data-id'),
-				total  = row.getAttribute('data-detail-total') || get_total()
+				total  = row.dataset.detailTotal || get_total()
 			if (row.nextElementSibling?.classList.contains('detail')) {
 				row.nextElementSibling.remove()
 				row.classList.remove('target')
@@ -612,24 +298,18 @@ import Chart from 'chart.js/auto'
 			if (isPage)
 				push_query({showrefs: key})
 
-			var l = $1('.bar-c', btn)
-			l?.classList.add('loading')
-			var done = paginate_button(l, () => {
-				ajax(BASE_PATH + '/load-widget', {
-					data: append_period({
-						widget: widget,
-						key:    key,
-						total:  total,
-						//offset: rows.find('>div').length,
-					}),
+			let bar = $1('.bar-c', this)
+			let done = paginate_button(bar, () => {
+				ajax(`${BASE_PATH}/load-widget`, {
+					data: append_period({widget: widget, key: key, total: total}),
 					success: function(data) {
 						$$('.detail', chart).forEach((d) => d.remove())
 						$$('.target', chart).forEach((d) => d.classList.remove('target'))
 						let detail = document.createElement('div')
-					detail.className = 'hchart detail ml-3 border-l-2 border-slate-200 pl-4'
-						detail.setAttribute('data-widget', widget)
-						detail.setAttribute('data-key', key)
-						detail.setAttribute('data-total', total)
+						detail.className = 'hchart detail ml-3 border-l-2 border-slate-200 dark:border-neutral-700 pl-4'
+						detail.dataset.widget = widget
+						detail.dataset.key    = key
+						detail.dataset.total  = total
 						detail.innerHTML = data.html
 						row.insertAdjacentElement('afterend', detail)
 						row.classList.add('target')
@@ -640,37 +320,193 @@ import Chart from 'chart.js/auto'
 		})
 	}
 
-	// Parse all query parameters from string to {k: v} object.
-	var split_query = function(s) {
-		let obj = Object.create(null)
-		for (let [key, value] of new URLSearchParams(s)) {
-			// Match the server's Query().Get(): the first value wins.
-			if (!(key in obj))
-				obj[key] = value
-		}
-		return obj
+	// Highlight the filter in the paths of the pages list.
+	var filter_kw = /(\b(?:at:start|at:end|is:event|is:pageview|in:path)|\B:not)\b/g
+	var highlight_filter = function() {
+		let val = $1('#filter-paths').value,
+			kw  = val.match(filter_kw) || [],
+			s   = val.replace(filter_kw, '').trim()
+		if (s === '' || kw.includes(':not'))
+			return
+
+		let re = new RegExp((kw.includes('at:start') ? '^' : '') + quote_re(s) + (kw.includes('at:end') ? '$' : ''), 'gi')
+		$$('.pages-list .rows.pages .rlink .cutoff').forEach((elem) => {
+			if ($1('b', elem))  // Don't apply twice after pagination.
+				return
+			let text = elem.textContent, parts = [], last = 0
+			for (let m of text.matchAll(re)) {
+				let b = document.createElement('b')
+				b.textContent = m[0]
+				parts.push(text.slice(last, m.index), b)
+				last = m.index + m[0].length
+			}
+			if (parts.length > 0)
+				elem.replaceChildren(...parts, text.slice(last))
+		})
 	}
 
-	// Join query parameters from {k: v} object to href.
-	var join_query = function(obj) {
-		var s = [];
-		for (var k in obj)
-			s.push(k + '=' + encodeURIComponent(obj[k]));
-		return (s.length === 0 ? location.pathname : ('?' + s.join('&')));
-	}
+	// Quote special regexp characters.
+	var quote_re = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-	// Set one query parameter – leaving the others alone – and push to history.
+	// Set query parameters – leaving the others alone – and push to history;
+	// null removes a parameter.
 	var push_query = function(params) {
-		var current = split_query(location.search)
-		for (var k in params) {
-			if (params[k] === null)
-				delete current[k]
+		let q = new URLSearchParams(location.search)
+		for (let [k, v] of Object.entries(params)) {
+			if (v === null)
+				q.delete(k)
 			else
-				current[k] = params[k]
+				q.set(k, v)
 		}
-		history.pushState(null, '', join_query(current))
+		let s = q.toString()
+		history.pushState(null, '', s === '' ? location.pathname : `?${s}`)
 	}
-	
-	// Quote special regexp characters. https://locutus.io/php/pcre/preg_quote/
-	var quote_re = (s) => s.replace(new RegExp('[.\\\\+*?\\[\\^\\]$(){}=!<>|:\\-]', 'g'), '\\$&')
+
+	var metric_chart = null
+
+	var redraw_metric_chart = function() {
+		metric_chart?.destroy()
+		metric_chart = null
+
+		let c = $1('.totals .chart[data-series]'),
+			canvas = c && $1('canvas', c)
+		if (canvas)
+			metric_chart = draw_metric_chart(c, canvas, JSON.parse(c.dataset.series))
+	}
+
+	// Redraw with the colours for the current light or dark theme.
+	var bind_metric_chart = function() {
+		window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw_metric_chart)
+		new MutationObserver(function(mutations) {
+			if (mutations.some((m) => m.type === 'attributes' && m.attributeName === 'class'))
+				redraw_metric_chart()
+		}).observe(document.documentElement, {attributes: true})
+	}
+
+	var draw_metric_chart = function(c, canvas, series) {
+		let dark   = window.matchMedia('(prefers-color-scheme: dark)').matches,
+			metric = c.dataset.metric,
+			points = series.points,
+			prev   = series.prev || [],
+			line   = dark ? '#f0abfc' : '#c026d3',
+			fill   = dark ? 'rgba(240, 171, 252, .12)' : 'rgba(192, 38, 211, .10)',
+			grid   = dark ? '#404040' : '#e2e8f0',
+			muted  = dark ? '#a3a3a3' : '#94a3b8',
+			counts = ['visitors', 'visits', 'pageviews'].includes(metric)
+
+		return new Chart(canvas.getContext('2d'), {
+			type: 'line',
+			data: {
+				labels: points.map((point) => metric_point_label(point, series.group)),
+				datasets: [{
+					data: points.map((point) => point[metric]),
+					borderColor: line,
+					backgroundColor: fill,
+					borderWidth: 1.25,
+					fill: true,
+					pointRadius: points.length <= 90 ? 2 : 0,
+					pointHoverRadius: 3,
+					pointHitRadius: 12,
+					tension: 0,
+				}, {
+					// The previous period, for comparison.
+					data: prev.map((point) => point[metric]),
+					borderColor: muted,
+					borderDash: [4, 4],
+					borderWidth: 1,
+					fill: false,
+					pointRadius: 0,
+					pointHoverRadius: 2,
+					pointHitRadius: 12,
+					tension: 0,
+				}],
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				animation: false,
+				interaction: {mode: 'index', intersect: false},
+				plugins: {
+					legend: {display: false},
+					tooltip: {
+						displayColors: false,
+						callbacks: {
+							label: (item) => item.datasetIndex === 0
+								? format_metric(metric, item.parsed.y)
+								: `${format_metric(metric, item.parsed.y)} (${metric_point_label(prev[item.dataIndex], series.group)})`,
+						},
+					},
+				},
+				scales: {
+					x: {
+						border: {display: false},
+						grid: {display: false},
+						ticks: {autoSkip: true, maxTicksLimit: 8, maxRotation: 0, color: muted},
+					},
+					y: {
+						beginAtZero: true,
+						max: metric === 'bounce_rate' ? 100 : undefined,
+						border: {display: false},
+						grid: {color: grid},
+						ticks: {
+							color: muted,
+							precision: counts ? 0 : undefined,
+							callback: (value) => format_metric_tick(metric, value),
+						},
+					},
+				},
+			},
+		})
+	}
+
+	var metric_point_label = function(point, group) {
+		switch (group) {
+			case 'year':
+				return point.day.slice(0, 4)
+			case 'hour':
+				return `${format_date(point.day, true)} ${String(point.hour ?? 0).padStart(2, '0')}:00`
+			case 'week': {
+				let end = get_date(point.day)
+				end.setDate(end.getDate() + 6)
+				return `${format_date(point.day, true)} – ${format_date(end, true)}`
+			}
+			case 'month': {
+				let date = get_date(point.day)
+				return `${monthsShort[date.getMonth()]} ${date.getFullYear()}`
+			}
+		}
+		return format_date(point.day, true)
+	}
+
+	var format_metric_tick = function(metric, value) {
+		switch (metric) {
+			case 'bounce_rate':     return `${value}%`
+			case 'visit_duration':  return format_duration(value, false)
+			case 'views_per_visit': return Number(value).toFixed(1)
+		}
+		return format_int(Math.round(value))
+	}
+
+	var format_metric = function(metric, value) {
+		switch (metric) {
+			case 'views_per_visit': return `${value.toFixed(2)} views per visit`
+			case 'bounce_rate':     return `${value.toFixed(0)}% bounce rate`
+			case 'visit_duration':  return `${format_duration(value, true)} visit duration`
+		}
+		return `${format_int(Math.round(value))} ${metric}`
+	}
+
+	var format_duration = function(value, includeSeconds) {
+		let seconds = Math.round(value),
+			hours   = Math.floor(seconds / 3600),
+			minutes = Math.floor((seconds % 3600) / 60),
+			parts   = []
+		if (hours)
+			parts.push(`${hours}h`)
+		if (minutes)
+			parts.push(`${minutes}m`)
+		if (includeSeconds || parts.length === 0)
+			parts.push(`${seconds % 60}s`)
+		return parts.join(' ')
+	}
 })();

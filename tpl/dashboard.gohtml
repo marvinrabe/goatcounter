@@ -22,12 +22,7 @@
 			</span>
 			<span id="dash-select-period" class="mt-2 flex flex-wrap items-center gap-0 text-xs text-slate-500 dark:text-neutral-400">
 				<span class="mr-1">Last</span>
-				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "day"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="day">day</button>
-				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "week"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="week">week</button>
-				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "month"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="month">month</button>
-				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "quarter"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="quarter">quarter</button>
-				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "half-year"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="half-year">half year</button>
-				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "year"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="year">year</button>
+				{{range .Periods}}<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq . $.HLPeriod}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="{{.}}">{{if eq . "half-year"}}half year{{else}}{{.}}{{end}}</button>{{end}}
 			</span>
 		</div>
 
@@ -52,11 +47,7 @@
 			</div>
 			<span id="dash-select-group" class="mt-2 flex flex-wrap items-center gap-1 text-xs text-slate-500 dark:text-neutral-400 md:justify-end">
 				<span class="mr-1">View by</span>
-				{{if .AllowGroups.Hourly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "hour"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="hour">hour</button>{{end}}
-				{{if .AllowGroups.Daily}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "day"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="day">day</button>{{end}}
-				{{if .AllowGroups.Weekly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "week"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="week">week</button>{{end}}
-				{{if .AllowGroups.Monthly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "month"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="month">month</button>{{end}}
-				{{if .AllowGroups.Yearly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "year"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="year">year</button>{{end}}
+				{{range .AllowGroups}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq . $.Group}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="{{.}}">{{.}}</button>{{end}}
 				<input type="hidden" id="hl-group" name="group" value="{{.Group}}">
 			</span>
 		</div>
@@ -65,26 +56,19 @@
 		<div class="flex flex-wrap items-center gap-1">
 			<span aria-hidden="true">←</span>
 			<span class="flex flex-wrap gap-1">
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="day-b" aria-label="Back one day">day</button>
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="week-b" aria-label="Back one week">week</button>
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="month-b" aria-label="Back one month">month</button>
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="year-b" aria-label="Back one year">year</button>
+				{{range list "day" "week" "month" "year"}}<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="{{.}}-b" aria-label="Back one {{.}}">{{.}}</button>{{end}}
 			</span>
 		</div>
 		<div id="dash-timerange" class="col-span-2 row-start-1 text-center font-semibold text-slate-700 dark:text-neutral-200 sm:order-none">{{.Period}}</div>
 		<div class="flex flex-wrap items-center justify-end gap-1">
 			<span class="flex flex-wrap gap-1">
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="day-f" aria-label="Forward one day">day</button>
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="week-f" aria-label="Forward one week">week</button>
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="month-f" aria-label="Forward one month">month</button>
-				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="year-f" aria-label="Forward one year">year</button>
+				{{range list "day" "week" "month" "year"}}<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="{{.}}-f" aria-label="Forward one {{.}}">{{.}}</button>{{end}}
 			</span>
 			<span aria-hidden="true">→</span>
 		</div>
 	</div>
 </form>
-<span class="js-total hidden">{{.Total}}</span>
-<span class="js-total-utc hidden">{{.TotalUTC}}</span>
+<span id="dash-total" hidden>{{.Total}}</span>
 
 {{template "_dashboard_widgets.gohtml" .}}
 

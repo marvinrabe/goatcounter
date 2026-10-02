@@ -3,7 +3,6 @@ package goatcounter
 import (
 	"context"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
@@ -61,7 +60,6 @@ func MustGetSite(ctx context.Context) *Site {
 // Cancellation, deadlines, and other values are inherited from the parent.
 func NewContext(ctx context.Context, db database.DB) context.Context {
 	ctx = database.WithDB(ctx, db)
-	ctx = context.WithValue(ctx, keyLocations, new(sync.Map))
 	return NewConfig(ctx)
 }
 

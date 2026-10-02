@@ -1,504 +1,194 @@
-This is a heavily trimmed-down fork of [GoatCounter][www] for self-hosting a
-multiple explicitly configured sites with low CPU and RAM usage. What's left is the
-`count.js` tracking script, the collection endpoint, and the dashboard; most of
-what makes upstream a hosted, multi-tenant, multi-language product is gone.
+This is a heavily trimmed-down fork of [GoatCounter][www] for our own sites. It
+replaces Plausible: the data model and counting rules follow Plausible, and a
+Plausible CSV export is migrated into the database once, so the dashboard shows the full
+history.
 
-Collecting data:
-
-- The old `/api/v0` API and database-backed API tokens are gone. A compact
-  JSON/MCP endpoint at `/api` is available when `GOATCOUNTER_API_TOKEN` is set.
-- No CLI log-file import (`goatcounter import`); raw historical data can be
-  loaded through `/api`.
-- No export: neither the CSV/JSON export pages nor the background export jobs.
-- No visitor counter (the `/counter/…` images and HTML fragment).
-- Only the current `count.js` is served; the pinned `count.v1.js` …
-  `count.v5.js` copies are gone. The `/count` endpoint itself is unchanged, so
-  tracking with an `<img>` pixel still works — it's just not documented here.
-
-Running it:
-
-- SQLite only; PostgreSQL support is gone, including all PostgreSQL-specific
-  queries and migrations.
-- No TLS and no ACME: it serves plain HTTP and expects a reverse proxy in
-  front.
-- No multi-tenant/SaaS site management: sites come from the comma-separated
-  `GOATCOUNTER_SITES` environment variable. There is no `sites` table or site
-  management UI; each data row stores the configured site name as its key.
-- No email at all: no SMTP, no email reports, no password resets, no email
-  verification, no "email" debug pages.
-- English only: the `i18n/` translations, the translation UI, and the
-  per-user locale are gone. Dates, numbers, and times use international formats
-  (ISO dates, 24-hour clock, thin-space thousands separator).
-- Commands: `serve`, `healthcheck`, `help`, and `geodb-update`. Use external
-  SQLite/libSQL tools for database administration. Empty databases are initialized
-  automatically by `serve`.
-- No runtime metrics collection and no admin ("bosmang") pages for cache,
-  background jobs, GeoIP, and metrics.
-
-Web interface:
-
-- Dashboard access has three modes: public, HTTP Basic authentication, or
-  OpenID Connect (OIDC). Authentication is configured entirely through
-  environment variables; there is no user table or user management.
-- No user or site settings page. The dashboard layout is fixed (totals first),
-  the timezone comes from `TZ`, all supported data is collected, retention is
-  forever.
-- No signup, no user management UI, no site deletion, or changing the site
-  code.
-- No marketing website (home, "why", contact, contribute, design) and no
-  in-app help pages.
-- No no footer menu and no custom date picker — the browser's
-  native date input is used instead.
-- No third-party front-end code: jQuery, dragula, and pikaday are gone, as are
-  the bundled Lato webfonts (a system font stack is used).
-- No dashboard websocket loader; widgets are rendered with the page and only
-  paging and drill-downs fetch more.
-
-The dashboard is displayed in the timezone from the `TZ` environment variable
-(e.g. `TZ=Europe/Berlin`), for everyone; it defaults to UTC.
+What's left is the `count.js` tracking script, the `/count` endpoint, and the
+dashboard. There is no API, no export, no user management, no settings page,
+no email, no translations, and no background jobs.
 
 [www]: https://www.goatcounter.com
 
 
-Features
+How data is stored
+------------------
+All data is in one table, `events` (see [db/schema.gotxt](db/schema.gotxt)),
+plus `salts` for the daily random salts of visitor hashes (older than a day
+are deleted).
+
+A collected row is one pageview or custom event, stored the way Plausible
+stores them: the event `name` ("pageview" or a custom name), `hostname`
+without "www.", the URL `path` as sent (decoded, without query string, a
+trailing slash kept), custom event `props`, `source` ("Google", "LinkedIn",
+"news.ycombinator.com" or the `utm_source`), `referrer` (host and path), all
+five UTM parameters, browser and OS with major.minor versions, screen width,
+country, ISO 3166-2 region, GeoNames city ID, and language.
+
+The Plausible history is in the same table, with the same columns. A
+Plausible export isn't a list of visits but a separate daily total for each
+dimension (visits per browser per day, visits per source per day, …), so a
+migrated row is one of those totals: `aggregate` says which export file it's
+from, Plausible's counts are in the `visits`, `pageviews`, `bounces`, …
+columns, and its `ts` is midnight of that day. Collected rows have
+`aggregate = ''`. This keeps every number as Plausible reported it, without
+inventing which browser came with which source.
+
+The dashboard calculates everything from this table at query time. Nothing
+else is written, and nothing runs in the background.
+
+### Counting rules
+
+These are the same as Plausible's:
+
+- A **visitor** is a hash of a daily salt, the site, the IP address and the
+  User-Agent. The IP address is never stored, and once a salt is deleted a
+  hash can't be linked to anyone. Visitors are unique per day.
+- A **visit** ends after 30 minutes of inactivity, and continues across
+  midnight. It takes its source, browser, location, etc. from its first
+  pageview.
+- A **bounce** is a visit with one pageview and no custom events; the **visit
+  duration** is the time between its first and last event.
+- **Pages** and **events** count unique visitors, the other breakdowns count
+  visits.
+
+With a path filter, only matching events are considered. Migrated data then
+only contributes to the totals and the page list: Plausible doesn't export
+other dimensions by page.
+
+
+Tracking
 --------
-- **Privacy-aware**; doesn’t track users with unique identifiers and doesn't
-  need a GDPR notice.
 
-- **Lightweight** and **fast**; the tracking script is about 0.6 KB gzipped.
+    <script data-site="example.com"
+            async src="//stats.example.com/count.js"></script>
 
-- Identify **unique visits** without cookies using a non-identifiable hash.
-
-- Keeps useful statistics such as **browser** information, **location**,
-  **language**, and **screen size**. Keep track of **referring sites** and
-  **campaigns**.
-
-- **Own your data**; everything is in a single SQLite database.
-
-- Integrate on your site with just a **single script tag**:
-
-      <script data-site="example.com"
-              async src="//stats.example.com/count.js"></script>
-
-  By default, `count.js` sends data to `count` in the same directory it was
-  loaded from. For example, `https://stats.example.com/count.js` uses
-  `https://stats.example.com/count`. Override this when needed with
-  `data-endpoint`, such as `data-endpoint="//foobar.com/events"`.
+`count.js` sends data to `count` in the same directory it was loaded from;
+override this with `data-endpoint`, such as `data-endpoint="//foobar.com/events"`.
+It sends a `POST` with `navigator.sendBeacon()`, or `fetch()` if that fails, and
+the response is always an empty `204`.
 
 The script counts one pageview when the page first becomes visible and another
-when the browser restores it from the back/forward cache. It sends the current
-path and query string, referrer, screen width, and an automation flag. It does
-not read canonical URLs or page titles.
+when the browser restores it from the back/forward cache. It sends the
+hostname, path and query string, the referrer, the screen width, and an
+automation flag. The UTM parameters are read from the query string, which
+isn't stored.
 
 Once the script has loaded, use `window.goatcounter.count()` to count another
-pageview, or `window.goatcounter.count({path: 'download', event: true})` to count
-an event. The optional fields are `path`, `referrer`, `event`, `no_session`, and
-`site`. Use strings for paths, referrers, and sites, and booleans for the flags.
-Single-page apps should call `count()` after changing the URL.
+pageview, for example in a single-page app after changing the URL. Count a
+custom event with `window.goatcounter.count({event: 'Signup', props: {plan: 'pro'}})`;
+it's recorded for the current page. The other options are `path`, `referrer`,
+`no_session`, and `site`.
 
-To disable the automatic pageview, set `window.goatcounter = {no_onload: true}`
-before loading the script. Local addresses and frames are skipped by default;
-set `allow_local: true` or `allow_frame: true` in the same object to enable them.
-An `endpoint` in that object is also supported; `data-endpoint` takes precedence.
+Clicks on links to other sites are counted as `Outbound Link: Click` events
+with a `url` property, as with Plausible's outbound link tracking. Set
+`window.goatcounter = {no_outbound: true}` before loading the script to
+disable this.
 
-This minimal tracker replaces the upstream JavaScript API. JSON settings in
-`data-goatcounter-settings`, automatic `data-goatcounter-click` bindings,
-path/referrer callbacks, and the old helper methods are no longer supported.
-Use `count()` directly for custom tracking.
+To disable the automatic pageview, set `no_onload: true` in the same object.
+Local addresses and frames are skipped by default; set `allow_local: true` or
+`allow_frame: true` to enable them.
 
 
-Self-hosting GoatCounter
-------------------------
-The only dependency is somewhere to store a local SQLite-compatible database
-file, or access to a remote libSQL database. Alternatively you can use Docker,
-as documented in the section below.
+Running
+-------
 
-### Running
-You can start a server with:
+    % GOATCOUNTER_DB=libsql://db.example.com?authToken=TOKEN \
+      GOATCOUNTER_SITES=example.com,foobar.net \
+      TZ=Europe/Berlin \
+      goatcounter serve
 
-    % GOATCOUNTER_DB=libsql+file:./goatcounter-data/goatcounter.db goatcounter serve
+`GOATCOUNTER_DB` is a remote libSQL URL or a local SQLite path; an empty
+database is initialized on startup. `GOATCOUNTER_SITES` lists the sites that
+are accepted and shown; the name is stored with every row. `TZ` is the
+dashboard timezone, for everyone (default UTC). Use `goatcounter serve -h` for
+all settings; each flag can be set as `GOATCOUNTER_«FLAG»`.
 
-This starts a standalone server on `*:8080` with an explicitly selected local
-database. `GOATCOUNTER_DB` is required. For multiple replicas, point every
-instance at the same primary libSQL service, for example
-`GOATCOUNTER_DB=libsql://your-database.turso.io?authToken=TOKEN`.
-Application replicas must not have separate local database files.
+GoatCounter serves plain HTTP; TLS is terminated by the proxy in front.
 
-Set the sites before starting the server:
+### Multiple containers and regions
 
-    % export GOATCOUNTER_SITES=example.com,foobar.net
+Containers are stateless, so any number can run in any region, as long as they
+all use the same libSQL database. Every pageview is a single `INSERT`; the
+visit is resolved in the same statement from the visitor's most recent
+pageview, so no transaction, queue, or sticky session is needed, and an idle
+container makes no database requests. Each container reads the daily salt
+once a day.
 
-Dashboard access is public by default. Choose one of the authentication modes
-below with `GOATCOUNTER_AUTH`.
+Rate limits (`-ratelimit`, default 4 requests per second per IP) are per
+container.
 
-#### Public
+`/status` is the health check; it verifies database connectivity and returns
+503 while shutting down. On SIGTERM a container becomes unhealthy, waits
+`GOATCOUNTER_DRAIN_DELAY` seconds (default 0), and finishes requests within
+`GOATCOUNTER_SHUTDOWN_TIMEOUT` seconds (default 25). The Docker image has a
+`HEALTHCHECK` running `goatcounter healthcheck`.
 
-Anyone who can reach the server can view the dashboard:
+### Dashboard authentication
 
-    GOATCOUNTER_AUTH=public
+Choose a mode with `GOATCOUNTER_AUTH`:
 
-#### HTTP Basic authentication
+- `public` (the default): anyone who can reach the server can view it.
+- `basic`: set `GOATCOUNTER_BASIC_AUTH=alice:password,bob:password`.
+- `oidc`: register a confidential web client, then set:
 
-Define one or more `username:password` pairs in the environment. Both the
-username and password must match; separate multiple users with commas.
+      GOATCOUNTER_OIDC_ISSUER=https://id.example.com
+      GOATCOUNTER_OIDC_CLIENT_ID=goatcounter
+      GOATCOUNTER_OIDC_CLIENT_SECRET=provider-client-secret
+      GOATCOUNTER_OIDC_REDIRECT_URL=https://stats.example.com/auth/callback
+      GOATCOUNTER_OIDC_SESSION_SECRET=a-random-secret-containing-at-least-32-bytes
 
-    GOATCOUNTER_AUTH=basic
-    GOATCOUNTER_BASIC_AUTH=alice:correct-horse-battery-staple,bob:another-long-password
-
-Credentials are held in process memory and are never written to SQLite. Since
-commas separate users, passwords cannot contain commas. Put TLS in front of
-GoatCounter before using Basic authentication.
-
-#### OpenID Connect
-
-Register GoatCounter as a confidential web client with the OIDC provider, then
-set the following values:
-
-    GOATCOUNTER_AUTH=oidc
-    GOATCOUNTER_OIDC_ISSUER=https://id.example.com
-    GOATCOUNTER_OIDC_CLIENT_ID=goatcounter
-    GOATCOUNTER_OIDC_CLIENT_SECRET=provider-client-secret
-    GOATCOUNTER_OIDC_REDIRECT_URL=https://stats.example.com/auth/callback
-    GOATCOUNTER_OIDC_SESSION_SECRET=a-random-secret-containing-at-least-32-bytes
-
-The redirect URL must be registered verbatim with the provider and must point
-to `/auth/callback` below GoatCounter's base path. Generate a separate session
-secret, for example with `openssl rand -base64 32`; changing it logs out all
-current dashboard sessions. The optional `GOATCOUNTER_OIDC_SCOPES` value adds
-comma-separated scopes to the required `openid` scope.
-
-OIDC uses Authorization Code flow, validates the ID token and nonce, and keeps
-only a signed, short-lived authentication session in the browser. No OIDC
-profile is stored or passed into dashboard view logic.
-
-These modes protect only the web dashboard. The `/api` endpoint continues to
-use its separate bearer-token authentication.
-
-GoatCounter serves plain HTTP; put a reverse proxy (nginx, Caddy, …) in front
-of it for TLS.
-
-### Running with Docker
-There is no published image for this fork; the images on DockerHub are
-upstream's, with everything listed above still in them. Build it yourself:
-
-    % docker build -t goatcounter .
-    % docker run \
-        -p 8080:8080 \
-        -e GOATCOUNTER_DB=libsql://your-database.turso.io?authToken=TOKEN \
-        -e GOATCOUNTER_SITES=example.com,foobar.net \
-        goatcounter
-
-`compose.yaml` starts a shared libSQL service with its own named volume and
-an app container with a read-only filesystem. It binds the test dashboard to
-localhost. The API is disabled unless you supply `GOATCOUNTER_API_TOKEN`.
-For local sample data, generate a token in an untracked `.env` file:
-
-    % printf 'GOATCOUNTER_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
-    % chmod 600 .env
-    % docker compose up -d --build
-    % set -a
-    % . ./.env
-    % set +a
-    % ./scripts/sample-data.py -y
-
-The `.env` file is excluded from both Git and Docker build contexts.
-
-### Replicas, durability, and rolling updates
-
-The collector commits every accepted pageview to a shared database inbox before
-returning HTTP 200. Replicas process bounded batches: claiming queue entries,
-resolving shared visitor sessions, saving raw hits, updating statistics, and
-removing queue entries are one transaction. Failed batches roll back and are
-retried; a killed pod leaves its work for another replica. Requests that cannot
-be durably accepted return an error. A client retry after an ambiguous network
-failure can still record a duplicate; there is no client event-ID protocol.
-
-`GOATCOUNTER_STORE_EVERY` controls processing frequency (default 10 seconds),
-not durability. Visitor state is database-backed, so load balancing and pod
-replacement do not require sticky sessions or shutdown snapshots. Rate limits
-are per replica; configure a shared limit at the ingress if a cluster-wide
-quota is required.
-
-`/status` is a readiness check that verifies database connectivity and reports
-503 while draining. It is the only health endpoint. Kubernetes checks the HTTP
-listener with a TCP liveness probe independently of database readiness.
-On SIGTERM, the app becomes unready, waits `GOATCOUNTER_DRAIN_DELAY` seconds
-(default 0), drains requests, and stops workers within
-`GOATCOUNTER_SHUTDOWN_TIMEOUT` seconds (default 25). Pending work stays in the
-shared inbox. Logs, including shutdown messages, are JSON on stdout by default;
-`-dev` uses readable text logs. No logging-format environment variable is needed.
-Remote database calls honor cancellation and have a ten-second timeout,
-including transaction commits; initial database setup has a 30-second deadline.
-
-[deploy/kubernetes/app.yaml](deploy/kubernetes/app.yaml) configures three
-replicas, readiness/liveness probes, a five-second drain delay, a 30-second
-termination grace period, and rolling updates with no unavailable replicas.
-Provide a `goatcounter-config` Secret with the shared `GOATCOUNTER_DB`, then
-select your release image and site names. Database high availability and backups
-remain responsibilities of the chosen backing service.
-
-For a repeatable local Kubernetes demonstration, see
-[deploy/kubernetes/README.md](deploy/kubernetes/README.md).
+  The redirect URL must point to `/auth/callback` below the base path. Changing
+  the session secret logs everyone out. `GOATCOUNTER_OIDC_SCOPES` adds
+  comma-separated scopes to `openid`. The login is a signed cookie, so it works
+  on every container.
 
 ### GeoIP data
 
-Startup always uses the bundled Country database unless `GOATCOUNTER_GEODB`
-explicitly names a file. Files in the working directory are never selected
-automatically. The bundled database may be extracted to a disposable temporary
-cache; a read-only or unavailable cache falls back to memory.
+The bundled GeoLite2 Country database is used unless `GOATCOUNTER_GEODB` names
+a City or Country mmdb file. Regions and cities need a City database.
 
-To download an updated Cities database separately from web startup:
+### Docker
 
-    % GOATCOUNTER_MAXMIND_ACCOUNT_ID=123456 \
-      GOATCOUNTER_MAXMIND_LICENSE=your-license \
-      GOATCOUNTER_GEODB=/path/to/cities.mmdb goatcounter geodb-update
+    % docker build -t goatcounter .
+    % docker run -p 8080:8080 \
+        -e GOATCOUNTER_DB=libsql://db.example.com?authToken=TOKEN \
+        -e GOATCOUNTER_SITES=example.com \
+        goatcounter
 
-Mount that resulting file read-only in every replica and set
-`GOATCOUNTER_GEODB=/path/to/cities.mmdb`. A restart never downloads an update.
+`compose.yaml` runs the app with a local libSQL server, for testing.
 
-### Management
-A status URL is available at `/status`, which can be used for health monitors.
 
-### API and MCP
+Migrating from Plausible
+------------------------
+The Plausible history is moved into the database once, with a separate tool
+that's not part of the server or the Docker image:
 
-GoatCounter provides one endpoint for both ordinary JSON requests and MCP:
-`/api`, below the configured base path. Set a bearer token to enable it:
+    % TZ=Europe/Berlin go run ./tools/plausible-migrate -db "$GOATCOUNTER_DB" -site example.com export.zip
 
-    GOATCOUNTER_API_TOKEN=a-long-random-secret
+`TZ` must be the dashboard's timezone, which should be the timezone Plausible
+used for the export. All 11 CSV files are migrated in one transaction, which
+replaces earlier migrated rows for that site; collected events aren't touched.
+Values are stored as exported, which is how the collector stores new data too;
+only the column names are mapped (`page` → `path`, `operating_system` → `os`,
+`link_url` → `props`, …).
 
-If the value is unset or empty, the route is not registered and returns 404.
-Every API and MCP request must include the following header:
 
-    Authorization: Bearer a-long-random-secret
+Schema changes
+--------------
+There are no migrations: a database with an older schema is refused, and you
+start with a new database and import again.
 
-This authentication is deliberately independent from the dashboard. Public
-dashboard access, a valid Basic login, and a valid OIDC session never authorize
-an API request. Use TLS in front of GoatCounter so the bearer token is not sent
-over an unencrypted network.
 
-An authenticated `GET /api` returns endpoint information and the JSON Schema
-for every supported action. Requests containing an `Origin` header are accepted
-only when its host matches the request host.
-
-#### JSON API
-
-Send `POST /api` with `Content-Type: application/json`. The request envelope is:
-
-    {
-      "action": "sites",
-      "arguments": {}
-    }
-
-Successful responses use `{"result": ...}`. Failed requests use
-`{"error":"..."}` with an appropriate HTTP status. Request bodies are limited
-to 64 MiB and unknown fields inside `arguments` are rejected.
-
-For example:
-
-    curl https://stats.example.com/api \
-        -H "Authorization: Bearer $GOATCOUNTER_API_TOKEN" \
-        -H 'Content-Type: application/json' \
-        -d '{"action":"sites","arguments":{}}'
-
-The available actions are:
-
-| Action | Purpose | Arguments |
-| --- | --- | --- |
-| `sites` | List configured sites and their stored-data metadata. | None. |
-| `dashboard` | Return the aggregate data used by all dashboard widgets. | Optional `site`, time range, grouping, filter, and limit. |
-| `pageviews` | Find pageview or event paths before deleting or merging them. | Required `search`; optional `site` and `match_case`. |
-| `delete_pageviews` | Permanently delete paths, raw hits, and their aggregates. | `path_ids`; optional `site`. |
-| `merge_pageviews` | Permanently merge source paths into a target path. | `path_ids`, `target_path_id`; optional `site`. |
-| `import_raw` | Import historical raw hits and update all aggregates. | `hits`; optional destructive `replace`. |
-
-When an action has an optional `site` and it is omitted, the first site in
-`GOATCOUNTER_SITES` is used. Unknown sites and path IDs are rejected.
-
-##### Sites
-
-The `sites` result contains the configured `site`, `link_domain`, whether data
-has been received, the first-hit time, and the number of stored raw pageviews.
-It also reports the dashboard timezone.
-
-##### Dashboard data
-
-`dashboard` accepts:
-
-- `site`: configured site name; defaults to the first site.
-- `period`: `day`, `week`, `month`, `quarter`, `half-year`, `year`, or a number
-  of days. The default is `week`.
-- `start` and `end`: an explicit range. Both must be supplied together, as
-  `YYYY-MM-DD` dates or RFC3339 timestamps. Date-only `end` values include the
-  entire day in the configured timezone.
-- `group`: `hour`, `day`, `week`, or `month`; defaults to `day`.
-- `filter`: the same optional path-filter expression accepted by the dashboard.
-- `limit`: maximum rows per ranked widget, from 1 to 1000; defaults to 100.
-
-The result includes the resolved site, UTC start and end timestamps, grouping,
-and structured data for `totalcount`, `totalpages`, `pages`, `toprefs`,
-`campaigns`, `browsers`, `systems`, `locations`, `languages`, and `sizes`.
-Totals include visits, raw pageviews, bounce rate, views per visit, and average
-visit duration.
-
-    curl https://stats.example.com/api \
-        -H "Authorization: Bearer $GOATCOUNTER_API_TOKEN" \
-        -H 'Content-Type: application/json' \
-        -d '{
-          "action":"dashboard",
-          "arguments":{"site":"example.com","period":"month","group":"day","limit":20}
-        }'
-
-##### Managing pageviews
-
-The `pageviews` action replaces the former “Manage pageviews” settings page.
-Its required `search` value uses SQL LIKE matching: `%` matches any sequence and
-`_` matches one character. Escape them with `\%` and `\_` to search for literal
-characters. Matching is case-insensitive unless `match_case` is true. Results
-include the path IDs required by the destructive actions.
-
-    curl https://stats.example.com/api \
-        -H "Authorization: Bearer $GOATCOUNTER_API_TOKEN" \
-        -H 'Content-Type: application/json' \
-        -d '{
-          "action":"pageviews",
-          "arguments":{"site":"example.com","search":"/old/%"}
-        }'
-
-`delete_pageviews` permanently removes every listed path and all raw and
-aggregate data belonging to it:
-
-    {"action":"delete_pageviews","arguments":{"site":"example.com","path_ids":[12,15]}}
-
-`merge_pageviews` moves all data from the listed source path IDs into the
-target, combines their aggregates, and removes the source paths. Including the
-target in `path_ids` has no effect, but at least one other source is required:
-
-    {"action":"merge_pageviews","arguments":{"site":"example.com","path_ids":[12,15],"target_path_id":4}}
-
-Both operations are synchronous, permanent, and cannot be undone through the
-API.
-
-##### Importing raw data
-
-`import_raw` accepts between 1 and 100,000 hits per request. Each hit supports:
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `site` | Yes | A name present in `GOATCOUNTER_SITES`. |
-| `path` | Yes | Page path or event name. |
-| `created_at` or `created_at_unix` | Yes | RFC3339 timestamp or Unix seconds. Timestamps more than five seconds in the future are rejected. |
-| `event` | No | Whether the row is an event; defaults to false. |
-| `ref` | No | Referrer value. |
-| `ref_scheme` | No | `h` HTTP, `g` generated/grouped, `c` campaign, or `o` other. Defaults to `h` for a non-empty referrer and `o` otherwise. |
-| `campaign` | No | Campaign name. |
-| `browser`, `browser_version` | No | Parsed browser values. |
-| `system`, `system_version` | No | Parsed operating-system values. |
-| `location` | No | Country or subdivision code, such as `DE` or `US-CA`. |
-| `language` | No | ISO 639-3 language code. |
-| `width` | No | Screen width. |
-| `session` | No | A 128-bit session ID encoded as 32 hexadecimal characters. Use one ID for all hits in a visit. |
-| `first_visit` | No | True for the first time that session viewed this path; these rows contribute to visit aggregates. |
-
-Raw pageviews are always stored. For meaningful visit counts, bounce rate, and
-visit duration, imports should provide stable session IDs and mark
-`first_visit` correctly. A zero/omitted session is accepted but cannot preserve
-the original visit boundaries.
-
-Setting `replace` to true permanently clears existing data for every site that
-appears in `hits` before importing the new rows. Basic fields are validated
-before clearing, but later database validation can still fail, so `replace`
-must be treated as a destructive operation rather than an atomic swap.
-
-    {
-      "action": "import_raw",
-      "arguments": {
-        "replace": false,
-        "hits": [{
-          "site": "example.com",
-          "path": "/docs",
-          "created_at": "2026-09-12T10:30:00Z",
-          "session": "00112233445566778899aabbccddeeff",
-          "first_visit": true,
-          "ref": "www.google.com",
-          "ref_scheme": "h",
-          "browser": "Firefox",
-          "browser_version": "143",
-          "system": "Linux",
-          "language": "eng",
-          "width": 1920
-        }]
-      }
-    }
-
-[`scripts/sample-data.py`](scripts/sample-data.py) is a complete bulk-import example:
-
-    GOATCOUNTER_API_TOKEN=... ./scripts/sample-data.py -u https://stats.example.com/api
-
-#### MCP
-
-Use the same `/api` URL as a remote MCP Streamable HTTP server and configure
-the Bearer header in the MCP client. For clients whose configuration accepts a
-URL and headers, the relevant values are:
-
-    {
-      "url": "https://stats.example.com/api",
-      "headers": {
-        "Authorization": "Bearer a-long-random-secret"
-      }
-    }
-
-The server is stateless and exposes the six JSON actions above as MCP tools with
-the same names, arguments, results, and destructive behavior. It supports MCP
-protocol revision `2026-07-28`, including `server/discover`, `tools/list`,
-`tools/call`, and `ping`, as well as the `initialize` /
-`notifications/initialized` exchange used by older clients. Current clients
-send the required `MCP-Protocol-Version`, `Mcp-Method`, and (for tool calls)
-`Mcp-Name` headers automatically.
-
-Tool results include both `structuredContent` and a JSON text content block.
-Action-level failures are returned as MCP tool errors so an agent can inspect
-and correct its arguments. This server has no server-to-client notifications,
-subscriptions, or SSE stream; an MCP `GET` requesting `text/event-stream`
-returns 405.
-
-### Updating
-There is no migration path between schema versions; start with a fresh database
-after a schema change. Sites can be added, removed, or reordered because their
-configured names are stored with the data.
-
-### Building from source
+Building from source
+--------------------
 You need Go 1.27 or newer, Node.js 22.12 or newer, and a C compiler.
 
-You can build from source with:
-
-    % git clone https://github.com/marvinrabe/goatcounter
-    % cd goatcounter
     % npm ci
     % npm run build
     % go build ./cmd/goatcounter
 
-This builds the Vite-managed frontend assets and produces a `goatcounter`
-binary in the current directory.
+JavaScript sources and tests are in `assets/js/`, stylesheets in `assets/css/`.
+`public/` is generated by the frontend build and embedded in the binary.
 
-JavaScript sources and tests live in `assets/js/`, and stylesheets in
-`assets/css/`. `public/` is generated on each frontend build. Edit handwritten
-static files such as `robots.txt` and `security.txt` in `assets/static/`; Vite
-copies them into `public/` alongside the compiled assets, and Go embeds them
-in the binary.
-
-To build a fully statically linked binary:
-
-    % go build -trimpath -ldflags='-s -w -extldflags=-static' \
-        -tags='osusergo,netgo' \
-        ./cmd/goatcounter
-
-### Development/testing
-You can start a test/development server with:
-
-    % goatcounter serve -dev
-
-The `-dev` flag makes some small things a bit more convenient for development:
-templates and static files will be read directly from the filesystem.
-
-See [.github/CONTRIBUTING.md](/.github/CONTRIBUTING.md) for more details on how
-to run a development server, write patches, etc.
+`goatcounter serve -dev` reads templates and static files from the filesystem;
+see [CONTRIBUTING.md](CONTRIBUTING.md).

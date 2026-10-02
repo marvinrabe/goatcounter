@@ -3,68 +3,18 @@ package database
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 )
 
-type Tabler interface{ Table() string }
-type Defaulter interface{ Defaults(context.Context) }
-type Validator interface{ Validate(context.Context) error }
-
 func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
-func Insert(ctx context.Context, row Tabler) error {
-	if v, ok := row.(Defaulter); ok {
-		v.Defaults(ctx)
-	}
-	if v, ok := row.(Validator); ok {
-		if err := v.Validate(ctx); err != nil {
-			return err
-		}
-	}
-	v := reflect.ValueOf(row)
-	if v.Kind() != reflect.Pointer || v.IsNil() {
-		return fmt.Errorf("database.Insert: expected a non-nil pointer")
-	}
-	v = v.Elem()
-	typ := v.Type()
-	var cols []string
-	var args []any
-	var id any
-	var idcol string
-	for i := 0; i < v.NumField(); i++ {
-		field := typ.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		tags := strings.Split(field.Tag.Get("db"), ",")
-		if tags[0] == "-" || tags[0] == "" || slices.Contains(tags, "noinsert") {
-			continue
-		}
-		if slices.Contains(tags, "id") {
-			if !v.Field(i).IsZero() {
-				return fmt.Errorf("database.Insert: ID must be zero")
-			}
-			id, idcol = v.Field(i).Addr().Interface(), tags[0]
-			continue
-		}
-		cols = append(cols, quote(tags[0]))
-		args = append(args, v.Field(i).Interface())
-	}
-	query := "insert into " + quote(row.Table()) + " (" + strings.Join(cols, ",") + ") values (" + strings.TrimSuffix(strings.Repeat("?,", len(cols)), ",") + ")"
-	if id != nil {
-		return Get(ctx, id, query+" returning "+quote(idcol), args...)
-	}
-	return Exec(ctx, query, args...)
-}
 
 type BulkInsert struct {
-	ctx      context.Context
-	table    string
-	cols     []string
-	conflict string
-	rows     [][]any
-	err      error
+	ctx   context.Context
+	table string
+	cols  []string
+	rows  [][]any
+	err   error
 }
 
 func NewBulkInsert(ctx context.Context, table string, columns []string) (BulkInsert, error) {
@@ -73,7 +23,6 @@ func NewBulkInsert(ctx context.Context, table string, columns []string) (BulkIns
 	}
 	return BulkInsert{ctx: ctx, table: table, cols: slices.Clone(columns)}, nil
 }
-func (b *BulkInsert) OnConflict(s string) { b.conflict = s }
 func (b *BulkInsert) Values(v ...any) {
 	if b.err != nil {
 		return
@@ -100,7 +49,7 @@ func (b *BulkInsert) flush() {
 	for _, v := range b.rows {
 		args = append(args, v...)
 	}
-	query := "insert into " + quote(b.table) + " (" + strings.Join(cols, ",") + ") values " + strings.TrimSuffix(strings.Repeat(row+",", len(b.rows)), ",") + " " + b.conflict
+	query := "insert into " + quote(b.table) + " (" + strings.Join(cols, ",") + ") values " + strings.TrimSuffix(strings.Repeat(row+",", len(b.rows)), ",")
 	b.err = Exec(b.ctx, query, args...)
 	b.rows = nil
 }

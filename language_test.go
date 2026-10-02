@@ -30,10 +30,7 @@ func TestAcceptLanguage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			have := ""
-			if l := AcceptLanguage(tt.in); l != nil {
-				have = *l
-			}
+			have := AcceptLanguage(tt.in)
 			if have != tt.want {
 				t.Errorf("\nhave: %q\nwant: %q", have, tt.want)
 			}

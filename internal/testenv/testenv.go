@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/cron"
 	"github.com/marvinrabe/goatcounter/internal/database"
 	libsqldriver "github.com/marvinrabe/goatcounter/internal/dbdriver/libsql"
 	"github.com/marvinrabe/goatcounter/internal/geo"
@@ -39,29 +38,16 @@ func Context(db database.DB) context.Context {
 // DB starts a new database test.
 func DB(t testing.TB) context.Context {
 	t.Helper()
-	return db(t, false, nil)
+	return db(t)
 }
 
-// DBFile is like DB(), but guarantees that the database will be written to
-// disk, whereas DB() may store it in memory.
-//
-// You can get the connection string from the TESTENV_CONNECT environment
-// variable.
-func DBFile(t testing.TB) context.Context {
-	t.Helper()
-	return db(t, true, nil)
-}
-
-func db(t testing.TB, storeFile bool, queries *QueryCounts) context.Context {
+func db(t testing.TB) context.Context {
 	t.Helper()
 
 	conn := libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
 	os.Setenv("TESTENV_CONNECT", conn)
 
 	files := os.DirFS(testutil.ModuleRoot())
-	if queries != nil {
-		files = countedFiles{files, queries}
-	}
 	db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{
 		Connect: conn,
 		Files:   files,
@@ -82,40 +68,16 @@ func db(t testing.TB, storeFile bool, queries *QueryCounts) context.Context {
 	return ctx
 }
 
-// StoreHits is a convenient helper to store hits in the DB via the durable collector and
-// cron.UpdateStats().
-func StoreHits(ctx context.Context, t *testing.T, wantFail bool, hits ...goatcounter.Hit) []goatcounter.Hit {
+// StoreHits stores hits through the collector. Hits from the same RemoteAddr
+// and UserAgentHeader are one visitor, and one visit within 30 minutes.
+func StoreHits(ctx context.Context, t testing.TB, hits ...goatcounter.Hit) {
 	t.Helper()
-
-	for i := range hits {
-		if hits[i].Session == (goatcounter.SessionID{}) {
-			hits[i].Session = goatcounter.TestSession
+	for _, h := range hits {
+		if h.Path == "" {
+			h.Path = "/"
 		}
-		if hits[i].Path == "" {
-			hits[i].Path = "/"
+		if err := goatcounter.Collect(ctx, h); err != nil {
+			t.Fatalf("StoreHits: %v", err)
 		}
 	}
-
-	if err := goatcounter.EnqueueHits(ctx, hits...); err != nil {
-		t.Fatal(err)
-	}
-	var stored []goatcounter.Hit
-	var persistErr error
-	for range (len(hits) / goatcounter.HitBatchSize) + 1 {
-		batch, err := goatcounter.PersistHits(ctx, cron.UpdateStats)
-		if err != nil {
-			persistErr = err
-			break
-		}
-		stored = append(stored, batch...)
-	}
-	if !wantFail && persistErr != nil {
-		t.Fatalf("StoreHits: %v", persistErr)
-	}
-	if wantFail && persistErr == nil {
-		t.Fatal("StoreHits: expected error")
-	}
-	hits = stored
-
-	return hits
 }

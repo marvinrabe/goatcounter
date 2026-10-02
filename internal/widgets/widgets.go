@@ -3,160 +3,78 @@ package widgets
 import (
 	"context"
 	"html/template"
-	"log/slog"
-	"sync"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
-type (
-	Widget interface {
-		GetData(context.Context, Args) (bool, error)
-		RenderHTML(context.Context, SharedData) (string, any)
+type Widget interface {
+	Name() string
 
-		SetHTML(template.HTML)
-		HTML() template.HTML
-		SetErr(error)
-		Err() error
+	// GetData loads the data from the database, and reports if there are
+	// more rows to paginate.
+	GetData(context.Context, Args) (more bool, err error)
 
-		// SetDetail sets the drill-down key: the browser/system/country/… to
-		// show the details for, or the path to show referrers for.
-		SetDetail(string)
+	// RenderHTML returns the template name and the data to render it with.
+	RenderHTML(context.Context, Args) (string, any)
 
-		ID() int
+	// SetDetail sets the drill-down key: the browser/system/country/… to
+	// show the details for, or the path to show referrers for.
+	SetDetail(string)
 
-		Name() string
-		Type() string // "full-width", "hchart"
-		Label() string
-	}
+	SetHTML(template.HTML)
+	HTML() template.HTML
+	SetErr(error)
+	Err() error
+}
 
-	Args struct {
-		Rng         datetime.Range
-		Offset      int
-		PathFilter  goatcounter.PathFilter
-		Group       goatcounter.Group
-		AllowGroups goatcounter.Groups
-		ShowRefs    goatcounter.PathID
-		metrics     *sharedMetrics
-	}
+// Args are passed to every widget.
+type Args struct {
+	Rng        datetime.Range
+	PathFilter goatcounter.PathFilter
+	Group      goatcounter.Group
+	ShowRefs   string // Show the referrers for this path in the pages list.
+	Offset     int
 
-	// SharedData gets passed to every widget.
-	SharedData struct {
-		Site *goatcounter.Site
-		Args Args
+	// For rendering.
+	Total    int  // Number of visits; the percentages are relative to this.
+	RowsOnly bool // Only render the rows, for pagination.
+}
 
-		RowsOnly    bool
-		Total       int
-		TotalUTC    int
-		TotalEvents int
-		Metrics     goatcounter.DashboardMetrics
-	}
-)
-
-type List []Widget
-
-func NewArgs(
-	ctx context.Context,
-	rng datetime.Range, group goatcounter.Group, allowGroups goatcounter.Groups,
-	showRefs goatcounter.PathID,
-) Args {
-
+// NewArgs creates the arguments for a period and grouping.
+func NewArgs(ctx context.Context, rng datetime.Range, group goatcounter.Group, filter goatcounter.PathFilter) Args {
 	// Align to start of week or month if we're grouping by week or month.
 	//
 	// This gives a really jarring experience if the UI is updated with the new
 	// dates, as switching between day/week/month can really move the date
 	// around. So don't update the UI and just "silently" include the extra date
 	// ranges.
-	if group.Weekly() {
-		w := datetime.Week(false)
-		rng.Start = datetime.StartOf(rng.Start.In(goatcounter.Config(ctx).Timezone.Loc()), w).UTC()
-		rng.End = datetime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), w).UTC()
+	align := func(p datetime.Period) {
+		loc := goatcounter.Config(ctx).Timezone.Loc()
+		rng.Start = datetime.StartOf(rng.Start.In(loc), p).UTC()
+		rng.End = datetime.EndOf(rng.End.In(loc), p).UTC()
 	}
-	if group.Monthly() {
-		rng.Start = datetime.StartOf(rng.Start.In(goatcounter.Config(ctx).Timezone.Loc()), datetime.Month).UTC()
-		rng.End = datetime.EndOf(rng.End.In(goatcounter.Config(ctx).Timezone.Loc()), datetime.Month).UTC()
+	switch group {
+	case goatcounter.GroupWeekly:
+		align(datetime.Week(false))
+	case goatcounter.GroupMonthly:
+		align(datetime.Month)
 	}
-
-	return Args{Rng: rng, Group: group, AllowGroups: allowGroups, ShowRefs: showRefs, metrics: new(sharedMetrics)}
+	return Args{Rng: rng, Group: group, PathFilter: filter}
 }
 
-// Copies of Args share this request's session query, even when widgets load
-// concurrently. NewArgs creates a new cache for every dashboard/API request.
-type sharedMetrics struct {
-	once sync.Once
-	data goatcounter.DashboardData
+// base implements the parts of Widget that are the same for every widget.
+type base struct {
+	name string
 	err  error
+	html template.HTML
 }
 
-func (a Args) dashboardData(ctx context.Context) (goatcounter.DashboardData, error) {
-	if a.metrics == nil {
-		return goatcounter.GetDashboardData(ctx, a.Rng, a.PathFilter, a.Group)
-	}
-	a.metrics.once.Do(func() {
-		a.metrics.data, a.metrics.err = goatcounter.GetDashboardData(ctx, a.Rng, a.PathFilter, a.Group)
-	})
-	return a.metrics.data, a.metrics.err
-}
-
-// Layout is the dashboard layout: the widgets that are shown, in order. It is
-// not configurable.
-var Layout = []string{
-	"totalpages",
-	"pages",
-	"toprefs",
-	"campaigns",
-	"browsers",
-	"systems",
-	"locations",
-	"languages",
-	"sizes",
-}
-
-// NewList creates the widgets for the dashboard, in the order they're shown.
-//
-// The "totalcount" widget is always first: it's not rendered itself, but every
-// other widget needs its totals.
-func NewList(ctx context.Context) List {
-	l := make(List, 0, len(Layout)+1)
-	l = append(l, NewWidget(ctx, "totalcount", 0))
-	for i, name := range Layout {
-		l = append(l, NewWidget(ctx, name, i))
-	}
-	return l
-}
-
-// ByID gets the widget at this position in the layout.
-func ByID(ctx context.Context, id int) Widget {
-	if id < 0 || id >= len(Layout) {
-		return nil
-	}
-	return NewWidget(ctx, Layout[id], id)
-}
-
-// GetOne gets the first widget in the list by name.
-//
-// You usually want to use Get()! Only intended to get "internal" widgets where
-// you know it will always have exactly one in the list.
-func (l List) GetOne(name string) Widget {
-	for _, w := range l {
-		if w.Name() == name {
-			return w
-		}
-	}
-	return nil
-}
-
-// Get all widgets from the list by name.
-func (l List) Get(name string) List {
-	list := make([]Widget, 0, 1)
-	for _, w := range l {
-		if w.Name() == name {
-			list = append(list, w)
-		}
-	}
-	return list
-}
+func (w base) Name() string             { return w.name }
+func (w *base) SetHTML(h template.HTML) { w.html = h }
+func (w base) HTML() template.HTML      { return w.html }
+func (w *base) SetErr(err error)        { w.err = err }
+func (w base) Err() error               { return w.err }
 
 // How many rows every widget shows before you need to press "show more".
 const (
@@ -165,30 +83,90 @@ const (
 	hchartSize  = 6  // Browsers, systems, locations, …
 )
 
-func NewWidget(ctx context.Context, name string, id int) Widget {
-	switch name {
-	case "totalcount":
-		return &TotalCount{}
-
-	case "pages":
-		return &Pages{id: id, Limit: pageSize, LimitRefs: refPageSize}
-	case "totalpages":
-		return &TotalPages{id: id}
-	case "toprefs":
-		return &TopRefs{id: id, Limit: hchartSize}
-	case "campaigns":
-		return &Campaigns{id: id, Limit: hchartSize}
-	case "browsers":
-		return &Browsers{id: id, Limit: hchartSize}
-	case "systems":
-		return &Systems{id: id, Limit: hchartSize}
-	case "sizes":
-		return &Sizes{id: id}
-	case "locations":
-		return &Locations{id: id, Limit: hchartSize}
-	case "languages":
-		return &Languages{id: id, Limit: hchartSize}
+type (
+	// Card is a dashboard card, which shows one of its tabs at a time.
+	Card struct {
+		Name, Label string
+		Tabs        []Tab
 	}
-	slog.ErrorContext(ctx, "unknown widget", "name", name)
+	Tab struct {
+		Widget, Label string
+	}
+)
+
+// Cards is the dashboard layout below the totals; it is not configurable.
+var Cards = []Card{
+	{"content", "Content", []Tab{
+		{"pages", "Pages"},
+		{"entry_pages", "Entry pages"},
+		{"exit_pages", "Exit pages"},
+		{"events", "Events"},
+	}},
+	{"acquisition", "Acquisition", []Tab{
+		{"toprefs", "Sources"},
+		{"campaigns", "Campaigns"},
+		{"utm_mediums", "UTM mediums"},
+		{"utm_sources", "UTM sources"},
+	}},
+	{"technology", "Technology", []Tab{
+		{"browsers", "Browsers"},
+		{"systems", "Operating systems"},
+		{"sizes", "Devices"},
+	}},
+	{"audience", "Audience", []Tab{
+		{"locations", "Locations"},
+		{"regions", "Regions"},
+		{"languages", "Languages"},
+	}},
+}
+
+// New creates a widget by name, or returns nil if there is no such widget.
+func New(name string) Widget {
+	switch name {
+	case "totals":
+		return &Totals{base: base{name: name}}
+	case "pages":
+		return &Pages{base: base{name: name}}
+
+	// Breakdowns with a detail view.
+	case "browsers", "systems", "sizes", "locations", "campaigns":
+		return &Breakdown{base: base{name: name}, detailKind: name}
+	case "toprefs":
+		return &Breakdown{base: base{name: name}, detailKind: "refpaths"}
+
+	case "languages", "entry_pages", "exit_pages", "events", "utm_mediums", "utm_sources", "regions":
+		return &Breakdown{base: base{name: name}}
+	}
 	return nil
+}
+
+type List []Widget
+
+// NewList creates all widgets on the dashboard.
+func NewList() List {
+	l := List{New("totals")}
+	for _, c := range Cards {
+		for _, t := range c.Tabs {
+			l = append(l, New(t.Widget))
+		}
+	}
+	return l
+}
+
+// Get a widget by name, or nil if it's not in the list.
+func (l List) Get(name string) Widget {
+	for _, w := range l {
+		if w.Name() == name {
+			return w
+		}
+	}
+	return nil
+}
+
+// HTML gets the rendered HTML of a widget.
+func (l List) HTML(name string) template.HTML {
+	if w := l.Get(name); w != nil {
+		return w.HTML()
+	}
+	return ""
 }

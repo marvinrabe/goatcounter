@@ -5,11 +5,9 @@ package database
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -17,13 +15,9 @@ import (
 type DB = *Database
 
 type Database struct {
-	conn     *sqlx.DB
-	tx       *sqlx.Tx
-	files    fs.FS
-	recorder interface {
-		Record(time.Duration, string, []any)
-	}
-	log io.Writer
+	conn *sqlx.DB
+	tx   *sqlx.Tx
+	log  io.Writer
 }
 
 type ConnectOptions struct {
@@ -33,8 +27,8 @@ type ConnectOptions struct {
 	MaxOpenConns, MaxIdleConns int
 }
 
-func New(conn *sql.DB, files fs.FS) DB {
-	return &Database{conn: sqlx.NewDb(conn, "sqlite3"), files: files}
+func New(conn *sql.DB) DB {
+	return &Database{conn: sqlx.NewDb(conn, "sqlite3")}
 }
 func (db *Database) Close() error { return db.conn.Close() }
 func (db *Database) DBSQL() (*sql.DB, *sql.Tx) {
@@ -56,8 +50,6 @@ func MustGetDB(ctx context.Context) DB {
 	}
 	return db
 }
-func DBSQL(ctx context.Context) (*sql.DB, *sql.Tx) { return MustGetDB(ctx).DBSQL() }
-func ErrNoRows(err error) bool                     { return errors.Is(err, sql.ErrNoRows) }
 
 func (db *Database) queryer() sqlx.ExtContext {
 	if db.tx != nil {
@@ -65,10 +57,7 @@ func (db *Database) queryer() sqlx.ExtContext {
 	}
 	return db.conn
 }
-func (db *Database) record(start time.Time, query string, args []any) {
-	if db.recorder != nil {
-		db.recorder.Record(time.Since(start), query, args)
-	}
+func (db *Database) record(query string, args []any) {
 	if db.log != nil {
 		fmt.Fprintf(db.log, "%s %v\n", query, args)
 	}
@@ -78,7 +67,7 @@ func (db *Database) Get(ctx context.Context, dest any, query string, params ...a
 	if err != nil {
 		return err
 	}
-	defer db.record(time.Now(), q, args)
+	db.record(q, args)
 	return sqlx.GetContext(ctx, db.queryer(), dest, q, args...)
 }
 func Get(ctx context.Context, dest any, query string, params ...any) error {
@@ -90,7 +79,7 @@ func Select(ctx context.Context, dest any, query string, params ...any) error {
 	if err != nil {
 		return err
 	}
-	defer db.record(time.Now(), q, args)
+	db.record(q, args)
 	return sqlx.SelectContext(ctx, db.queryer(), dest, q, args...)
 }
 func NumRows(ctx context.Context, query string, params ...any) (int64, error) {
@@ -99,7 +88,7 @@ func NumRows(ctx context.Context, query string, params ...any) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.record(time.Now(), q, args)
+	db.record(q, args)
 	result, err := db.queryer().ExecContext(ctx, q, args...)
 	if err != nil {
 		return 0, err
@@ -130,13 +119,5 @@ func (db *Database) TX(ctx context.Context, fn func(context.Context) error) erro
 	return tx.Commit()
 }
 func TX(ctx context.Context, fn func(context.Context) error) error { return MustGetDB(ctx).TX(ctx, fn) }
-
-func NewMetricsDB(db DB, r interface {
-	Record(time.Duration, string, []any)
-}) DB {
-	clone := *db
-	clone.recorder = r
-	return &clone
-}
 
 func WithQueryLog(db DB, w io.Writer) DB { clone := *db; clone.log = w; return &clone }

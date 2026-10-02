@@ -74,12 +74,6 @@ func NormalizeIndent(s string) string {
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n")) + "\n"
 }
-func ErrorContains(err error, want string) bool {
-	if want == "" {
-		return err == nil
-	}
-	return err != nil && strings.Contains(err.Error(), want)
-}
 func Code(t testing.TB, r *httptest.ResponseRecorder, want int) {
 	t.Helper()
 	if r.Code != want {
@@ -94,21 +88,6 @@ func NewRequest(method, path string, body io.Reader) *http.Request {
 		path = "http://" + DefaultHost + path
 	}
 	return httptest.NewRequest(method, path, body)
-}
-func MustMarshal(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
-}
-func MustMarshalString(v any) string { return string(MustMarshal(v)) }
-func MustMarshalIndent(v any, prefix, indent string) []byte {
-	b, err := json.MarshalIndent(v, prefix, indent)
-	if err != nil {
-		panic(err)
-	}
-	return b
 }
 func MustUnmarshal(b []byte, v any) {
 	if err := json.Unmarshal(b, v); err != nil {

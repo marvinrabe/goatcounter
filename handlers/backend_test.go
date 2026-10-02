@@ -27,15 +27,13 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 		auth := Auth{Mode: AuthBasic, BasicUsers: users}
-		router := NewBackend(nil, false, "", base, 10, Ratelimits{}, "secret", auth)
+		router := NewBackend(nil, false, "", base, 10, Ratelimits{}, auth)
 		for _, tt := range []struct {
 			path, authorization string
 			code                int
 		}{
 			{"/", "", http.StatusUnauthorized},
 			{"/load-widget", "", http.StatusUnauthorized},
-			{"/api", "", http.StatusUnauthorized},
-			{"/api", "Bearer secret", http.StatusOK},
 			{"/missing", "", http.StatusNotFound},
 		} {
 			r := httptest.NewRequest(http.MethodGet, base+tt.path+"?site=unknown", nil).WithContext(ctx)
@@ -48,7 +46,7 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 		}
 
 		auth = Auth{Mode: AuthOIDC, OIDC: &OIDCAuth{basePath: base}}
-		router = NewBackend(nil, false, "", base, 10, Ratelimits{}, "", auth)
+		router = NewBackend(nil, false, "", base, 10, Ratelimits{}, auth)
 		for path, code := range map[string]int{
 			"/auth/callback?error=access_denied": http.StatusUnauthorized,
 			"/auth/logout":                       http.StatusFound,
@@ -62,74 +60,67 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 	}
 }
 
+func count(t testing.TB, ctx context.Context, handler http.Handler, ip, path string) {
+	t.Helper()
+	r, rr := newTest(ctx, "POST", "/count?"+url.Values{"p": {path}, "s": {"1440"}, "site": {"example.com"}}.Encode(), nil)
+	r.RemoteAddr = ip
+	r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
+	handler.ServeHTTP(rr, r)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("POST /count: %d %s", rr.Code, rr.Header().Get("X-Goatcounter"))
+	}
+}
+
+// Pageviews sent to /count show up in the paginated page list.
 func TestBackendPagesMore(t *testing.T) {
 	ctx := testenv.DB(t)
 	now := datetime.Now(ctx)
+	handler := newBackend(ctx)
+	for i := range 10 {
+		// /1 has one visit, /10 has ten.
+		for v := range i + 1 {
+			count(t, ctx, handler, fmt.Sprintf("10.0.0.%d", v), fmt.Sprintf("/%d", i+1))
+		}
+	}
 
-	testenv.StoreHits(ctx, t, false,
-		goatcounter.Hit{FirstVisit: true, Path: "/1"},
-		goatcounter.Hit{FirstVisit: true, Path: "/2"},
-		goatcounter.Hit{FirstVisit: true, Path: "/3"},
-		goatcounter.Hit{FirstVisit: true, Path: "/4"},
-		goatcounter.Hit{FirstVisit: true, Path: "/5"},
-		goatcounter.Hit{FirstVisit: true, Path: "/6"},
-		goatcounter.Hit{FirstVisit: true, Path: "/7"},
-		goatcounter.Hit{FirstVisit: true, Path: "/8"},
-		goatcounter.Hit{FirstVisit: true, Path: "/9"},
-		goatcounter.Hit{FirstVisit: true, Path: "/10"},
-	)
-	url := fmt.Sprintf(
-		"/load-widget?widget=1&exclude=1,2,3,4,5&max=10&total=10&period-start=%s&period-end=%s",
+	url := fmt.Sprintf("/load-widget?widget=pages&offset=5&total=10&period-start=%s&period-end=%s",
 		now.Format("2006-01-02"), now.Format("2006-01-02"))
-
 	r, rr := newTest(ctx, "GET", url, nil)
 	login(t, r)
-	newBackend(ctx).ServeHTTP(rr, r)
+	handler.ServeHTTP(rr, r)
 	testutil.Code(t, rr, 200)
 
 	var body map[string]any
 	testutil.MustUnmarshal(rr.Body.Bytes(), &body)
-
-	haveHTML := strings.Join(regexp.MustCompile(`data-id="[0-9]+"`).FindAllString(string(body["html"].(string)), -1), " ")
-	wantHTML := `data-id="10" data-id="9" data-id="8" data-id="7" data-id="6"`
-
-	delete(body, "html")
-	haveJSON := string(testutil.MustMarshalIndent(body, "", "\t"))
-	wantJSON := `{
-		"max": 10,
-		"more": false,
-		"total_display": 5
-	}`
-
+	haveHTML := strings.Join(regexp.MustCompile(`data-id="[^"]+"`).FindAllString(body["html"].(string), -1), " ")
+	wantHTML := `data-id="/5" data-id="/4" data-id="/3" data-id="/2" data-id="/1"`
 	if d := testutil.Diff(haveHTML, wantHTML); d != "" {
 		t.Error(d)
 	}
-	if d := testutil.Diff(haveJSON, wantJSON, testutil.DiffNormalizeWhitespace); d != "" {
-		t.Error(d)
+	if body["more"] != false {
+		t.Errorf("more=%v", body["more"])
+	}
+}
+
+func TestCountMethod(t *testing.T) {
+	ctx := testenv.DB(t)
+	r, rr := newTest(ctx, "GET", "/count?p=/x&site=example.com", nil)
+	newBackend(ctx).ServeHTTP(rr, r)
+	if rr.Code < 400 || rr.Code >= 500 {
+		t.Errorf("GET /count: %d; want a 4xx error", rr.Code)
 	}
 }
 
 func BenchmarkCount(b *testing.B) {
 	ctx := testenv.DB(b)
-
-	r, rr := newTest(ctx, "GET", "/count", nil)
-	r.URL.RawQuery = url.Values{
-		"p": {"/test.html"},
-		"t": {"Benchmark test for /count"},
-		"r": {"https://example.com/foo"},
-	}.Encode()
-	r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
-	r.Header.Set("Referer", "https://example.com/foo")
-
-	handler := newBackend(ctx).ServeHTTP
-
+	handler := newBackend(ctx)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		handler(rr, r)
+		count(b, ctx, handler, "10.0.0.1", "/test.html")
 	}
 }
 
 func newBackend(ctx context.Context) chi.Router {
 	return NewBackend(database.MustGetDB(ctx), true,
-		"example.com", "", 10, NewRatelimits(), "", Auth{Mode: AuthPublic})
+		"example.com", "", 10, NewRatelimits(), Auth{Mode: AuthPublic})
 }

@@ -23,7 +23,7 @@ func TestStaticFiles(t *testing.T) {
 				if standalone {
 					router = NewStatic(chi.NewRouter(), dev, base)
 				} else {
-					router = NewBackend(nil, dev, "", base, 10, Ratelimits{}, "", Auth{Mode: AuthBasic})
+					router = NewBackend(nil, dev, "", base, 10, Ratelimits{}, Auth{Mode: AuthBasic})
 				}
 				for _, tt := range []struct {
 					path, body, cache string

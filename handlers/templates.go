@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,9 +40,9 @@ func LoadTemplates(files fs.FS) error {
 			}
 			return p
 		},
-		"horizontal_chart":       horizontalChart,
-		"horizontal_chart_refs":  horizontalChartRefs,
-		"horizontal_chart_pages": horizontalChartPages,
+		"change": metricChange,
+		"metric": func(key, label, value string, c change) metric { return metric{key, label, value, c} },
+		"list":   func(s ...string) []string { return s },
 	}).ParseFS(files, "*.gohtml")
 	if err != nil {
 		return err
@@ -81,4 +82,39 @@ func formatNumber(n int) string {
 		s = s[:i] + "\u202f" + s[i:]
 	}
 	return s
+}
+
+// metric is one of the totals on the dashboard.
+type metric struct {
+	Key, Label, Value string
+	Change            change
+}
+
+type change struct {
+	Show, Up, Good bool
+	Text           string
+}
+
+// metricChange describes the change of a metric from the previous period.
+// lowerIsBetter is for the bounce rate.
+func metricChange(cur, prev any, lowerIsBetter bool) change {
+	f := func(v any) float64 {
+		switch v := v.(type) {
+		case int:
+			return float64(v)
+		case float64:
+			return v
+		}
+		return 0
+	}
+	pct, ok := goatcounter.Change(f(cur), f(prev))
+	if !ok {
+		return change{}
+	}
+	c := change{Show: true, Up: pct >= 0, Text: fmt.Sprintf("%.0f%%", math.Abs(pct))}
+	c.Good = c.Up != lowerIsBetter
+	if c.Text == "0%" {
+		c.Good, c.Up = true, true
+	}
+	return c
 }

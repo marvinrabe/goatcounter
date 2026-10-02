@@ -9,10 +9,10 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
-// DashboardMetrics contains session-level metrics that can be calculated from
-// the raw hits table. A session is a visit; GoatCounter intentionally does not
-// keep a durable visitor identifier, so unique visitors are not available.
+// DashboardMetrics contains visit-level totals. A visit (session) ends after
+// 30 minutes of inactivity; a visitor is unique per day, as in Plausible.
 type DashboardMetrics struct {
+	Visitors             int     `db:"visitors"`
 	Visits               int     `db:"visits"`
 	Pageviews            int     `db:"pageviews"`
 	BounceRate           float64 `db:"bounce_rate"`
@@ -22,6 +22,7 @@ type DashboardMetrics struct {
 type DashboardMetricPoint struct {
 	Day           string  `json:"day"`
 	Hour          int     `json:"hour,omitempty"`
+	Visitors      float64 `json:"visitors"`
 	Visits        float64 `json:"visits"`
 	Pageviews     float64 `json:"pageviews"`
 	ViewsPerVisit float64 `json:"views_per_visit"`
@@ -32,16 +33,21 @@ type DashboardMetricPoint struct {
 type DashboardMetricSeries struct {
 	Group  string                 `json:"group"`
 	Points []DashboardMetricPoint `json:"points"`
+	// The previous period, aligned point by point with Points.
+	Prev []DashboardMetricPoint `json:"prev,omitempty"`
 }
 
-// DashboardData contains totals and chart points from a single session query.
+// DashboardData contains totals and chart points, for both the selected
+// period and the period of the same length right before it.
 type DashboardData struct {
 	Metrics DashboardMetrics
+	Prev    DashboardMetrics
 	Series  DashboardMetricSeries
 }
 
 type dashboardMetricBucket struct {
 	Hour      string  `db:"hour"`
+	Visitors  int     `db:"visitors"`
 	Visits    int     `db:"visits"`
 	Pageviews int     `db:"pageviews"`
 	Bounces   int     `db:"bounces"`
@@ -59,29 +65,36 @@ func (m DashboardMetrics) VisitDuration() time.Duration {
 	return time.Duration(m.VisitDurationSeconds * float64(time.Second)).Round(time.Second)
 }
 
-// GetDashboardMetrics calculates visit and pageview metrics for a period. Only
-// pageviews are included: custom events are not visits and cannot be bounces.
-func GetDashboardMetrics(ctx context.Context, rng datetime.Range, pathFilter PathFilter) (DashboardMetrics, error) {
-	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
-	var m DashboardMetrics
-	err := database.Get(ctx, &m, "load:dashboard_metrics.Get", filterParams, map[string]any{
-		"start":  rng.Start,
-		"end":    rng.End,
-		"filter": filterSQL,
-	})
-	if err != nil {
-		err = fmt.Errorf("GetDashboardMetrics: %w", err)
+// Change returns the relative change from prev to cur in percent, and false
+// if there is nothing to compare to.
+func Change(cur, prev float64) (float64, bool) {
+	if prev == 0 {
+		return 0, false
 	}
-	return m, err
+	return (cur - prev) / prev * 100, true
 }
 
-// GetDashboardMetricSeries returns the five available metrics using the same
-// buckets as the dashboard's current grouping control.
-func GetDashboardMetricSeries(
-	ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group,
-) (DashboardMetricSeries, error) {
-	data, err := GetDashboardData(ctx, rng, pathFilter, group)
-	return data.Series, err
+// PrevRange is the period of the same length right before rng.
+func PrevRange(rng datetime.Range) datetime.Range {
+	d := rng.End.Sub(rng.Start) + time.Second
+	return datetime.NewRange(rng.Start.Add(-d)).To(rng.End.Add(-d))
+}
+
+// rangeParams are the query parameters shared by all dashboard queries.
+func rangeParams(ctx context.Context, rng datetime.Range, pathFilter PathFilter, pathCol, nameCol string) map[string]any {
+	filter, params := pathFilter.SQL(pathCol, nameCol)
+	params["site"] = MustGetSite(ctx).Key
+	params["start"] = rng.Start.Unix()
+	params["end"] = rng.End.Unix()
+	params["filter"] = filter
+	return params
+}
+
+// Hourly buckets are selected in UTC and converted here, so that a period
+// with a DST change still has correct days.
+func localHour(ctx context.Context, utcHour string) (time.Time, error) {
+	t, err := time.ParseInLocation("2006-01-02 15", utcHour, time.UTC)
+	return t.In(Config(ctx).Timezone.Loc()), err
 }
 
 // GetDashboardData calculates totals and chart points together. Totals are
@@ -89,49 +102,174 @@ func GetDashboardMetricSeries(
 func GetDashboardData(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) (DashboardData, error) {
 	loc := Config(ctx).Timezone.Loc()
 	group = ChartGroup(rng.In(loc), group)
-	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
-	var rows []dashboardMetricBucket
-	err := database.Select(ctx, &rows, "load:dashboard_metrics.Series", filterParams, map[string]any{
-		"start":   rng.Start,
-		"end":     rng.End,
-		"filter":  filterSQL,
-		"offset":  Config(ctx).Timezone.Offset(),
-		"offset2": fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-	})
+
+	cur, metrics, err := metricBuckets(ctx, rng, pathFilter, group)
 	if err != nil {
-		return DashboardData{}, fmt.Errorf("GetDashboardData: %w", err)
+		return DashboardData{}, err
+	}
+	prevRng := PrevRange(rng)
+	prev, prevMetrics, err := metricBuckets(ctx, prevRng, pathFilter, group)
+	if err != nil {
+		return DashboardData{}, err
 	}
 
-	start := metricBucketStart(rng.Start.In(loc), group)
-	end := rng.End.In(loc)
-	buckets := make(map[string]dashboardMetricBucket)
+	series := DashboardMetricSeries{Group: group.String()}
+	series.Points, err = metricPoints(ctx, cur, rng.In(loc), group)
+	if err != nil {
+		return DashboardData{}, err
+	}
+	series.Prev, err = metricPoints(ctx, prev, prevRng.In(loc), group)
+	if err != nil {
+		return DashboardData{}, err
+	}
+	// Only full periods line up; a weekly group can have an extra week.
+	series.Prev = series.Prev[:min(len(series.Prev), len(series.Points))]
+	return DashboardData{Metrics: metrics, Prev: prevMetrics, Series: series}, nil
+}
+
+// metricBuckets loads per-hour buckets in the local timezone, keyed as
+// "2006-01-02 15", and the totals for the period.
+func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) (map[string]dashboardMetricBucket, DashboardMetrics, error) {
+	params := rangeParams(ctx, rng, pathFilter, "path", "name")
+
+	// Each visit is counted in the hour of its first pageview. As in
+	// Plausible, a custom event (such as an outbound link click) makes a
+	// visit not a bounce, and counts for its duration. With a filter only the
+	// matching events are considered, as if the others didn't exist.
+	var rows []dashboardMetricBucket
+	err := database.Select(ctx, &rows, `
+		with visits as (
+			select
+				min(case when name = 'pageview' then ts end) as started,
+				sum(name = 'pageview')                       as pageviews,
+				sum(name <> 'pageview')                      as custom_events,
+				max(ts) - min(ts)                            as duration
+			from events
+			where site = :site and aggregate = '' and ts >= :start and ts <= :end and :filter
+			group by session
+			-- Not the alias: events has a pageviews column for migrated rows.
+			having sum(name = 'pageview') > 0
+		)
+		select
+			strftime('%Y-%m-%d %H', started, 'unixepoch')      as hour,
+			count(*)                                           as visits,
+			sum(pageviews)                                     as pageviews,
+			sum(pageviews = 1 and custom_events = 0)           as bounces,
+			sum(duration)                                      as duration
+		from visits
+		group by hour`, params)
+	if err != nil {
+		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData: %w", err)
+	}
+
 	var total dashboardMetricBucket
-	for _, row := range rows {
-		total.Visits += row.Visits
-		total.Pageviews += row.Pageviews
-		total.Bounces += row.Bounces
-		total.Duration += row.Duration
-		t, err := time.ParseInLocation("2006-01-02 15", row.Hour, loc)
-		if err != nil {
-			return DashboardData{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
-		}
+	buckets := make(map[string]dashboardMetricBucket)
+	add := func(t time.Time, row dashboardMetricBucket) {
 		key := metricBucketStart(t, group).Format("2006-01-02 15")
 		b := buckets[key]
+		b.Visitors += row.Visitors
 		b.Visits += row.Visits
 		b.Pageviews += row.Pageviews
 		b.Bounces += row.Bounces
 		b.Duration += row.Duration
 		buckets[key] = b
+		total.Visits += row.Visits
+		total.Pageviews += row.Pageviews
+		total.Bounces += row.Bounces
+		total.Duration += row.Duration
+	}
+	for _, row := range rows {
+		t, err := localHour(ctx, row.Hour)
+		if err != nil {
+			return nil, DashboardMetrics{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
+		}
+		add(t, row)
 	}
 
-	series := DashboardMetricSeries{Group: group.String()}
-	for at := start; !at.After(end); at = nextMetricBucket(at, group) {
+	// A visitor is counted once in every bucket they were active in.
+	var visitorHours []struct {
+		Hour    string `db:"hour"`
+		Visitor int64  `db:"visitor"`
+	}
+	err = database.Select(ctx, &visitorHours, `
+		select distinct strftime('%Y-%m-%d %H', ts, 'unixepoch') as hour, visitor
+		from events
+		where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter`, params)
+	if err != nil {
+		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData visitors: %w", err)
+	}
+	type bucketVisitor struct {
+		key     string
+		visitor int64
+	}
+	var (
+		seen          = make(map[bucketVisitor]struct{}, len(visitorHours))
+		seenTotal     = make(map[int64]struct{}, len(visitorHours))
+		totalVisitors int
+	)
+	for _, row := range visitorHours {
+		t, err := localHour(ctx, row.Hour)
+		if err != nil {
+			return nil, DashboardMetrics{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
+		}
+		k := bucketVisitor{metricBucketStart(t, group).Format("2006-01-02 15"), row.Visitor}
+		if _, ok := seen[k]; !ok {
+			seen[k] = struct{}{}
+			b := buckets[k.key]
+			b.Visitors++
+			buckets[k.key] = b
+		}
+		seenTotal[row.Visitor] = struct{}{}
+	}
+	totalVisitors = len(seenTotal)
+
+	// Migrated Plausible rows are daily totals, at midnight. A filtered report
+	// can only use the per-page totals; bounce and duration can't be
+	// reconstructed by path.
+	kind := "visitors"
+	if !pathFilter.Empty() {
+		kind = "pages"
+	}
+	iparams := rangeParams(ctx, rng, pathFilter, "path", "")
+	iparams["kind"] = kind
+	var migrated []dashboardMetricBucket
+	err = database.Select(ctx, &migrated, `
+		select strftime('%Y-%m-%d %H', ts, 'unixepoch') as hour,
+			sum(visitors) as visitors, sum(visits) as visits, sum(pageviews) as pageviews,
+			sum(bounces) as bounces, sum(visit_duration) as duration
+		from events
+		where site = :site and aggregate = :kind and ts >= :start and ts <= :end and :filter
+		group by ts`, iparams)
+	if err != nil {
+		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData migrated: %w", err)
+	}
+	for _, row := range migrated {
+		t, err := localHour(ctx, row.Hour)
+		if err != nil {
+			return nil, DashboardMetrics{}, fmt.Errorf("parse migrated bucket: %w", err)
+		}
+		add(t, row)
+		totalVisitors += row.Visitors
+	}
+
+	metrics := DashboardMetrics{Visitors: totalVisitors, Visits: total.Visits, Pageviews: total.Pageviews}
+	if total.Visits > 0 {
+		metrics.BounceRate = 100 * float64(total.Bounces) / float64(total.Visits)
+		metrics.VisitDurationSeconds = total.Duration / float64(total.Visits)
+	}
+	return buckets, metrics, nil
+}
+
+func metricPoints(ctx context.Context, buckets map[string]dashboardMetricBucket, rng datetime.Range, group Group) ([]DashboardMetricPoint, error) {
+	var points []DashboardMetricPoint
+	for at := metricBucketStart(rng.Start, group); !at.After(rng.End); at = nextMetricBucket(at, group) {
 		if err := ctx.Err(); err != nil {
-			return DashboardData{}, err
+			return nil, err
 		}
 		b := buckets[at.Format("2006-01-02 15")]
 		p := DashboardMetricPoint{
 			Day:       at.Format("2006-01-02"),
+			Visitors:  float64(b.Visitors),
 			Visits:    float64(b.Visits),
 			Pageviews: float64(b.Pageviews),
 		}
@@ -143,14 +281,9 @@ func GetDashboardData(ctx context.Context, rng datetime.Range, pathFilter PathFi
 			p.BounceRate = float64(b.Bounces) / float64(b.Visits) * 100
 			p.VisitDuration = b.Duration / float64(b.Visits)
 		}
-		series.Points = append(series.Points, p)
+		points = append(points, p)
 	}
-	metrics := DashboardMetrics{Visits: total.Visits, Pageviews: total.Pageviews}
-	if total.Visits > 0 {
-		metrics.BounceRate = 100 * float64(total.Bounces) / float64(total.Visits)
-		metrics.VisitDurationSeconds = total.Duration / float64(total.Visits)
-	}
-	return DashboardData{Metrics: metrics, Series: series}, nil
+	return points, nil
 }
 
 // ChartGroup coarsens long ranges without changing their dates. This bounds
@@ -208,24 +341,4 @@ func nextMetricBucket(t time.Time, group Group) time.Time {
 		return t.AddDate(1, 0, 0)
 	}
 	return t.AddDate(0, 0, 1)
-}
-
-// PageviewTotals returns the raw pageview time series used by the main chart.
-// This differs from Totals, which counts a path at most once per session.
-func (h *HitList) PageviewTotals(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) error {
-	filterSQL, filterParams := pathFilter.SQL(ctx, "hits")
-	err := database.Get(ctx, &h.Stats2, "load:dashboard_metrics.Pageviews", filterParams, map[string]any{
-		"start":   rng.Start,
-		"end":     rng.End,
-		"filter":  filterSQL,
-		"offset":  Config(ctx).Timezone.Offset(),
-		"offset2": fmt.Sprintf("%d minutes", Config(ctx).Timezone.Offset()),
-	})
-	if err != nil {
-		return fmt.Errorf("HitList.PageviewTotals: %w", err)
-	}
-
-	h.Count, h.Path = h.sum(ctx, rng, group), PathTotals
-	h.Max = max(h.Max, 10)
-	return nil
 }

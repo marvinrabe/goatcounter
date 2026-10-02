@@ -11,7 +11,7 @@ import (
 )
 
 func NewBackend(db database.DB, dev bool,
-	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits, apiToken string, auth Auth,
+	domainStatic string, basePath string, dashTimeout int, ratelimits Ratelimits, auth Auth,
 ) chi.Router {
 
 	root := chi.NewRouter()
@@ -21,7 +21,7 @@ func NewBackend(db database.DB, dev bool,
 		root.Mount(basePath, r)
 	}
 
-	backend{dashTimeout: dashTimeout, apiToken: apiToken}.Mount(r, db, dev, domainStatic, basePath, ratelimits, auth)
+	backend{dashTimeout: dashTimeout}.Mount(r, db, dev, domainStatic, basePath, ratelimits, auth)
 
 	NewStatic(r, dev, basePath)
 
@@ -30,7 +30,6 @@ func NewBackend(db database.DB, dev bool,
 
 type backend struct {
 	dashTimeout int
-	apiToken    string
 }
 
 func (h backend) Mount(r chi.Router, db database.DB, dev bool, domainStatic, basePath string, ratelimits Ratelimits, auth Auth) {
@@ -62,8 +61,7 @@ func (h backend) Mount(r chi.Router, db database.DB, dev bool, domainStatic, bas
 		rr.Post("/csp", clientReport)
 
 		rate := rr.With(ratelimits.countMiddleware(dev), selectSite(true))
-		rate.Get("/count", httpx.Wrap(h.count))
-		rate.Post("/count", httpx.Wrap(h.count)) // to support navigator.sendBeacon (JS)
+		rate.Post("/count", httpx.Wrap(h.count))
 	}
 
 	a := r.With(securityHeaders(http.Header{
@@ -78,12 +76,4 @@ func (h backend) Mount(r chi.Router, db database.DB, dev bool, domainStatic, bas
 	af := a.With(requestContext(time.Duration(h.dashTimeout+1)*time.Second), auth.Middleware, selectSite(false))
 	af.Get("/", httpx.Wrap(h.dashboard))
 	af.Get("/load-widget", httpx.Wrap(h.loadWidget))
-
-	// An empty token disables the API completely: no route is registered.
-	if h.apiToken != "" {
-		// API actions select their own sites from their arguments.
-		api := a.With(requestContext(time.Duration(h.dashTimeout)*time.Second), h.bearerAuth)
-		api.Get("/api", h.api)
-		api.Post("/api", h.api)
-	}
 }

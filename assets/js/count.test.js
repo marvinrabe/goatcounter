@@ -29,11 +29,12 @@ function load({page = 'https://example.com/docs?ref=newsletter#intro', dataset =
 				requests.push({type: 'beacon', url: new URL(url)})
 			return beacon
 		}
-	class Image {
-		set src(url) { requests.push({type: 'image', url: new URL(url)}) }
+	const fetch = (url, options) => {
+		requests.push({type: 'fetch', url: new URL(url), options})
+		return Promise.resolve()
 	}
 	const location = new URL(page)
-	runInNewContext(source, {window, document, navigator, location, URL, Image,
+	runInNewContext(source, {window, document, navigator, location, URL, fetch,
 		console: {error: (...args) => errors.push(args)}})
 	return {requests, errors, counter: window.goatcounter, location, document,
 		show(state) {
@@ -66,12 +67,10 @@ test('counts a pageview with the collection fields and script-relative endpoint'
 	assert.equal(type, 'beacon')
 	assert.equal(url.origin + url.pathname, 'https://stats.example.com/analytics/count')
 	const data = Object.fromEntries(url.searchParams)
-	assert.ok(data.rnd)
-	delete data.rnd
 	assert.deepEqual(data, {
 		site: 'example.com', p: '/docs?ref=newsletter',
-		r: 'https://search.example/query?q=docs', e: 'false', ns: 'false',
-		s: '1440', b: '0',
+		r: 'https://search.example/query?q=docs', h: 'example.com', n: '', pr: '',
+		ns: 'false', s: '1440', b: '0',
 	})
 })
 
@@ -89,10 +88,11 @@ test('resolves endpoint overrides against the page and preserves their query', (
 test('manual events and pageviews use current values without leaking previous options', () => {
 	const {counter, requests, location} = load({settings: {no_onload: true}})
 	assert.equal(requests.length, 0)
-	counter.count({path: 'Download & share', event: true, referrer: '', no_session: true, site: 'other.example'})
+	counter.count({event: 'Download & share', props: {file: 'a.pdf'}, referrer: '', no_session: true, site: 'other.example'})
 	const event = requests[0].url.searchParams
-	assert.equal(event.get('p'), 'Download & share')
-	assert.equal(event.get('e'), 'true')
+	assert.equal(event.get('p'), '/docs?ref=newsletter')
+	assert.equal(event.get('n'), 'Download & share')
+	assert.equal(event.get('pr'), '{"file":"a.pdf"}')
 	assert.equal(event.get('r'), '')
 	assert.equal(event.get('ns'), 'true')
 	assert.equal(event.get('site'), 'other.example')
@@ -101,7 +101,8 @@ test('manual events and pageviews use current values without leaking previous op
 	const page = requests[1].url.searchParams
 	assert.equal(page.get('p'), '/next?ref=next')
 	assert.equal(page.has('q'), false)
-	assert.equal(page.get('e'), 'false')
+	assert.equal(page.get('n'), '')
+	assert.equal(page.get('pr'), '')
 	assert.equal(page.get('ns'), 'false')
 	assert.equal(page.get('site'), 'example.com')
 })
@@ -138,11 +139,11 @@ test('counts each back/forward cache restore without duplicating the first view'
 	assert.equal(manual.requests.length, 0)
 })
 
-test('falls back to an image when beacons are unavailable, rejected, or throw', () => {
+test('falls back to fetch when beacons are unavailable, rejected, or throw', () => {
 	for (const beacon of [null, false, new Error('blocked')]) {
 		const {requests} = load({beacon})
 		assert.equal(requests.length, 1)
-		assert.equal(requests[0].type, 'image')
+		assert.equal(requests[0].type, 'fetch')
 		assert.equal(requests[0].url.searchParams.get('p'), '/docs?ref=newsletter')
 	}
 })
@@ -165,4 +166,22 @@ test('marks automated browsers and refuses manual counts during prerendering', (
 	const {counter, requests} = load({visibility: 'prerender', settings: {no_onload: true}})
 	counter.count()
 	assert.equal(requests.length, 0)
+})
+
+test('counts clicks on outbound links', () => {
+	const {document, requests} = load({settings: {no_onload: true}})
+	const click = (href) => {
+		const link = new URL(href)
+		const event = new Event('click')
+		Object.defineProperty(event, 'target', {value: {closest: () => link}})
+		document.dispatchEvent(event)
+	}
+	click('https://example.com/internal')
+	click('mailto:someone@example.org')
+	assert.equal(requests.length, 0)
+	click('https://other.example/page?x=1')
+	assert.equal(requests.length, 1)
+	const data = requests[0].url.searchParams
+	assert.equal(data.get('n'), 'Outbound Link: Click')
+	assert.equal(data.get('pr'), '{"url":"https://other.example/page?x=1"}')
 })

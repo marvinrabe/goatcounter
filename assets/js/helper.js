@@ -53,13 +53,6 @@ var parse_html = function(html) {
 	return t.content
 }
 
-// The rows out of a "rows only" widget response, which is a div.rows wrapping
-// them with the pagination links as siblings. The equivalent of what
-// $(html).find('>div') used to do.
-var parse_rows = (html) => Array.from(parse_html(html).children).
-	flatMap((n) => Array.from(n.children)).
-	filter((c) => c.tagName === 'DIV')
-
 // Is this element visible, i.e. does it generate a layout box?
 var is_visible = (elem) => !!elem && (elem.offsetWidth > 0 || elem.offsetHeight > 0 || elem.getClientRects().length > 0)
 
@@ -181,5 +174,4 @@ export {
 	on,
 	paginate_button,
 	parse_html,
-	parse_rows,
 }

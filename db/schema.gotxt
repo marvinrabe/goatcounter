@@ -1,232 +1,91 @@
--- GoatCounter database schema (SQLite).
+-- GoatCounter database schema (SQLite / libSQL).
 --
 -- Sites are configured through GOATCOUNTER_SITES; there is intentionally no
 -- sites table. The configured site name is stored as `site` on data rows.
+--
+-- Everything the dashboard shows is calculated from these tables at query
+-- time; there are no derived aggregate tables to keep in sync, and nothing
+-- is written outside of the /count request.
 
-create table hits (
-	hit_id         {{auto_increment true}},
-	site           varchar        not null,
-	path_id        integer        not null,
-	ref_id         integer        not null default 1,
+-- All analytics data: collected pageviews and custom events, and the history
+-- migrated from Plausible. Dimension names and values follow Plausible's, so
+-- both line up.
+--
+-- A collected row is one pageview or custom event; aggregate is ''.
+--
+-- A migrated row is one row of a Plausible export, with Plausible's counts
+-- in the metric columns at the end. The export has a daily total for each
+-- dimension separately (visits per browser per day, visits per source per
+-- day, …), and aggregate is the export file the row is from. It only has the
+-- dimensions of that file:
+--
+--   aggregate          dimensions
+--   visitors           (none)
+--   pages              hostname, path
+--   entry_pages        path
+--   exit_pages         path
+--   sources            source, referrer, utm_*
+--   browsers           browser, browser_version
+--   operating_systems  os, os_version
+--   devices            device
+--   locations          country, region, city
+--   custom_events      name, props ({"url": …} or {"path": …})
+--   custom_props       props ({"property": "value"})
+--
+-- Its ts is midnight of the day in the dashboard timezone, so date ranges
+-- select collected and migrated rows the same way.
+create table events (
+	site             text     not null,
+	ts               integer  not null,                 -- Unix time, seconds.
+	aggregate        text     not null default '',      -- '' for collected rows; see above.
+	visitor          integer  not null default 0,       -- Hash of daily salt, site, IP, and User-Agent.
+	session          integer  not null default 0,       -- Visit; ends after 30 minutes of inactivity.
+	name             text     not null default 'pageview', -- "pageview", or a custom event name.
+	hostname         text     not null default '',      -- Without "www.".
+	path             text     not null default '',      -- URL path as sent: decoded, without query string.
+	props            text     not null default '',      -- Custom event properties as a JSON object.
 
-	session        {{blob}}       default null,
-	first_visit    integer        default 0,
+	source           text     not null default '',      -- "Google", "news.ycombinator.com", or utm_source.
+	referrer         text     not null default '',      -- Host without "www." and path.
+	utm_source       text     not null default '',
+	utm_medium       text     not null default '',
+	utm_campaign     text     not null default '',
+	utm_content      text     not null default '',
+	utm_term         text     not null default '',
 
-	browser_id     integer        not null,
-	system_id      integer        not null,
-	campaign       integer        default null,
-	width          int            null,
-	location       varchar        not null default '',
-	language       varchar        default null,
+	browser          text     not null default '',
+	browser_version  text     not null default '',      -- major.minor
+	os               text     not null default '',
+	os_version       text     not null default '',
+	width            integer  not null default 0,       -- Screen width in CSS pixels; 0 if unknown.
+	device           text     not null default '',      -- Migrated only: Mobile, Tablet, Laptop, Desktop.
 
-	created_at     timestamp      not null                 check(strftime('%s', created_at) is not null)
-);
-create index "hits#site#created_at" on hits(site, datetime(created_at) desc);
+	country          text     not null default '',      -- ISO 3166-1 alpha-2.
+	region           text     not null default '',      -- ISO 3166-2, e.g. "DE-HE".
+	city             integer  not null default 0,       -- GeoNames ID.
+	language         text     not null default '',      -- ISO 639-3.
 
-create table bots (
-	site           varchar        not null,
-	path           text           not null,
-	bot            integer        not null,
-	user_agent     text           not null,
-	created_at     timestamp      not null                 check(strftime('%s', created_at) is not null)
-);
-create index "bots#site#created_at" on bots(site, created_at desc);
+	-- Plausible's counts for migrated rows; 0 for collected rows.
+	visitors                   integer  not null default 0,
+	visits                     integer  not null default 0,
+	pageviews                  integer  not null default 0,
+	bounces                    integer  not null default 0,
+	visit_duration             integer  not null default 0,
+	events                     integer  not null default 0,
+	entrances                  integer  not null default 0,
+	exits                      integer  not null default 0,
+	total_scroll_depth         integer  not null default 0,
+	total_scroll_depth_visits  integer  not null default 0,
+	total_time_on_page         integer  not null default 0,
+	total_time_on_page_visits  integer  not null default 0
+) strict;
+-- Covers the dashboard's range scans of collected and migrated rows, and the
+-- 30-minute session lookup done for every collected pageview.
+create index "events#site#aggregate#ts" on events(site, aggregate, ts, visitor, session);
 
-create table paths (
-	path_id        {{auto_increment}},
-	site           varchar        not null,
-
-	path           varchar        not null,
-	event          integer        default 0
-);
-create unique index "paths#site#path"  on paths(site, lower(path));
-
-create table campaigns (
-	campaign_id    {{auto_increment}},
-	name           varchar        not null
-);
-
-create table browsers (
-	browser_id     {{auto_increment}},
-
-	name           varchar,
-	version        varchar
-);
-create unique index "browsers#name#version" on browsers(name, version);
-
-create table systems (
-	system_id      {{auto_increment}},
-
-	name           varchar,
-	version        varchar
-);
-create unique index "systems#name#version"  on systems(name, version);
-
-create table refs (
-	ref_id         {{auto_increment}},
-	ref            varchar        not null,
-	ref_scheme     varchar        not null
-);
-insert into refs (ref, ref_scheme) values ('', 'o');
-create unique index "refs#ref#ref_scheme" on refs(lower(ref), ref_scheme);
-
-create table hit_counts (
-	site           varchar        not null,
-	path_id        integer        not null,
-
-	hour           timestamp      not null                 check(strftime('%s', hour) is not null),
-	total          integer        not null,
-
-	constraint "hit_counts#site#path_id#hour" unique(site, path_id, hour) on conflict replace
-);
-create index "hit_counts#site#hour" on hit_counts(site, datetime(hour));
-
-create table ref_counts (
-	site           varchar        not null,
-	path_id        integer        not null,
-
-	ref_id         integer        not null,
-	hour           timestamp      not null                 check(strftime('%s', hour) is not null),
-	total          integer        not null,
-
-	constraint "ref_counts#site#path_id#ref_id#hour" unique(site, path_id, ref_id, hour) on conflict replace
-);
-create index "ref_counts#site#hour" on ref_counts(site, datetime(hour));
-
--- IS rejects NULL from invalid dates; '+0 days' normalizes calendar overflows.
-create table browser_stats (
-	site           varchar        not null,
-	path_id        integer        not null,
-	browser_id     integer        not null,
-
-	day            date           not null                 check(day is date(day, '+0 days')),
-	count          integer        not null,
-
-	constraint "browser_stats#site#path_id#day#browser_id" unique(site, path_id, day, browser_id) on conflict replace
-);
-create index "browser_stats#site#day"   on browser_stats(site, day);
-create index "browser_stats#browser_id" on browser_stats(browser_id);
-
-create table system_stats (
-	site           varchar        not null,
-	path_id        integer        not null,
-	system_id      integer        not null,
-
-	day            date           not null                 check(day is date(day, '+0 days')),
-	count          integer        not null,
-
-	constraint "system_stats#site#path_id#day#system_id" unique(site, path_id, day, system_id) on conflict replace
-);
-create index "system_stats#site#day"  on system_stats(site, day);
-create index "system_stats#system_id" on system_stats(system_id);
-
-create table location_stats (
-	site           varchar        not null,
-	path_id        integer        not null,
-
-	day            date           not null                 check(day is date(day, '+0 days')),
-	location       varchar        not null,
-	count          integer        not null,
-
-	constraint "location_stats#site#path_id#day#location" unique(site, path_id, day, location) on conflict replace
-);
-create index "location_stats#site#day" on location_stats(site, day);
-create index "location_stats#location" on location_stats(location);
-
-create table language_stats (
-	site           varchar        not null,
-	path_id        integer        not null,
-
-	day            date           not null                 check(day is date(day, '+0 days')),
-	language       varchar        not null,
-	count          integer        not null,
-
-	constraint "language_stats#site#path_id#day#language" unique(site, path_id, day, language) on conflict replace
-);
-create index "language_stats#site#day" on language_stats(site, day);
-create index "language_stats#language" on language_stats(language);
-
-create table size_stats (
-	site           varchar        not null,
-	path_id        integer        not null,
-
-	day            date           not null                 check(day is date(day, '+0 days')),
-	width          integer        not null,
-	count          integer        not null,
-
-	constraint "size_stats#site#path_id#day#width" unique(site, path_id, day, width) on conflict replace
-);
-create index "size_stats#site#day" on size_stats(site, day);
-create index "size_stats#width" on size_stats(width);
-
-create table campaign_stats (
-	site           varchar        not null,
-	path_id        integer        not null,
-
-	day            date           not null                 check(day is date(day, '+0 days')),
-	campaign_id    integer        not null,
-	ref            varchar        not null,
-	count          integer        not null,
-
-	constraint "campaign_stats#site#path_id#campaign_id#ref#day" unique(site, path_id, campaign_id, ref, day) on conflict replace
-);
-create index "campaign_stats#site#day"    on campaign_stats(site, day);
-create index "campaign_stats#campaign_id" on campaign_stats(campaign_id);
-
-create table locations (
-	location_id    {{auto_increment}},
-
-	iso_3166_2     varchar        generated always as (country || (case region when '' then '' else ('-' || region) end)) stored,
-	country        varchar        not null,
-	region         varchar        not null,
-	country_name   varchar        not null,
-	region_name    varchar        not null
-);
-create unique index "locations#iso_3166_2" on locations(iso_3166_2);
-insert into locations (country, country_name, region, region_name) values ('', '(unknown)', '', ''); -- id=1 is special.
-
-create table languages (
-	iso_639_3      varchar        not null,
-	name           varchar        not null
-);
-create unique index "languages#iso_639_3" on languages(iso_639_3);
-insert into languages (iso_639_3, name) values ('', '(unknown)'); -- Not sent, or a language we don't know.
-{{include "languages.sql"}}
-
-create table filters (
-	filter_id     int        not null,
-	site          varchar    not null,
-	matches       int        not null,
-	invert        bool       not null default false,
-	query         text       not null,
-	created_at    timestamp  not null   check(strftime('%s', created_at) is not null),
-	last_used_at  timestamp  not null   check(strftime('%s', last_used_at) is not null)
-);
-create unique index "filters#filter_id" on filters(filter_id);
-create unique index "filters#site#query" on filters(site, lower(query));
-
-create table filter_paths (
-	filter_id  int   not null,
-	path_id    int   not null
-);
-create index "filter_paths#filter_id" on filter_paths(filter_id);
-
-create table hit_queue (
-    id integer primary key autoincrement,
-    site varchar not null,
-    payload blob not null
-);
-
-create table collector_sessions (
-    key varchar primary key,
-    site varchar not null,
-    session blob not null,
-    seen_at integer not null
-);
-create index "collector_sessions#seen_at" on collector_sessions(seen_at);
-
-create table collector_session_paths (
-    session blob not null,
-    path_id integer not null,
-    primary key(session, path_id)
-);
+-- Daily random salts for visitor hashes. Salts older than yesterday are
+-- deleted, after which visitor hashes can no longer be linked to an IP.
+create table salts (
+	day   text  not null primary key,
+	salt  blob  not null
+) strict;

@@ -4,6 +4,7 @@ package libsql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -46,14 +47,14 @@ func Open(ctx context.Context, opt database.ConnectOptions) (database.DB, error)
 	}
 	conn.SetMaxOpenConns(opt.MaxOpenConns)
 	conn.SetMaxIdleConns(opt.MaxIdleConns)
-	db := database.New(conn, files)
+	db := database.New(conn)
 	configureRemotePool(db, opt.Connect)
 	if files == nil {
 		return db, nil
 	}
 
 	var tables int
-	err = db.Get(ctx, &tables, `select count(*) from sqlite_schema where tbl_name != 'version'`)
+	err = db.Get(ctx, &tables, `select count(*) from sqlite_schema where tbl_name not in ('version', 'init_lock')`)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("libsql.Open: inspect schema: %w", err)
@@ -67,9 +68,19 @@ func Open(ctx context.Context, opt database.ConnectOptions) (database.DB, error)
 			db.Close()
 			return nil, err
 		}
+	} else {
+		var events int
+		if err := db.Get(ctx, &events, `select count(*) from sqlite_schema where type='table' and name='events'`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("libsql.Open: inspect schema: %w", err)
+		}
+		if events == 0 {
+			db.Close()
+			return nil, errors.New("libsql.Open: the database has an old schema without the events table; use a new database")
+		}
 	}
 
-	return db, err
+	return db, nil
 }
 
 // configureRemotePool disables idle connection reuse for remote databases.

@@ -1,7 +1,6 @@
 package geo
 
 import (
-	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -10,11 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
 )
@@ -43,18 +40,13 @@ func Open(path string) (*geoip2.Reader, error) {
 		return openBundled()
 	}
 	if strings.HasPrefix(path, "maxmind:") {
-		return nil, fmt.Errorf("automatic downloads during startup are unsupported; run geodb-update and configure its output path")
+		return nil, fmt.Errorf("automatic downloads are unsupported; download a GeoIP database and set its path")
 	}
 	return geoip2.Open(path)
 }
 
 // CacheDir contains only disposable copies of the embedded asset.
 var CacheDir = filepath.Join(os.TempDir(), "goatcounter-geoip")
-
-// Update downloads a Cities database explicitly, outside the web lifecycle.
-func Update(ctx context.Context, accountID, key, path string) error {
-	return fetchDB(ctx, accountID, key, path)
-}
 
 // openBundled extracts the embedded database to disk (once) and memory-maps it,
 // so that the ~10M of data lives in the page cache – where the kernel can
@@ -129,98 +121,4 @@ func bundleFromMemory() (*geoip2.Reader, error) {
 		return nil, err
 	}
 	return geoip2.FromBytes(d)
-}
-
-func fetch(ctx context.Context, accountID, key, p string) ([]byte, error) {
-	var (
-		c    = http.Client{Timeout: 10 * time.Second}
-		r, _ = http.NewRequestWithContext(ctx, "GET", p, nil)
-	)
-	r.SetBasicAuth(accountID, key)
-	r.Header.Add("User-Agent", "GoatCounter/1.0 (+https://github.com/arp242/goatcounter)")
-	resp, err := c.Do(r)
-	if err != nil {
-		return nil, fmt.Errorf("fetching %q: %w", p, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		if len(b) > 500 {
-			b = append(b[:500], []byte("…")...)
-		}
-		return nil, fmt.Errorf("fetching %q: %s: %s", p, resp.Status, string(b))
-	}
-	return io.ReadAll(resp.Body)
-}
-
-func fetchHash(ctx context.Context, accountID, key string) (string, error) {
-	p := "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256"
-	b, err := fetch(ctx, accountID, key, p)
-	if err != nil {
-		return "", err
-	}
-
-	f := strings.Fields(string(b))
-	if len(f) != 2 {
-		return "", fmt.Errorf("unexpected return for %q: %s", p, string(b))
-	}
-	return f[0], nil
-}
-
-func fetchDB(ctx context.Context, accountID, key, path string) error {
-	hash, err := fetchHash(ctx, accountID, key)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(filepath.Dir(path), 0o777)
-	if err != nil {
-		return err
-	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), "update-geodb-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		tmp.Close()
-		os.Remove(tmp.Name())
-	}()
-
-	p := "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz"
-	b, err := fetch(ctx, accountID, key, p)
-	if err != nil {
-		return err
-	}
-
-	h := sha256.New()
-	h.Write(b)
-	if hh := fmt.Sprintf("%x", h.Sum(nil)); hh != hash {
-		return fmt.Errorf("hash mismatch for %q: have %s, want %s", p, hh, hash)
-	}
-	gz, err := gzip.NewReader(bytes.NewReader(b))
-	if err != nil {
-		return fmt.Errorf("reading %q: %w", p, err)
-	}
-	defer gz.Close()
-	archive := tar.NewReader(gz)
-
-	for {
-		h, err := archive.Next()
-		if err != nil {
-			// Don't ignore io.EOF, as reaching this means we haven't seen a
-			// mmdb file
-			return fmt.Errorf("reading %q: %w", p, err)
-		}
-		if strings.HasSuffix(h.Name, ".mmdb") {
-			_, err := io.Copy(tmp, archive)
-			if err != nil {
-				return fmt.Errorf("writing %q: %w", tmp.Name(), err)
-			}
-			if err := tmp.Close(); err != nil {
-				return fmt.Errorf("writing %q: %w", tmp.Name(), err)
-			}
-			return os.Rename(tmp.Name(), path)
-		}
-	}
 }
