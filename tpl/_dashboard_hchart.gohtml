@@ -1,21 +1,15 @@
 {{- if .RowsOnly -}}
 	{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .TotalUTC .HasSubMenu true)}}{{else}}Loading…{{end}}
 {{- else -}}
-	<div class="hchart widget-{{if $.Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
-		<div class="widget-header">
-			<h2>{{.Header}}</h2>
-		</div>
+	<div class="hchart widget-{{if $.Loaded}}loaded{{else}}loading{{end}} text-sm" data-widget="{{.ID}}">
+		<div class="widget-header hidden"><h2>{{.Header}}</h2></div>
 		{{if and (eq .Name "locations") .MostlyUnknown}}
-			<div class="not-collected">
+			<div class="mb-3 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-900 dark:bg-yellow-300/10 dark:text-yellow-200">
 				Location lookups don't seem to work, and you probably need to configure your proxy.<br>
-				This message is displayed when (unknown) is the top location,
-				and it may take a few days to clear.
+				This message is displayed when (unknown) is the top location, and it may take a few days to clear.
 			</div>
 		{{end}}
-		{{if .Err}}
-			<em>Error: {{.Err.Error}}</em>
-		{{else}}
-			{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .TotalUTC .HasSubMenu true)}}{{else}}Loading…{{end}}
-		{{end}}
+		{{if .Err}}<em class="text-red-600 dark:text-red-400">Error: {{.Err.Error}}</em>
+		{{else}}{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .TotalUTC .HasSubMenu true)}}{{else}}Loading…{{end}}{{end}}
 	</div>
 {{- end -}}

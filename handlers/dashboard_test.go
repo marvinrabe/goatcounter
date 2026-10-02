@@ -36,6 +36,10 @@ func TestDashboard(t *testing.T) {
 			if strings.Contains(rr.Body.String(), "No data received") || !strings.Contains(rr.Body.String(), `id="dash-widgets"`) {
 				t.Error("empty sites should display the regular dashboard")
 			}
+			groupInputs := regexp.MustCompile(`<input[^>]+type="hidden"[^>]+name="group"[^>]*>`).FindAllString(rr.Body.String(), -1)
+			if len(groupInputs) != 1 || !strings.Contains(groupInputs[0], `id="hl-group"`) || strings.Contains(groupInputs[0], "disabled") {
+				t.Errorf("expected one enabled hidden group input, got %v", groupInputs)
+			}
 			for _, input := range regexp.MustCompile(`<input[^>]+name="period-(?:start|end)"[^>]*>`).FindAllString(rr.Body.String(), -1) {
 				if strings.Contains(input, "min=") || strings.Contains(input, "max=") {
 					t.Errorf("date input still restricts available dates: %s", input)
@@ -110,6 +114,31 @@ func TestGetPeriodWithoutSiteMetadata(t *testing.T) {
 	}
 }
 
+func TestHighlightedPeriodMatchesDates(t *testing.T) {
+	ctx := datetime.WithNow(testenv.Context(nil), datetime.FromString("2026-09-02"))
+	for _, tt := range []struct {
+		name, query, want string
+	}{
+		{"default", "", "week"},
+		{"selected week", "period-start=2026-08-26&period-end=2026-09-02&hl-period=week", "week"},
+		{"stale week on month range", "period-start=2026-08-02&period-end=2026-09-02&hl-period=week", ""},
+		{"selected month", "period-start=2026-08-02&period-end=2026-09-02&hl-period=month", "month"},
+		{"custom range", "period-start=2026-08-02&period-end=2026-09-02", ""},
+		{"old week range", "period-start=2026-08-02&period-end=2026-08-09&hl-period=week", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/?"+tt.query, nil).WithContext(ctx)
+			rng, err := getPeriod(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := highlightedPeriod(r, rng); got != tt.want {
+				t.Errorf("highlighted period = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDashboardPastAndFuture(t *testing.T) {
 	for _, date := range []string{"2000-01-01", "2100-01-01"} {
 		runTest(t, handlerTest{
@@ -166,6 +195,8 @@ func TestGetGroup(t *testing.T) {
 		{30, goatcounter.GroupWeekly, "", goatcounter.GroupHourly,
 			goatcounter.Groups{goatcounter.GroupHourly, goatcounter.GroupDaily}},
 		{30, goatcounter.GroupDaily, "hour", goatcounter.GroupHourly,
+			goatcounter.Groups{goatcounter.GroupHourly, goatcounter.GroupDaily}},
+		{30, goatcounter.GroupHourly, "day&group=hour", goatcounter.GroupDaily,
 			goatcounter.Groups{goatcounter.GroupHourly, goatcounter.GroupDaily}},
 
 		{120, goatcounter.GroupHourly, "", goatcounter.GroupDaily,

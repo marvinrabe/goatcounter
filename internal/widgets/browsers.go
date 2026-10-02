@@ -32,11 +32,7 @@ func (w Browsers) ID() int                  { return w.id }
 func (w *Browsers) SetDetail(d string) { w.Detail = d }
 
 func (w *Browsers) GetData(ctx context.Context, a Args) (more bool, err error) {
-	if w.Detail != "" {
-		err = w.Stats.ListBrowser(ctx, w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
-	} else {
-		err = w.Stats.ListBrowsers(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
-	}
+	err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
 	w.loaded = true
 	return w.Stats.More, err
 }
@@ -56,5 +52,5 @@ func (w Browsers) RenderHTML(ctx context.Context, shared SharedData) (string, an
 		Detail     string
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
 		"Browsers",
-		shared.TotalUTC, w.Stats, w.Detail}
+		shared.Total, w.Stats, w.Detail}
 }

@@ -1,33 +1,32 @@
-<section class="totals dashboard-card widget-{{if .Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
-	<div class="metric-strip" aria-label="Traffic summary">
-		<button type="button" class="metric link metric-active" data-metric="visits" aria-pressed="true">
-			<span class="metric-label">Total visits</span>
-			<strong>{{nformat .Metrics.Visits}}</strong>
+<section class="totals dashboard-card widget-{{if .Loaded}}loaded{{else}}loading{{end}} overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-widget="{{.ID}}">
+	<div class="metric-strip grid grid-cols-2 border-b border-slate-200 dark:border-neutral-800 md:grid-cols-5" aria-label="Traffic summary">
+		<button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-500)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0" data-metric="visits" aria-pressed="true">
+			<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">Total visits</span>
+			<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{nformat .Metrics.Visits}}</strong>
 		</button>
-		<button type="button" class="metric link" data-metric="pageviews" aria-pressed="false">
-			<span class="metric-label">Pageviews</span>
-			<strong>{{nformat .Metrics.Pageviews}}</strong>
+		<button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-500)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0" data-metric="pageviews" aria-pressed="false">
+			<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">Pageviews</span>
+			<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{nformat .Metrics.Pageviews}}</strong>
 		</button>
-		<button type="button" class="metric link" data-metric="views_per_visit" aria-pressed="false">
-			<span class="metric-label">Views per visit</span>
-			<strong>{{printf "%.2f" .Metrics.ViewsPerVisit}}</strong>
+		<button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-500)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0" data-metric="views_per_visit" aria-pressed="false">
+			<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">Views per visit</span>
+			<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{printf "%.2f" .Metrics.ViewsPerVisit}}</strong>
 		</button>
-		<button type="button" class="metric link" data-metric="bounce_rate" aria-pressed="false">
-			<span class="metric-label">Bounce rate</span>
-			<strong>{{printf "%.0f%%" .Metrics.BounceRate}}</strong>
+		<button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-500)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0" data-metric="bounce_rate" aria-pressed="false">
+			<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">Bounce rate</span>
+			<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{printf "%.0f%%" .Metrics.BounceRate}}</strong>
 		</button>
-		<button type="button" class="metric link" data-metric="visit_duration" aria-pressed="false">
-			<span class="metric-label">Visit duration</span>
-			<strong>{{.Metrics.VisitDuration}}</strong>
+		<button type="button" class="metric col-span-2 min-w-0 cursor-pointer border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-500)] dark:aria-pressed:bg-fuchsia-950/30 md:col-span-1 md:border-r-0" data-metric="visit_duration" aria-pressed="false">
+			<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">Visit duration</span>
+			<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{.Metrics.VisitDuration}}</strong>
 		</button>
 	</div>
-	<div class="totals-chart">
+	<div class="px-4 pb-5 pt-4 sm:px-6">
 		{{if .Err}}
-			<em>Error: {{.Err.Error}}</em>
+			<em class="text-sm text-red-600 dark:text-red-400">Error: {{.Err.Error}}</em>
 		{{else}}
-			<div class="chart metric-chart"
-				data-series="{{.Series | json}}" data-group="{{.Group}}" data-metric="visits">
-				{{if .Loaded}}<canvas></canvas>{{else}}Loading…{{end}}
+			<div class="chart metric-chart relative h-64 w-full" data-series="{{.Series | json}}" data-group="{{.Group}}" data-metric="visits">
+				{{if .Loaded}}<canvas class="block h-full w-full"></canvas>{{else}}Loading…{{end}}
 			</div>
 		{{end}}
 	</div>

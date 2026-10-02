@@ -1,35 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="bg-slate-50 text-slate-800 dark:bg-neutral-950 dark:text-neutral-100 dark:[color-scheme:dark]">
 <head>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>{{.Site.LinkDomain}} – GoatCounter</title>
+	<title>{{.Site.LinkDomain}} – Analytics</title>
 	<link rel="stylesheet" href="{{.Asset "assets/css/backend.css"}}">
 </head>
-
-<body id="page-{{.Path | path_id}}">
-	<noscript>
-		<p>GoatCounter requires JavaScript enabled to function well; please allow JavaScript to run from {{.StaticDomain}}.</p>
+<body id="page-{{.Path | path_id}}" class="min-h-screen bg-slate-50 text-slate-800 antialiased dark:bg-neutral-950 dark:text-neutral-100">
+	<noscript class="block bg-yellow-50 p-3 text-center text-sm text-yellow-900 dark:bg-yellow-300/10 dark:text-yellow-200">
+		Analytics requires JavaScript enabled to function well; please allow JavaScript to run from {{.StaticDomain}}.
 	</noscript>
 
-	<nav class="center">
-
-		<div id="domaininfo">
-			<label class="hide" for="site-selector">Site</label>
-			<select id="site-selector" aria-label="Site">
+	<nav class="mx-auto flex max-w-7xl items-center gap-4 px-4 py-2 sm:px-6 {{if .HideUI}}hidden{{end}} print:hidden">
+		<div id="domaininfo" class="relative inline-flex items-center">
+			<label class="sr-only" for="site-selector">Site</label>
+			<svg class="pointer-events-none absolute left-3 size-4 text-fuchsia-600 dark:text-fuchsia-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+			<select id="site-selector" aria-label="Site" class="max-w-[52vw] cursor-pointer appearance-none rounded-lg py-2 pr-9 pl-9 text-sm font-bold text-slate-600 transition hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fuchsia-500 sm:max-w-72 dark:text-neutral-300 dark:hover:text-neutral-100">
 				{{range .Sites}}<option value="{{.Key}}" {{if eq .Key $.Site.Key}}selected{{end}}>{{.LinkDomain}}</option>{{end}}
 			</select>
+			<svg class="pointer-events-none absolute right-3 size-3.5 text-slate-400 dark:text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
 		</div>
-		<details id="tracking-code">
-			<summary>Code</summary>
-			<div class="code-dropdown">
-				<p>Add this script to the pages you want to track.</p>
-				<textarea id="tracking-snippet" rows="3" readonly spellcheck="false" aria-label="Tracking code">{{printf "<script data-site=\"%s\"\n        async src=\"//%s/count.js\"></script>" .Site.LinkDomain .CountDomain}}</textarea>
-				<div class="code-actions">
-					<button type="button" id="copy-tracking-code">Copy</button>
-					<span id="copy-code-status" role="status"></span>
+		<details id="tracking-code" class="group relative ml-auto">
+			<summary class="flex cursor-pointer list-none items-center gap-2 rounded-lg px-1 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fuchsia-500 dark:text-neutral-400 dark:hover:text-neutral-100 [&::-webkit-details-marker]:hidden">
+				<svg class="size-4 text-slate-400 dark:text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg>
+				<span>Tracking code</span>
+				<svg class="size-3.5 text-slate-400 transition group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+			</summary>
+			<div class="absolute right-0 z-20 mt-2 w-[min(30rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+				<p class="mb-3 text-sm text-slate-600 dark:text-neutral-300">Add this script to the pages you want to track.</p>
+				<textarea id="tracking-snippet" rows="2" readonly spellcheck="false" aria-label="Tracking code" class="block h-20 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-relaxed text-slate-800 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100">{{printf "<script data-site=\"%s\"\n        async src=\"//%s/count.js\"></script>" .Site.LinkDomain .CountDomain}}</textarea>
+				<div class="mt-3 flex items-center gap-3">
+					<button type="button" id="copy-tracking-code" class="inline-flex items-center gap-2 rounded-lg bg-fuchsia-600 px-3 py-2 text-sm font-medium text-white hover:bg-fuchsia-700 dark:bg-fuchsia-500 dark:hover:bg-fuchsia-400"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy</span></button>
+					<span id="copy-code-status" role="status" class="text-sm text-slate-500 dark:text-neutral-400"></span>
 				</div>
 			</div>
 		</details>
 	</nav>
 
-	<div class="page">
+	<div class="page mx-auto max-w-7xl px-4 pb-8 pt-1 sm:px-6 {{if .HideUI}}max-w-none! p-0!{{end}} print:max-w-none print:p-0">

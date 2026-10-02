@@ -1,15 +1,12 @@
-	</div> {{- /* .page */}}
-
-	<footer class="footer-timezone">
+	</div>
+	<footer class="pb-5 text-center text-xs text-slate-400 dark:text-neutral-500 {{if .HideUI}}hidden{{end}} print:hidden">
 		Timezone: {{.TZName}} (UTC{{.TZOffsetDisplay}})
 	</footer>
-
-	<span id="js-settings"
+	<span id="js-settings" class="hidden"
 		data-offset="{{.TZOffset}}"
 		data-dev="{{.Dev}}"
 		{{if .Base}}data-base-path="{{.Base}}"{{end}}
 	></span>
-
 	<script crossorigin="anonymous" src="{{.Asset "assets/js/backend.js"}}"></script>
 </body>
 </html>

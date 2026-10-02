@@ -99,7 +99,7 @@ type HitStat struct {
 	// ID for selecting more details; not present in the detail view.
 	ID    string `db:"id" json:"id,omitempty"`
 	Name  string `db:"name" json:"name"`   // Display name.
-	Count int    `db:"count" json:"count"` // Number of visitors.
+	Count int    `db:"count" json:"count"` // Number of matching observations.
 
 	// What kind of referral this is; only set when retrieving referrals {enum: h g c o}.
 	//

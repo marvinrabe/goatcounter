@@ -1,15 +1,9 @@
 {{- if .RowsOnly -}}
-	{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .Total .HasSubMenu true)}}{{else}}Loading…{{end}}
+	{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart_refs .Stats .Total .HasSubMenu true)}}{{else}}Loading…{{end}}
 {{- else -}}
-	<div class="hchart widget-{{if $.Loaded}}loaded{{else}}loading{{end}}" data-widget="{{.ID}}">
-		<div class="widget-header">
-			<h2>Top referrers</h2>
-		</div>
-
-		{{if .Err}}
-			<em>Error: {{.Err.Error}}</em>
-		{{else}}
-			{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart .Stats .Total .HasSubMenu true)}}{{else}}Loading…{{end}}
-		{{end}}
+	<div class="hchart widget-{{if $.Loaded}}loaded{{else}}loading{{end}} text-sm" data-widget="{{.ID}}">
+		<div class="widget-header hidden"><h2>Top referrers</h2></div>
+		{{if .Err}}<em class="text-red-600 dark:text-red-400">Error: {{.Err.Error}}</em>
+		{{else}}{{if .Loaded}}{{template "_chart.gohtml" (horizontal_chart_refs .Stats .Total .HasSubMenu true)}}{{else}}Loading…{{end}}{{end}}
 	</div>
 {{- end -}}

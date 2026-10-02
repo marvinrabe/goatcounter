@@ -6,6 +6,7 @@ from docker.io/node:24-alpine as assets
 workdir /goatcounter
 copy package.json package-lock.json vite.config.js ./
 copy assets ./assets
+copy tpl ./tpl
 run --mount=type=cache,target=/root/.npm npm ci && npm run build
 
 ### Build GoatCounter

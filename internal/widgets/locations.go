@@ -35,9 +35,9 @@ func (w *Locations) SetDetail(d string) { w.Detail = d }
 
 func (w *Locations) GetData(ctx context.Context, a Args) (more bool, err error) {
 	if w.Detail != "" {
-		err = w.Stats.ListLocation(ctx, w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
+		err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
 	} else {
-		err = w.Stats.ListLocations(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
+		err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), "", a.Rng, a.PathFilter, w.Limit, a.Offset)
 		w.MostlyUnknown = len(w.Stats.Stats) > 0 && w.Stats.Stats[0].ID == "" &&
 			datetime.StartOf(a.Rng.End, datetime.Day).Equal(datetime.StartOf(datetime.Now(ctx), datetime.Day))
 	}
@@ -70,5 +70,5 @@ func (w Locations) RenderHTML(ctx context.Context, shared SharedData) (string, a
 		Detail        string
 		MostlyUnknown bool
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
-		header, shared.TotalUTC, w.Stats, w.Detail, w.MostlyUnknown}
+		header, shared.Total, w.Stats, w.Detail, w.MostlyUnknown}
 }

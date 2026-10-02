@@ -36,6 +36,7 @@ func (w *TotalCount) GetData(ctx context.Context, a Args) (more bool, err error)
 	}
 	data, err := a.dashboardData(ctx)
 	w.Metrics = data.Metrics
+	w.Total, w.TotalUTC = data.Metrics.Visits, data.Metrics.Visits
 	w.loaded = true
 	return false, err
 }

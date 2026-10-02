@@ -32,19 +32,13 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 
 	// The dashboard view is whatever is in the query string; there is nothing
 	// saved or configurable.
-	period := strings.TrimSuffix(q.Get("hl-period"), "-cur")
-	if period == "" {
-		period = defaultPeriod
-	}
 	filter := q.Get("filter")
 
 	rng, err := getPeriod(r)
 	if err != nil {
 		return err
 	}
-	if q.Get("period-start") == "" || q.Get("period-end") == "" {
-		period = defaultPeriod
-	}
+	period := highlightedPeriod(r, rng)
 
 	showRefs, _ := parse.Int[goatcounter.PathID](q.Get("showrefs"), 10)
 	var allowGroups goatcounter.Groups
@@ -119,6 +113,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		return httpx.JSON(w, map[string]string{
 			"widgets":   t,
 			"timerange": rng.String(),
+			"total":     strconv.Itoa(shared.Total),
 		})
 	}
 
@@ -138,6 +133,26 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 	}{newGlobals(r), cd, showRefs, rng,
 		args.PathFilter, allowGroups, wid, period, group, filter,
 		shared.Total, shared.TotalUTC})
+}
+
+// Only mark a "Last" shortcut as selected when its dates still describe that
+// shortcut. A saved or edited URL may retain an unrelated hl-period value.
+func highlightedPeriod(r *http.Request, rng datetime.Range) string {
+	q := r.URL.Query()
+	if q.Get("period-start") == "" || q.Get("period-end") == "" {
+		return defaultPeriod
+	}
+	period := strings.TrimSuffix(q.Get("hl-period"), "-cur")
+	switch period {
+	case "day", "week", "month", "quarter", "half-year", "year":
+	default:
+		return ""
+	}
+	want := timeRange(r.Context(), period, goatcounter.Config(r.Context()).Timezone.Loc(), false)
+	if rng.Start.Equal(want.Start) && rng.End.Equal(want.End) {
+		return period
+	}
+	return ""
 }
 
 // loadDashboardWidgets owns the query goroutines for this request. Cancellation

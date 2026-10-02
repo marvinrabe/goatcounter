@@ -115,11 +115,11 @@ var paginate_button = function(btn, f) {
 		return
 
 	btn.dataset.working = '1'
-	btn.classList.add('loading')
+	btn.classList.add('loading', 'animate-pulse')
 	f.call(btn)
 	return () => {
 		delete btn.dataset.working
-		btn.classList.remove('loading')
+		btn.classList.remove('loading', 'animate-pulse')
 	}
 }
 
@@ -132,18 +132,16 @@ var months      = ['January', 'February', 'March', 'April', 'May', 'June', 'July
 	monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
 	daysShort   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-// Format a date as an ISO date; the year is left off if it's the current year
+// Format a date as "2 Aug 2026"; the year is left off if it's the current year
 // and no_year_if_current is set.
 var format_date = function(date, no_year_if_current) {
 	if (typeof(date) === 'string')
 		date = get_date(date)
 
-	let m = date.getMonth() + 1,
-		d = date.getDate(),
-		s = (m >= 10 ? m : ('0' + m)) + '-' + (d >= 10 ? d : ('0' + d))
+	let s = `${date.getDate()} ${monthsShort[date.getMonth()]}`
 	if (no_year_if_current && date.getFullYear() === (new Date()).getFullYear())
 		return s
-	return date.getFullYear() + '-' + s
+	return `${s} ${date.getFullYear()}`
 }
 
 // Format a date as year-month-day.
@@ -167,10 +165,6 @@ var get_date = function(str) {
 		(s[3] || 0), (s[4] || 0), (s[5] || 0))
 }
 
-var style = function(name) {
-	return getComputedStyle(document.documentElement).getPropertyValue(`--${name}`)
-}
-
 export {
 	$$,
 	$1,
@@ -188,5 +182,4 @@ export {
 	paginate_button,
 	parse_html,
 	parse_rows,
-	style,
 }

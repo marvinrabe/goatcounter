@@ -67,6 +67,16 @@ func horizontalChart(stats goatcounter.HitStats, total int, link, paginate bool)
 	return data
 }
 
+func horizontalChartRefs(stats goatcounter.HitStats, total int, link, paginate bool) chartData {
+	data := horizontalChart(stats, total, link, paginate)
+	for i := range data.Rows {
+		if stats.Stats[i].Name == "" {
+			data.Rows[i].Name = "Direct / none"
+		}
+	}
+	return data
+}
+
 func horizontalChartPages(
 	pages goatcounter.HitLists, total int, showRefs goatcounter.PathID,
 	refs goatcounter.HitStats, widgetID int, rowsOnly bool,
@@ -85,7 +95,7 @@ func horizontalChartPages(
 		}
 		if page.PathID == showRefs {
 			row.Class += " target"
-			detail := horizontalChart(refs, page.Count, false, true)
+			detail := horizontalChartRefs(refs, page.Count, false, true)
 			row.Detail = &detail
 		}
 		data.Rows = append(data.Rows, row)

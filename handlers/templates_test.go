@@ -59,7 +59,7 @@ func TestChartTemplatesEscapeData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`class="rows pages"`, `data-id="123"`, `data-count="1234"`, `style="width: 100%"`, `&lt;script&gt;`, "1\u202f234"} {
+	for _, want := range []string{`class="rows pages"`, `data-id="123"`, `data-count="1234"`, `class="bar absolute`, `style="width: 100%"`, `&lt;script&gt;`, "1\u202f234"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
 		}

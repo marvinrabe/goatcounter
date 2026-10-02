@@ -38,8 +38,8 @@ func TestDashboardTotalsIsReloadableWidget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const marker = `<section class="totals dashboard-card widget-loaded" data-widget="7">`
-	if !strings.Contains(html, marker) {
+	const marker = `<section class="totals dashboard-card widget-loaded `
+	if !strings.Contains(html, marker) || !strings.Contains(html, `data-widget="7"`) {
 		t.Fatalf("totals must expose its loaded widget marker on the reloadable root; output: %s", html)
 	}
 }

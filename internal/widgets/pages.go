@@ -3,6 +3,7 @@ package widgets
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"runtime/debug"
@@ -46,7 +47,7 @@ func (w *Pages) SetDetail(d string) {
 
 func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 	if w.RefsForPath > 0 {
-		err := w.Refs.ListRefsByPathID(ctx, w.RefsForPath, a.Rng, w.LimitRefs, a.Offset)
+		err := w.Refs.ListVisitorBreakdown(ctx, "pagerefs", fmt.Sprint(w.RefsForPath), a.Rng, a.PathFilter, w.LimitRefs, a.Offset)
 		return w.Refs.More, err
 	}
 
@@ -61,15 +62,15 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 					slog.ErrorContext(ctx, "background task panic", "panic", p, "stack", string(debug.Stack()))
 				}
 			}()
-			refsErr = w.Refs.ListRefsByPathID(ctx, a.ShowRefs, a.Rng, w.LimitRefs, a.Offset)
+			refsErr = w.Refs.ListVisitorBreakdown(ctx, "pagerefs", fmt.Sprint(a.ShowRefs), a.Rng, a.PathFilter, w.LimitRefs, a.Offset)
 		})
 	}
 
 	var err error
 	if w.WithStats {
-		w.Display, w.More, err = w.Pages.List(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group)
+		w.Display, w.More, err = w.Pages.ListVisitorPages(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group, true)
 	} else {
-		w.Display, w.More, err = w.Pages.ListCounts(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit)
+		w.Display, w.More, err = w.Pages.ListVisitorPages(ctx, a.Rng, a.PathFilter, w.Exclude, w.Limit, a.Group, false)
 	}
 
 	wg.Wait()

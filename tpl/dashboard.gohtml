@@ -1,125 +1,90 @@
 {{- template "_backend_top.gohtml" . -}}
 
-<div id="print-header">
-	GoatCounter report for {{tformat $.Context .Period.Start ""}} to {{tformat $.Context .Period.End ""}}
+<div id="print-header" class="hidden text-center text-lg font-semibold print:block">
+	Report for {{tformat $.Context .Period.Start ""}} to {{tformat $.Context .Period.End ""}}
 </div>
 
-{{/* Hide in CSS as the JavaScript uses a number of the elements to render the charts. */}}
-{{if .HideUI}}
-	<style>
-		#dash-form, nav.center { display: none; }
-		.page                  { max-width: unset; box-shadow: unset; margin: 0; padding: 0; }
-		html                   { background-color: unset; }
-	</style>
-{{end}}
-
-<form id="dash-form">
+<form id="dash-form" class="mb-5 block {{if .HideUI}}hidden{{end}} print:hidden">
 	<input type="hidden" name="site" value="{{.Site.LinkDomain}}">
-	{{/* The first button gets used on the enter key, AFAICT there is no way to change that. */}}
-	<button type="submit" tabindex="-1" class="hide-btn" aria-label="Submit"></button>
+	{{/* Keep the first submit button so pressing Enter does not select a period. */}}
+	<button type="submit" tabindex="-1" class="absolute h-0 w-0 overflow-hidden border-0 p-0 opacity-0" aria-label="Submit"></button>
 	{{if .ShowRefs}}<input type="hidden" name="showrefs" value="{{.ShowRefs}}">{{end}}
 	<input type="hidden" id="hl-period" name="hl-period" value="{{.HLPeriod}}" disabled>
-	<input type="hidden" id="hl-group" name="group" value="{{.Group}}" disabled>
 
-	<div id="dash-main">
-		<div>
-			<span>
-				<input type="date" autocomplete="off" id="period-start" name="period-start"
-					aria-label="First day to display"
-					value="{{tformat $.Context .Period.Start ""}}"
-				>–{{- "" -}}
-				<input type="date" autocomplete="off" id="period-end" name="period-end"
-					aria-label="Last day to display"
-					value="{{tformat $.Context .Period.End ""}}"
-				>{{- "" -}}
+	<div id="dash-main" class="flex flex-col gap-5 rounded-2xl border border-yellow-200 bg-yellow-50 p-4 md:flex-row md:items-start md:justify-between md:p-5 dark:border-yellow-300/20 dark:bg-yellow-300/10">
+		<div class="min-w-0">
+			<span class="sr-only">Date range</span>
+			<span class="flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400">
+				<input type="date" autocomplete="off" id="period-start" name="period-start" aria-label="First day to display"
+					value="{{tformat $.Context .Period.Start ""}}" class="min-w-0 w-36 rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 px-2 py-2 text-xs text-slate-800 dark:text-neutral-100 outline-none focus:border-fuchsia-500 sm:w-40 sm:text-sm">to
+				<input type="date" autocomplete="off" id="period-end" name="period-end" aria-label="Last day to display"
+					value="{{tformat $.Context .Period.End ""}}" class="min-w-0 w-36 rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 px-2 py-2 text-xs text-slate-800 dark:text-neutral-100 outline-none focus:border-fuchsia-500 sm:w-40 sm:text-sm">
 			</span>
-			<span id="dash-select-period" class="period-{{.HLPeriod}}">
-				<span>
-					Last
-					<button class="link" name="period" value="day">day</button> ·
-					<button class="link" name="period" value="week">week</button> ·
-					<button class="link" name="period" value="month">month</button> ·
-					<button class="link" name="period" value="quarter">quarter</button> ·
-					<button class="link" name="period" value="half-year">half year</button> ·
-					<button class="link" name="period" value="year">year</button>
-				</span>
+			<span id="dash-select-period" class="mt-2 flex flex-wrap items-center gap-0 text-xs text-slate-500 dark:text-neutral-400">
+				<span class="mr-1">Last</span>
+				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "day"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="day">day</button>
+				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "week"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="week">week</button>
+				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "month"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="month">month</button>
+				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "quarter"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="quarter">quarter</button>
+				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "half-year"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="half-year">half year</button>
+				<button class="cursor-pointer rounded-md px-1.5 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq .HLPeriod "year"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="period" value="year">year</button>
 			</span>
 		</div>
 
-		<div style="text-align: right">
-			<div id="filter-outer">
-				<div id="filter-wrap" class="input{{if .Filter}} value{{end}}">
-					<div id="filter-styled" aria-hidden="true"></div>
-					<input
-						type="text" autocomplete="off" name="filter" value="{{.Filter}}" id="filter-paths"
-						placeholder="Filter paths"
-						class="unstyled">
-				</div>
-				<div id="filter-help">
-					<p>Filter the list of paths; matched case-insensitive. <a href="#" id="filter-help-more">More help</a></p>
-
-					<div>
-						<p>Recognizes the following keywords:</p>
-						<ul>
-							<li><em>at:start</em>, <em>at:end</em>:       match only at the start or end of the path. Use both for exact match.</li>
-							<li><em>is:event</em>, <em>is:pageview</em>   show only events or pageviews.</li>
-							<li><em>:not</em> negate the match (that is: only show paths that don't match the filter).</li>
-						</ul>
-					</div>
+		<div class="min-w-0 md:w-80">
+			<label class="sr-only" for="filter-paths">Filter paths</label>
+			<div id="filter-outer" class="relative">
+				<div id="filter-wrap" class="relative flex items-center rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 focus-within:border-fuchsia-500">
+					<input type="text" autocomplete="off" name="filter" value="{{.Filter}}" id="filter-paths" placeholder="Filter paths"
+						class="w-full min-w-0 rounded-lg bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-neutral-100 outline-none placeholder:text-slate-400 dark:placeholder:text-neutral-500">
+					<details id="filter-help" class="relative mr-2 shrink-0">
+						<summary class="flex size-6 cursor-pointer list-none items-center justify-center text-slate-400 hover:text-slate-600 focus-visible:outline-2 focus-visible:outline-fuchsia-500 dark:text-neutral-500 dark:hover:text-neutral-300 [&::-webkit-details-marker]:hidden" aria-label="Filter help"><svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></summary>
+						<div class="absolute right-0 z-20 mt-3 w-[min(21rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-4 text-xs leading-relaxed text-slate-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+							<p class="mb-2">Filters are case insensitive. Use these keywords to refine results:</p>
+							<ul class="list-disc space-y-1 pl-4">
+								<li><code>at:start</code> or <code>at:end</code> matches the start or end of a path.</li>
+								<li><code>is:event</code> or <code>is:pageview</code> limits the type.</li>
+								<li><code>:not</code> excludes matches.</li>
+							</ul>
+						</div>
+					</details>
 				</div>
 			</div>
-
-
-			<span id="dash-select-group" class="group-{{.Group}}">
-				View by:
-               {{$dot := ""}}
-               {{if .AllowGroups.Hourly}}
-                   <button class="link" name="group" value="hour">hour</button>
-                   {{$dot = "· "}}
-               {{end}}
-               {{if .AllowGroups.Daily}}
-                   {{$dot}}<button class="link" name="group" value="day">day</button>
-                   {{$dot = "· "}}
-               {{end}}
-               {{if .AllowGroups.Weekly}}
-                   {{$dot}}<button class="link" name="group" value="week">week</button>
-                   {{$dot = "· "}}
-               {{end}}
-               {{if .AllowGroups.Monthly}}
-                   {{$dot}}<button class="link" name="group" value="month">month</button>
-                   {{$dot = "· "}}
-               {{end}}
-               {{if .AllowGroups.Yearly}}
-                   {{$dot}}<button class="link" name="group" value="year">year</button>
-               {{end}}
-               <input type="hidden" name="group" value="{{.Group}}">
+			<span id="dash-select-group" class="mt-2 flex flex-wrap items-center gap-1 text-xs text-slate-500 dark:text-neutral-400 md:justify-end">
+				<span class="mr-1">View by</span>
+				{{if .AllowGroups.Hourly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "hour"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="hour">hour</button>{{end}}
+				{{if .AllowGroups.Daily}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "day"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="day">day</button>{{end}}
+				{{if .AllowGroups.Weekly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "week"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="week">week</button>{{end}}
+				{{if .AllowGroups.Monthly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "month"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="month">month</button>{{end}}
+				{{if .AllowGroups.Yearly}}<button class="cursor-pointer rounded-md px-2 py-1 hover:bg-yellow-100 dark:hover:bg-yellow-300/15 {{if eq (printf "%v" .Group) "year"}}bg-yellow-200 font-semibold text-yellow-950 dark:bg-yellow-300/20 dark:text-yellow-200{{end}}" name="group" value="year">year</button>{{end}}
+				<input type="hidden" id="hl-group" name="group" value="{{.Group}}">
 			</span>
 		</div>
 	</div>
-	<div id="dash-move">
-		<div>
-			←&#xfe0e; back
-			<span>
-				<button class="link" name="move" value="day-b">day</button> ·
-				<button class="link" name="move" value="week-b">week</button> ·
-				<button class="link" name="move" value="month-b">month</button> ·
-				<button class="link" name="move" value="year-b">year</button>
+	<div id="dash-move" class="mt-3 grid grid-cols-2 items-center gap-2 px-1 text-xs text-slate-500 dark:text-neutral-400 sm:flex sm:justify-between">
+		<div class="flex flex-wrap items-center gap-1">
+			<span aria-hidden="true">←</span>
+			<span class="flex flex-wrap gap-1">
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="day-b" aria-label="Back one day">day</button>
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="week-b" aria-label="Back one week">week</button>
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="month-b" aria-label="Back one month">month</button>
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="year-b" aria-label="Back one year">year</button>
 			</span>
 		</div>
-		<div id="dash-timerange">{{.Period}}</div>
-		<div>
-			<span>
-				<button class="link" name="move" value="day-f">day</button> ·
-				<button class="link" name="move" value="week-f">week</button> ·
-				<button class="link" name="move" value="month-f">month</button> ·
-				<button class="link" name="move" value="year-f">year</button>
+		<div id="dash-timerange" class="col-span-2 row-start-1 text-center font-semibold text-slate-700 dark:text-neutral-200 sm:order-none">{{.Period}}</div>
+		<div class="flex flex-wrap items-center justify-end gap-1">
+			<span class="flex flex-wrap gap-1">
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="day-f" aria-label="Forward one day">day</button>
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="week-f" aria-label="Forward one week">week</button>
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="month-f" aria-label="Forward one month">month</button>
+				<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="year-f" aria-label="Forward one year">year</button>
 			</span>
-			forward →&#xfe0e;
+			<span aria-hidden="true">→</span>
 		</div>
 	</div>
 </form>
-<span class="hide js-total">{{.Total}}</span>
-<span class="hide js-total-utc">{{.TotalUTC}}</span>
+<span class="js-total hidden">{{.Total}}</span>
+<span class="js-total-utc hidden">{{.TotalUTC}}</span>
 
 {{template "_dashboard_widgets.gohtml" .}}
 

@@ -1,27 +1,27 @@
 {{- if not .Rows -}}
- <em>Nothing to display</em>
+ <em class="text-sm not-italic text-slate-400 dark:text-neutral-500">Nothing to display</em>
 {{- else -}}
  {{if not .RowsOnly}}<div class="rows{{if .Pages}} pages{{end}}">{{end}}
  {{range .Rows}}
-  <div class="{{.Class}}" {{if .Page}}id="{{.Title}}" data-id="{{.PageID}}" data-key="{{.PageID}}" data-count="{{.Count}}" data-detail-total="{{.Count}}"{{else}}data-key="{{.Key}}"{{end}}>
-   <span class="col-name">
-    {{if .Link}}<a href="#" class="hchart-row-link load-detail{{if .Page}} rlink{{end}}"{{if .Page}} title="{{.Title}}"{{end}}>{{template "_chart_bar" .}}</a>{{else}}{{template "_chart_bar" .}}{{end}}
+  <div class="{{.Class}} group flex min-w-0 items-center gap-3 py-1 text-sm" {{if .Page}}id="{{.Title}}" data-id="{{.PageID}}" data-key="{{.PageID}}" data-count="{{.Count}}"{{else}}data-key="{{.Key}}"{{end}} data-detail-total="{{.Count}}">
+   <span class="col-name relative min-w-0 flex-1 truncate text-slate-700 dark:text-neutral-200">
+    {{if .Link}}<a href="#" class="hchart-row-link load-detail{{if .Page}} rlink{{end}} block truncate hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline"{{if .Page}} title="{{.Title}}"{{end}}>{{template "_chart_bar" .}}</a>{{else}}{{template "_chart_bar" .}}{{end}}
    </span>
-   <span class="col-count">{{nformat .Count}}</span>
-   <span class="col-count col-perc">{{.Percentage}}</span>
+   <span class="col-count w-14 shrink-0 text-right font-semibold tabular-nums text-slate-800 dark:text-neutral-100">{{nformat .Count}}</span>
+   <span class="col-count col-perc hidden w-12 shrink-0 text-right tabular-nums text-slate-400 dark:text-neutral-500 sm:inline">{{.Percentage}}</span>
   </div>
   {{if .Detail}}
-   <div class="hchart detail" data-widget="{{.WidgetID}}" data-key="{{.PageID}}" data-total="{{.Count}}">{{template "_chart.gohtml" .Detail}}</div>
+   <div class="hchart detail ml-3 border-l-2 border-slate-200 dark:border-neutral-700 pl-4" data-widget="{{.WidgetID}}" data-key="{{.PageID}}" data-total="{{.Count}}">{{template "_chart.gohtml" .Detail}}</div>
   {{end}}
  {{end}}
  {{if not .RowsOnly}}</div>{{end}}
  {{if .More}}
-  <a href="#" class="load-more">Show more</a>
-  <a href="#" class="load-less">(show less)</a>
+  <a href="#" class="load-more mt-4 inline-block text-xs font-semibold text-fuchsia-700 hover:underline dark:text-fuchsia-300">Show more <span aria-hidden="true">↓</span></a>
+  <a href="#" class="load-less ml-3 hidden border-l border-slate-300 pl-3 text-xs text-slate-500 hover:underline dark:border-neutral-600 dark:text-neutral-400">Show less <span aria-hidden="true">↑</span></a>
  {{end}}
 {{- end -}}
 
 {{define "_chart_bar" -}}
- <span class="bar" style="width: {{.Percentage}}"></span>
- <span class="bar-c"><span class="cutoff">{{.Name}}</span> {{if .Event}}<sup class="label-event">event</sup>{{end}}{{if .VisitURL}}<sup class="go"><a rel="noopener" target="_blank" href="{{.VisitURL}}">visit</a></sup>{{end}}</span>
+ <span aria-hidden="true" class="bar absolute inset-y-0 left-0 rounded bg-fuchsia-100 dark:bg-fuchsia-400/15 group-hover:bg-fuchsia-200/70 dark:group-hover:bg-fuchsia-400/25" style="width: {{.Percentage}}"></span>
+ <span class="bar-c relative block truncate px-2 py-0.5"><span class="cutoff">{{.Name}}</span> {{if .Event}}<span class="label-event ml-1 inline-flex items-center align-middle rounded bg-yellow-100 px-1 py-0.5 text-[10px] leading-none text-yellow-900 dark:bg-yellow-300/20 dark:text-yellow-200">event</span>{{end}}{{if .VisitURL}}<sup class="go ml-1 text-[10px]"><a rel="noopener" target="_blank" href="{{.VisitURL}}" class="text-slate-500 dark:text-neutral-400 underline">visit</a></sup>{{end}}</span>
 {{- end}}

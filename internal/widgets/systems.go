@@ -32,11 +32,7 @@ func (w Systems) ID() int                  { return w.id }
 func (w *Systems) SetDetail(d string) { w.Detail = d }
 
 func (w *Systems) GetData(ctx context.Context, a Args) (more bool, err error) {
-	if w.Detail != "" {
-		err = w.Stats.ListSystem(ctx, w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
-	} else {
-		err = w.Stats.ListSystems(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
-	}
+	err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), w.Detail, a.Rng, a.PathFilter, w.Limit, a.Offset)
 	w.loaded = true
 	return w.Stats.More, err
 }
@@ -56,5 +52,5 @@ func (w Systems) RenderHTML(ctx context.Context, shared SharedData) (string, any
 		Detail     string
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
 		"Systems",
-		shared.TotalUTC, w.Stats, w.Detail}
+		shared.Total, w.Stats, w.Detail}
 }

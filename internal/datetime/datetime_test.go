@@ -36,3 +36,19 @@ func TestMonthEndClamping(t *testing.T) {
 		}
 	}
 }
+
+func TestRangeString(t *testing.T) {
+	for _, tt := range []struct {
+		start, end, want string
+	}{
+		{"2026-08-02", "2026-09-02", "2 Aug – 2 Sep 2026"},
+		{"2026-08-02", "2026-08-09", "2 Aug – 9 Aug 2026"},
+		{"2025-12-30", "2026-01-02", "30 Dec 2025 – 2 Jan 2026"},
+		{"2026-08-02", "2026-08-02", "2 Aug 2026"},
+	} {
+		rng := NewRange(FromString(tt.start)).To(FromString(tt.end))
+		if got := rng.String(); got != tt.want {
+			t.Errorf("%s to %s: got %q, want %q", tt.start, tt.end, got, tt.want)
+		}
+	}
+}

@@ -111,9 +111,12 @@ func (r Range) String() string {
 		if start.Equal(today.AddDate(0, 0, -1)) {
 			return "Yesterday"
 		}
-		return start.Format(time.DateOnly)
+		return start.Format("2 Jan 2006")
 	}
-	return start.Format(time.DateOnly) + "–" + end.Format(time.DateOnly)
+	if start.Year() == end.Year() {
+		return start.Format("2 Jan") + " – " + end.Format("2 Jan 2006")
+	}
+	return start.Format("2 Jan 2006") + " – " + end.Format("2 Jan 2006")
 }
 func (r Range) Iter(p Period) iter.Seq[time.Time] {
 	return func(yield func(time.Time) bool) {

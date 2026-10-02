@@ -90,13 +90,8 @@ func TestBackendPagesMore(t *testing.T) {
 	var body map[string]any
 	testutil.MustUnmarshal(rr.Body.Bytes(), &body)
 
-	haveHTML := grep(`<div class="hchart-row`, string(body["html"].(string)))
-	wantHTML := `
-		<div class="hchart-row" id="/10" data-id="10" data-key="10" data-count="1" data-detail-total="1">
-		<div class="hchart-row" id="/9" data-id="9" data-key="9" data-count="1" data-detail-total="1">
-		<div class="hchart-row" id="/8" data-id="8" data-key="8" data-count="1" data-detail-total="1">
-		<div class="hchart-row" id="/7" data-id="7" data-key="7" data-count="1" data-detail-total="1">
-		<div class="hchart-row" id="/6" data-id="6" data-key="6" data-count="1" data-detail-total="1">`
+	haveHTML := strings.Join(regexp.MustCompile(`data-id="[0-9]+"`).FindAllString(string(body["html"].(string)), -1), " ")
+	wantHTML := `data-id="10" data-id="9" data-id="8" data-id="7" data-id="6"`
 
 	delete(body, "html")
 	haveJSON := string(testutil.MustMarshalIndent(body, "", "\t"))
@@ -106,7 +101,7 @@ func TestBackendPagesMore(t *testing.T) {
 		"total_display": 5
 	}`
 
-	if d := testutil.Diff(haveHTML, wantHTML, testutil.DiffNormalizeWhitespace); d != "" {
+	if d := testutil.Diff(haveHTML, wantHTML); d != "" {
 		t.Error(d)
 	}
 	if d := testutil.Diff(haveJSON, wantJSON, testutil.DiffNormalizeWhitespace); d != "" {

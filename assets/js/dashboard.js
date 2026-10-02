@@ -6,13 +6,11 @@ import {
 	format_date_ymd,
 	format_int,
 	get_date,
-	is_visible,
 	monthsShort,
 	on,
 	paginate_button,
 	parse_html,
 	parse_rows,
-	style,
 } from './helper.js'
 import Chart from 'chart.js/auto'
 
@@ -116,13 +114,10 @@ import Chart from 'chart.js/auto'
 	// Direct element children of elem, which is what jQuery's ">div" did.
 	var child_divs = (elem) => Array.from(elem.children).filter((c) => c.tagName === 'DIV')
 
-	// Escape HTML special characters.
-	var escape_html = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c])
-
 	// Keep the largest page count across paginated requests.
 	var get_original_scale = function() { return parseInt($1('.count-list-pages')?.getAttribute('data-max'), 10) }
 
-	// Get the total number of pageviews.
+	// Get the number of visits in the current dashboard selection.
 	var get_total = () => $1('.js-total-utc')?.textContent || ''
 
 	// Reload a single widget.
@@ -157,6 +152,8 @@ import Chart from 'chart.js/auto'
 			}),
 			success: function(data) {
 				$1('#dash-timerange').innerHTML = data.timerange
+				$1('.js-total').textContent = data.total
+				$1('.js-total-utc').textContent = data.total
 				$$('.widget-loaded', parse_html(data.widgets)).forEach((elem) => {
 					$1(`[data-widget="${elem.dataset.widget}"]`)?.replaceWith(elem)
 				})
@@ -226,6 +223,16 @@ import Chart from 'chart.js/auto'
 
 	// Fill in start/end periods from buttons.
 	var hdr_select_period = function() {
+		// Keep month-based shortcuts on the final day of short months, as the
+		// dashboard's date range calculation does.
+		let subtract_months = (date, months) => {
+			let day = date.getDate()
+			date.setDate(1)
+			date.setMonth(date.getMonth() - months)
+			let last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+			date.setDate(Math.min(day, last))
+		}
+
 		on('#dash-select-group', 'click', 'button', function(e) {
 			$1('#hl-period').removeAttribute('disabled')
 		})
@@ -247,16 +254,15 @@ import Chart from 'chart.js/auto'
 			switch (this.value) {
 				case 'day':       /* Do nothing */ break
 				case 'week':      start.setDate(start.getDate() - 7);   break;
-				case 'month':     start.setMonth(start.getMonth() - 1); break;
-				case 'quarter':   start.setMonth(start.getMonth() - 3); break;
-				case 'half-year': start.setMonth(start.getMonth() - 6); break;
-				case 'year':      start.setFullYear(start.getFullYear() - 1); break;
+				case 'month':     subtract_months(start, 1);  break;
+				case 'quarter':   subtract_months(start, 3);  break;
+				case 'half-year': subtract_months(start, 6);  break;
+				case 'year':      subtract_months(start, 12); break;
 			}
 
 			let p = $1('#hl-period')
 			p.value = this.value
 			p.removeAttribute('disabled')
-			$1('#hl-group').removeAttribute('disabled')
 			set_period(start, end)
 		})
 
@@ -278,7 +284,6 @@ import Chart from 'chart.js/auto'
 			if (start.getDate() === 1 && this.value.substr(0, 5) === 'month')
 				end = new Date(start.getFullYear(), start.getMonth() + 1, 0)
 
-			$1('#dash-select-period').className = ''
 			set_period(start, end);
 		})
 	}
@@ -291,14 +296,17 @@ import Chart from 'chart.js/auto'
 				$$(`input[name="${c.name}"][value="off"]`).forEach((i) => { i.disabled = true })
 			})
 
-			if (get_date($1('#period-start').value) <= get_date($1('#period-end').value))
+			if (get_date($1('#period-start').value) <= get_date($1('#period-end').value)) {
+				if (e.submitter?.name === 'group')
+					$1('#hl-group').disabled = true
 				return
+			}
 
 			e.preventDefault()
 			let end = $1('#period-end')
 			if (!end.classList.contains('red')) {
-				end.classList.add('red')
-				end.insertAdjacentHTML('afterend', ' <span class="red">end date is before start date</span>')
+				end.classList.add('red', 'border-red-500')
+				end.insertAdjacentHTML('afterend', ' <span class="text-xs text-red-600">end date is before start date</span>')
 			}
 		})
 
@@ -312,76 +320,23 @@ import Chart from 'chart.js/auto'
 	// Reload the dashboard when typing in the filter input, so the user won't
 	// have to press "enter".
 	let hdr_filter = () => {
-		let styled = $1('#filter-styled'),
-			input  = $1('#filter-paths'),
-			hl     = (v) => {
-				styled.innerHTML = escape_html(input.value).replace(filter_kw, '<em>$1</em>').replace(/ /g, '&nbsp;')
-				input.style.width = input.offsetWidth + 'px'
-			}
-		hl()
+		const input = $1('#filter-paths')
 		highlight_filter()
 
-		let showMore = () => {
-			let t = $1('#filter-help-more'),
-				d = $1('#filter-help div')
-			if (is_visible(d)) {
-				t.textContent = 'More help'
-				d.style.display = 'none'
-			}
-			else {
-				t.textContent = 'Less help'
-				d.style.display = 'block'
-			}
-		}
-
-		on('#filter-help-more', 'click', (e) => {
-			e.preventDefault()
-			input.focus()
-			showMore()
-
-			let v = localStorage.getItem('filter-detailed-help') === 'true'
-			localStorage.setItem('filter-detailed-help', !v)
-		})
-
 		on(input, 'keydown', (e) => {
-			if (e.keyCode === 13)  // Don't submit form on enter.
+			if (e.keyCode === 13)
 				e.preventDefault()
 		})
 
-		var hide
-		on(input, 'focus', (e) => {
-			clearTimeout(hide)
-			$1('#filter-wrap').classList.add('focus')
-			if (localStorage.getItem('filter-detailed-help') === 'true' && $1('#filter-help div').style.display !== 'block')
-				showMore()
-			$1('#filter-help').style.display = 'block'
-		})
-		on(input, 'blur', (e) => {
-			// Add brief timeout on the hide so that clicking "more" won't
-			// trigger the blur, as the blur is triggered before the click.
-			clearTimeout(hide)
-			hide = setTimeout(() => {
-				$1('#filter-wrap').classList.remove('focus')
-				$1('#filter-help').style.display = 'none'
-			}, 200)
-		})
-
-		let t
+		let timer
 		on(input, 'input', (e) => {
-			clearTimeout(t)
-			hl()
-
-			t = setTimeout(() => {
-				let filter = e.target.value
-				push_query({filter: filter, showrefs: null})
-				$1('#filter-wrap').classList.toggle('value', filter !== '')
-
-				let loading = document.createElement('span')
-				loading.className = 'loading'
+			clearTimeout(timer)
+			timer = setTimeout(() => {
+				push_query({filter: e.target.value, showrefs: null})
+				const loading = document.createElement('span')
+				loading.className = 'absolute right-3 top-2 animate-pulse text-slate-400'
+				loading.textContent = '…'
 				e.target.insertAdjacentElement('afterend', loading)
-
-				// Known limitation: push_query() only rewrites the URL, so going
-				// back doesn't restore the previous filter (no popstate handler).
 				reload_dashboard(() => loading.remove())
 			}, 300)
 		})
@@ -417,12 +372,13 @@ import Chart from 'chart.js/auto'
 	}
 
 	var draw_metric_chart = function(c, canvas, series) {
-		let metric = c.dataset.metric,
+		let dark = window.matchMedia('(prefers-color-scheme: dark)').matches,
+			metric = c.dataset.metric,
 			points = series.points,
-			line = style('chart-line'),
-			fill = style('chart-fill'),
-			grid = style('chart-grid'),
-			muted = style('muted-text'),
+			line = dark ? '#f0abfc' : '#c026d3',
+			fill = dark ? 'rgba(240, 171, 252, .12)' : 'rgba(192, 38, 211, .10)',
+			grid = dark ? '#404040' : '#e2e8f0',
+			muted = dark ? '#a3a3a3' : '#94a3b8',
 			ctx = canvas.getContext('2d'),
 			chart = new Chart(ctx, {
 				type: 'line',
@@ -434,10 +390,10 @@ import Chart from 'chart.js/auto'
 						backgroundColor: fill,
 						borderWidth: 1.25,
 						fill: true,
-						pointRadius: 0,
+						pointRadius: points.length <= 90 ? 2 : 0,
 						pointHoverRadius: 3,
 						pointHitRadius: 12,
-						tension: .18,
+						tension: 0,
 					}],
 				},
 				options: {
@@ -569,6 +525,10 @@ import Chart from 'chart.js/auto'
 
 						highlight_filter()
 						btn.style.display = data.more ? 'inline-block' : 'none'
+						if (less) {
+							less.classList.toggle('border-l', data.more)
+							less.classList.toggle('pl-3', data.more)
+						}
 
 						$$('.total-display', pages).forEach((t) => {
 							t.textContent = format_int(parseInt(t.textContent.replace(/[^0-9]/, ''), 10) + data.total_display)
@@ -618,6 +578,11 @@ import Chart from 'chart.js/auto'
 						if (less)
 							less.style.display = 'inline'
 						parse_rows(data.html).forEach((d) => rows.appendChild(d))
+						if (less) {
+							less.classList.toggle('border-l', data.more)
+							less.classList.toggle('pl-3', data.more)
+							less.classList.toggle('ml-3', data.more)
+						}
 						if (!data.more)
 							btn.style.display = 'none'
 						done()
@@ -661,7 +626,7 @@ import Chart from 'chart.js/auto'
 						$$('.detail', chart).forEach((d) => d.remove())
 						$$('.target', chart).forEach((d) => d.classList.remove('target'))
 						let detail = document.createElement('div')
-						detail.className = 'hchart detail'
+					detail.className = 'hchart detail ml-3 border-l-2 border-slate-200 pl-4'
 						detail.setAttribute('data-widget', widget)
 						detail.setAttribute('data-key', key)
 						detail.setAttribute('data-total', total)
@@ -677,17 +642,13 @@ import Chart from 'chart.js/auto'
 
 	// Parse all query parameters from string to {k: v} object.
 	var split_query = function(s) {
-		s = s.substr(s.indexOf('?') + 1);
-		if (s.length === 0)
-			return {};
-
-		var split = s.split('&'),
-			obj = {};
-		for (var i = 0; i < split.length; i++) {
-			var item = split[i].split('=');
-			obj[item[0]] = decodeURIComponent(item[1]);
+		let obj = Object.create(null)
+		for (let [key, value] of new URLSearchParams(s)) {
+			// Match the server's Query().Get(): the first value wins.
+			if (!(key in obj))
+				obj[key] = value
 		}
-		return obj;
+		return obj
 	}
 
 	// Join query parameters from {k: v} object to href.

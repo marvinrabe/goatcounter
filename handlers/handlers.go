@@ -145,12 +145,14 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			return
 		}
 
+		styleURL, _ := newGlobals(r).Asset("assets/css/backend.css")
 		err := t.ExecuteTemplate(w, "error.gohtml", struct {
-			Code  int
-			Error error
-			Base  string
-			Path  string
-		}{code, userErr, goatcounter.Config(r.Context()).BasePath, r.URL.Path})
+			Code     int
+			Error    error
+			Base     string
+			Path     string
+			StyleURL string
+		}{code, userErr, goatcounter.Config(r.Context()).BasePath, r.URL.Path, styleURL})
 		if err != nil {
 			slog.ErrorContext(r.Context(), "render error page", "error", err, requestAttrs(r))
 		}

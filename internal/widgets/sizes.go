@@ -34,9 +34,9 @@ func (w *Sizes) SetDetail(d string) { w.Detail = d }
 
 func (w *Sizes) GetData(ctx context.Context, a Args) (more bool, err error) {
 	if w.Detail != "" {
-		err = w.Stats.ListSize(ctx, w.Detail, a.Rng, a.PathFilter, 6, a.Offset)
+		err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), w.Detail, a.Rng, a.PathFilter, 6, a.Offset)
 	} else {
-		err = w.Stats.ListSizes(ctx, a.Rng, a.PathFilter, w.SortByCount)
+		err = w.Stats.ListVisitorSizes(ctx, a.Rng, a.PathFilter, w.SortByCount)
 	}
 	w.loaded = true
 	return w.Stats.More, err
@@ -57,5 +57,5 @@ func (w Sizes) RenderHTML(ctx context.Context, shared SharedData) (string, any) 
 		Detail     string
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Detail == "", w.loaded, w.err,
 		"Sizes",
-		shared.TotalUTC, w.Stats, w.Detail}
+		shared.Total, w.Stats, w.Detail}
 }

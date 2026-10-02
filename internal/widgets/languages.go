@@ -33,7 +33,7 @@ func (w Languages) ID() int                  { return w.id }
 func (w *Languages) SetDetail(string) {}
 
 func (w *Languages) GetData(ctx context.Context, a Args) (more bool, err error) {
-	err = w.Stats.ListLanguages(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
+	err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), "", a.Rng, a.PathFilter, w.Limit, a.Offset)
 	w.loaded = true
 	return w.Stats.More, err
 }
@@ -52,5 +52,5 @@ func (w Languages) RenderHTML(ctx context.Context, shared SharedData) (string, a
 		Stats      goatcounter.HitStats
 	}{ctx, w.Name(), w.id, shared.RowsOnly, false, w.loaded, w.err,
 		"Languages",
-		shared.TotalUTC, w.Stats}
+		shared.Total, w.Stats}
 }

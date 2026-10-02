@@ -33,9 +33,9 @@ func (w *TopRefs) SetDetail(d string) { w.Ref = d }
 
 func (w *TopRefs) GetData(ctx context.Context, a Args) (more bool, err error) {
 	if w.Ref != "" {
-		err = w.TopRefs.ListTopRef(ctx, w.Ref, a.Rng, a.PathFilter, w.Limit, a.Offset)
+		err = w.TopRefs.ListVisitorBreakdown(ctx, "refpaths", w.Ref, a.Rng, a.PathFilter, w.Limit, a.Offset)
 	} else {
-		err = w.TopRefs.ListTopRefs(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
+		err = w.TopRefs.ListVisitorBreakdown(ctx, w.Name(), "", a.Rng, a.PathFilter, w.Limit, a.Offset)
 	}
 	w.loaded = true
 	return w.TopRefs.More, err

@@ -40,6 +40,7 @@ func LoadTemplates(files fs.FS) error {
 			return p
 		},
 		"horizontal_chart":       horizontalChart,
+		"horizontal_chart_refs":  horizontalChartRefs,
 		"horizontal_chart_pages": horizontalChartPages,
 	}).ParseFS(files, "*.gohtml")
 	if err != nil {

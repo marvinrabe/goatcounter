@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 
 	"github.com/marvinrabe/goatcounter"
@@ -36,9 +37,9 @@ func (w *Campaigns) SetDetail(d string) {
 
 func (w *Campaigns) GetData(ctx context.Context, a Args) (more bool, err error) {
 	if w.Campaign > 0 {
-		err = w.Stats.ListCampaign(ctx, w.Campaign, a.Rng, a.PathFilter, w.Limit, a.Offset)
+		err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), fmt.Sprint(w.Campaign), a.Rng, a.PathFilter, w.Limit, a.Offset)
 	} else {
-		err = w.Stats.ListCampaigns(ctx, a.Rng, a.PathFilter, w.Limit, a.Offset)
+		err = w.Stats.ListVisitorBreakdown(ctx, w.Name(), "", a.Rng, a.PathFilter, w.Limit, a.Offset)
 	}
 	w.loaded = true
 	return w.Stats.More, err
@@ -60,5 +61,5 @@ func (w Campaigns) RenderHTML(ctx context.Context, shared SharedData) (string, a
 		Campaign   goatcounter.CampaignID
 	}{ctx, w.Name(), w.id, shared.RowsOnly, w.Campaign == 0, w.loaded, w.err,
 		w.Label(),
-		shared.TotalUTC, w.Stats, w.Campaign}
+		shared.Total, w.Stats, w.Campaign}
 }

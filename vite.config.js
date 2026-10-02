@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
 
 const input = {
 	backend: resolve(import.meta.dirname, 'assets/js/backend.js'),
@@ -7,6 +8,7 @@ const input = {
 	styles: resolve(import.meta.dirname, 'assets/css/backend.css'),
 }
 export default defineConfig({
+	plugins: [tailwindcss()],
 	publicDir: 'assets/static',
 	build: {
 		emptyOutDir: true,

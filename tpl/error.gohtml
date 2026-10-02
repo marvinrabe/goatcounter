@@ -1,172 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="bg-slate-50 text-slate-800 dark:bg-neutral-950 dark:text-neutral-100 dark:[color-scheme:dark]">
 <head>
-	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>GoatCounter – Error!</title>
-	<link rel="icon" type="image/png" href="data:base64,">
-	<style>
-html {
-  font: 16px/150% ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          text-size-adjust: none;
-  -webkit-text-size-adjust: none;
-}
-@media (max-width: 54em) {
-  html { font-size: 14px; line-height: 160%; }
-}
-@media (max-width: 26em) {
-  html { font-size: 12px; line-height: 150%; }
-}
-pre, code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-}
-pre {
-  font-size: 14px;
-  line-height: 130%;
-}
-* {
-  box-sizing: border-box;
-}
-:root {
-  color-scheme: light dark;
-}
-html {
-  background-color: #eee;
-  color: #252525;
-       tab-size: 4;
-  -moz-tab-size: 4;
-}
-html, body {
-  margin: 0;
-}
-.center, .page {
-  max-width: 54rem;
-  margin: .5rem auto;
-  position: relative;
-}
-.page {
-  padding: 1rem 4rem;
-  background-color: #fff;
-  box-shadow: 0 0 6px rgba(0,0,0,.2);
-}
-@media (max-width: 54em) {
-  .page, .center {
-    max-width: 100%;
-    padding: 0 1rem;
-  }
-}
-a,
-a code,
-.link {
-  color: #00f;
-  text-decoration: none;
-  transition: color .2s;
-}
-a:hover, .link:hover {
-  text-decoration: underline;
-  color: #6491ff;
-}
-a:hover code  {
-  color: #6491ff;
-}
-h1 {
-  text-align: center;
-  padding: .5em 0;
-  font-size: 1.7em;
-}
-h2 {
-  border-bottom: 1px solid #252525;
-  padding-bottom: .2em;
-  font-size: 1.5em;
-}
-blockquote {
-  font-style: italic;
-}
-code, pre, kbd, samp {
-  background-color: #f5f5f5;
-  color: #000;
-}
-pre {
-  overflow: auto;
-  max-height: 500px;
-  padding: .5em 1em;
-  border-radius: 2px;
-  border-top: 1px solid #d5d5d5;
-  border-bottom: 1px solid #d5d5d5;
-}
-code, kbd, samp {
-  padding: 1px 2px;
-}
-pre > code {
-  padding: 0;
-  box-shadow: none;
-  border: none;
-}
-h1 code, h2 code, h3 code, h4 code, h5 code, h6 code {
-  background-color: transparent;
-  box-shadow: none;
-  color: inherit;
-}
-sup, sub {
-  height: 0;
-  line-height: 1;
-  vertical-align: baseline;
-  position: relative;
-}
-sup {
-  bottom: 1ex;
-}
-sub {
-  top: .5ex;
-}
-
-/* Dark palette; follows the operating system / browser preference. Kept in sync
- * by hand with assets/css/vars.css: this page is standalone on purpose, so that
- * it still renders when the stylesheets can't be loaded. */
-@media (prefers-color-scheme: dark) {
-  html {
-    background-color: #0e1011;
-    color: #e8e8e8;
-  }
-  .page {
-    background-color: #16181a;
-    box-shadow: 0 0 6px rgba(0,0,0,.7);
-  }
-  a, a code, .link {
-    color: #8edff8;
-  }
-  a:hover, .link:hover, a:hover code {
-    color: #b6ecfb;
-  }
-  h2 {
-    border-bottom-color: #888;
-  }
-  code, pre, kbd, samp {
-    background-color: #0e1011;
-    color: #e8e8e8;
-  }
-  pre {
-    border-top-color: #3a3d40;
-    border-bottom-color: #3a3d40;
-  }
-}
-
-	</style>
+	<title>Analytics – Error</title>
+	{{if .StyleURL}}<link rel="stylesheet" href="{{.StyleURL}}">{{end}}
 </head>
-
-<body>
-	{{if ne .Path (printf "%s/" .Base) }}<nav class="center"><strong><a href="{{.Base}}/">← Home</a></strong></nav>{{end}}
-	<div class="page">
+<body class="min-h-screen bg-slate-50 px-4 py-10 text-slate-800 antialiased dark:bg-neutral-950 dark:text-neutral-100">
+	<main class="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 dark:border-neutral-800 dark:bg-neutral-900">
+		{{if ne .Path (printf "%s/" .Base) }}<a href="{{.Base}}/" class="mb-8 inline-block text-sm font-medium text-fuchsia-700 hover:underline dark:text-fuchsia-300">← Home</a>{{end}}
 		{{if eq .Code 404}}
-			<h1>Not found</h1>
-			<p>This page doesn’t exist.</p>
+			<h1 class="mb-2 text-2xl font-semibold tracking-tight">Not found</h1>
+			<p class="text-slate-600 dark:text-neutral-300">This page doesn’t exist.</p>
 		{{else if and (ge .Code 500) (ne .Code 504)}}
-			<h1>Unexpected error</h1>
-			<p>An unexpected error occurred.</p>
+			<h1 class="mb-2 text-2xl font-semibold tracking-tight">Unexpected error</h1>
+			<p class="text-slate-600 dark:text-neutral-300">An unexpected error occurred.</p>
 		{{else}}
-			<h1>Error {{.Code}}</h1>
-			<p>{{.Error}}</p>
+			<h1 class="mb-2 text-2xl font-semibold tracking-tight">Error {{.Code}}</h1>
+			<p class="text-slate-600 dark:text-neutral-300">{{.Error}}</p>
 		{{end}}
-	</div>
+	</main>
 </body>
 </html>
