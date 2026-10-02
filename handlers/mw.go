@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/httpx"
 )
 
 type statusWriter interface{ Status() int }
@@ -51,7 +50,7 @@ func selectSite(requireName bool) func(http.Handler) http.Handler {
 			}
 			s, ok := cfg.Site(name)
 			if !ok {
-				httpx.ErrPage(w, r, httpx.Error(http.StatusBadRequest, "Unknown or missing site"))
+				ErrPage(w, r, httpError(http.StatusBadRequest, "Unknown or missing site"))
 				return
 			}
 			s.Defaults()

@@ -1,5 +1,4 @@
-// Package httpx provides the response helpers used by the application.
-package httpx
+package handlers
 
 import (
 	"context"
@@ -16,21 +15,25 @@ type statusError struct {
 	cause  error
 }
 
-func (e statusError) Error() string          { return e.cause.Error() }
-func (e statusError) Code() int              { return e.status }
-func Error(status int, message string) error { return statusError{status, errors.New(message)} }
-func Errorf(status int, format string, args ...any) error {
+func (e statusError) Error() string { return e.cause.Error() }
+func (e statusError) Unwrap() error { return e.cause }
+func (e statusError) Code() int     { return e.status }
+
+func httpError(status int, message string) error {
+	return statusError{status, errors.New(message)}
+}
+func httpErrorf(status int, format string, args ...any) error {
 	return statusError{status, fmt.Errorf(format, args...)}
 }
-func Code(err error) int {
+
+// userError returns the status code for err and an error that is safe to show
+// to the client.
+func userError(err error) (int, error) {
+	code := 0
 	var e interface{ Code() int }
 	if errors.As(err, &e) {
-		return e.Code()
+		code = e.Code()
 	}
-	return 0
-}
-func UserError(err error) (int, error) {
-	code := Code(err)
 	if code == 0 {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -52,29 +55,24 @@ func UserError(err error) (int, error) {
 	return code, err
 }
 
-var ErrPage = func(w http.ResponseWriter, r *http.Request, err error) {
-	code, userErr := UserError(err)
-	http.Error(w, userErr.Error(), code)
-}
-
-func Wrap(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+func wrap(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := fn(w, r); err != nil {
 			ErrPage(w, r, err)
 		}
 	}
 }
-func Bytes(w http.ResponseWriter, b []byte) error { _, err := w.Write(b); return err }
-func JSON(w http.ResponseWriter, v any) error {
+
+func writeJSON(w http.ResponseWriter, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	return Bytes(w, b)
-}
-func IsSecure(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	_, err = w.Write(b)
+	return err
 }
 
-func (e statusError) Unwrap() error { return e.cause }
+func isSecure(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}

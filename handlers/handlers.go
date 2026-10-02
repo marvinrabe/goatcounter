@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
@@ -75,7 +74,7 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 		hasStatus = false
 	}
 
-	code, userErr := httpx.UserError(reported)
+	code, userErr := userError(reported)
 	if code >= 500 {
 		slog.With("module", "http-500").ErrorContext(r.Context(), "HTTP request failed",
 			"error", reported, requestAttrs(r))

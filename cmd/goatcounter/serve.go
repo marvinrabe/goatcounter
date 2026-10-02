@@ -21,7 +21,6 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/dataset"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
-	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"github.com/marvinrabe/goatcounter/internal/validation"
 	"github.com/oschwald/geoip2-golang/v2"
 )
@@ -143,8 +142,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	if err := handlers.LoadTemplates(tpl); err != nil {
 		return err
 	}
-
-	httpx.ErrPage = handlers.ErrPage
 
 	c := goatcounter.Config(ctx)
 	seenSites := make(map[string]bool)

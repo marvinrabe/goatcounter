@@ -15,7 +15,6 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
-	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
@@ -127,7 +126,7 @@ func (a Auth) basic(next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("WWW-Authenticate", `Basic realm="GoatCounter"`)
-		httpx.ErrPage(w, r, httpx.Error(http.StatusUnauthorized, "Authentication required"))
+		ErrPage(w, r, httpError(http.StatusUnauthorized, "Authentication required"))
 	})
 }
 
@@ -151,12 +150,12 @@ func (a *OIDCAuth) middleware(next http.Handler) http.Handler {
 
 		state, err := randomToken()
 		if err != nil {
-			httpx.ErrPage(w, r, err)
+			ErrPage(w, r, err)
 			return
 		}
 		nonce, err := randomToken()
 		if err != nil {
-			httpx.ErrPage(w, r, err)
+			ErrPage(w, r, err)
 			return
 		}
 		verifier := oauth2.GenerateVerifier()
@@ -169,7 +168,7 @@ func (a *OIDCAuth) middleware(next http.Handler) http.Handler {
 			Expiry: time.Now().Add(10 * time.Minute).Unix(),
 		})
 		if err != nil {
-			httpx.ErrPage(w, r, err)
+			ErrPage(w, r, err)
 			return
 		}
 		http.SetCookie(w, a.cookie(r, oidcStateCookie, value, 10*time.Minute))
@@ -179,29 +178,29 @@ func (a *OIDCAuth) middleware(next http.Handler) http.Handler {
 
 func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 	if msg := r.URL.Query().Get("error"); msg != "" {
-		httpx.ErrPage(w, r, httpx.Error(http.StatusUnauthorized, "OIDC login failed: "+msg))
+		ErrPage(w, r, httpError(http.StatusUnauthorized, "OIDC login failed: "+msg))
 		return
 	}
 	c, err := r.Cookie(oidcStateCookie)
 	var state oidcState
 	if err != nil || !a.decode(c.Value, &state) || state.Expiry <= time.Now().Unix() ||
 		!hmac.Equal([]byte(state.State), []byte(r.URL.Query().Get("state"))) {
-		httpx.ErrPage(w, r, httpx.Error(http.StatusBadRequest, "Invalid or expired OIDC state"))
+		ErrPage(w, r, httpError(http.StatusBadRequest, "Invalid or expired OIDC state"))
 		return
 	}
 	token, err := a.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(state.Verifier))
 	if err != nil {
-		httpx.ErrPage(w, r, fmt.Errorf("exchange OIDC code: %w", err))
+		ErrPage(w, r, fmt.Errorf("exchange OIDC code: %w", err))
 		return
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		httpx.ErrPage(w, r, httpx.Error(http.StatusUnauthorized, "OIDC provider did not return an ID token"))
+		ErrPage(w, r, httpError(http.StatusUnauthorized, "OIDC provider did not return an ID token"))
 		return
 	}
 	idToken, err := a.verifier.Verify(r.Context(), rawIDToken)
 	if err != nil || idToken.Nonce != state.Nonce {
-		httpx.ErrPage(w, r, httpx.Error(http.StatusUnauthorized, "Invalid OIDC ID token"))
+		ErrPage(w, r, httpError(http.StatusUnauthorized, "Invalid OIDC ID token"))
 		return
 	}
 	expires := idToken.Expiry
@@ -210,7 +209,7 @@ func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	value, err := a.encode(oidcSession{idToken.Subject, expires.Unix()})
 	if err != nil {
-		httpx.ErrPage(w, r, err)
+		ErrPage(w, r, err)
 		return
 	}
 	http.SetCookie(w, a.cookie(r, oidcSessionCookie, value, time.Until(expires)))
@@ -225,7 +224,7 @@ func (a *OIDCAuth) logout(w http.ResponseWriter, r *http.Request) {
 
 func (a *OIDCAuth) cookie(r *http.Request, name, value string, age time.Duration) *http.Cookie {
 	return &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true,
-		Secure:   httpx.IsSecure(r),
+		Secure:   isSecure(r),
 		SameSite: http.SameSiteLaxMode, MaxAge: int(age.Seconds())}
 }
 

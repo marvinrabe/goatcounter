@@ -15,7 +15,6 @@ import (
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
-	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"github.com/marvinrabe/goatcounter/internal/validation"
 	"github.com/marvinrabe/goatcounter/internal/widgets"
 )
@@ -70,7 +69,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		return httpx.JSON(w, map[string]any{
+		return writeJSON(w, map[string]any{
 			"widgets":   t,
 			"timerange": rng.String(),
 			"total":     args.Total,
@@ -115,7 +114,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	}
 	wid := widgets.New(q.Get("widget"))
 	if wid == nil {
-		return httpx.Errorf(400, `unknown widget: %q`, q.Get("widget"))
+		return httpErrorf(400, `unknown widget: %q`, q.Get("widget"))
 	}
 	wid.SetDetail(q.Get("key"))
 
@@ -131,7 +130,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, map[string]any{"html": html, "more": more})
+	return writeJSON(w, map[string]any{"html": html, "more": more})
 }
 
 // loadWidgets runs the widget queries concurrently. Cancellation reaches
@@ -147,7 +146,7 @@ func (h backend) loadWidgets(r *http.Request, list widgets.List, args widgets.Ar
 				if p := recover(); p != nil {
 					log.ErrorContext(ctx, "widget panic", "panic", p, "stack", string(debug.Stack()),
 						"widget", widget.Name(), requestAttrs(r))
-					_, userErr := httpx.UserError(fmt.Errorf("widget panic: %v", p))
+					_, userErr := userError(fmt.Errorf("widget panic: %v", p))
 					widget.SetErr(userErr)
 				}
 			}()
@@ -159,12 +158,13 @@ func (h backend) loadWidgets(r *http.Request, list widgets.List, args widgets.Ar
 			case err == nil:
 			case errors.Is(err, context.DeadlineExceeded):
 				log.WarnContext(ctx, "dashboard widget timed out", "error", err, "widget", widget.Name(), requestAttrs(r))
-				widget.SetErr(httpx.Error(http.StatusGatewayTimeout, "server timed out loading data"))
+				_, userErr := userError(err)
+				widget.SetErr(userErr)
 			case errors.Is(err, context.Canceled):
 				widget.SetErr(err)
 			default:
 				log.ErrorContext(ctx, "load dashboard widget", "error", err, "widget", widget.Name(), requestAttrs(r))
-				_, userErr := httpx.UserError(err)
+				_, userErr := userError(err)
 				widget.SetErr(userErr)
 			}
 			log.DebugContext(ctx, widget.Name(), "took", time.Since(start))
@@ -222,14 +222,14 @@ func getPeriod(r *http.Request) (datetime.Range, error) {
 		var err error
 		rng.Start, err = time.ParseInLocation("2006-01-02", d, loc)
 		if err != nil {
-			return rng, httpx.Error(400, "Invalid start date: "+d)
+			return rng, httpError(400, "Invalid start date: "+d)
 		}
 	}
 	if d := q.Get("period-end"); d != "" {
 		var err error
 		rng.End, err = time.ParseInLocation("2006-01-02 15:04:05", d+" 23:59:59", loc)
 		if err != nil {
-			return rng, httpx.Error(400, "Invalid end date: "+d)
+			return rng, httpError(400, "Invalid end date: "+d)
 		}
 	}
 
@@ -237,7 +237,7 @@ func getPeriod(r *http.Request) (datetime.Range, error) {
 		return lastPeriod(r.Context(), defaultPeriod), nil
 	}
 	if rng.End.Before(rng.Start) {
-		return rng, httpx.Error(400, "end date is before start date")
+		return rng, httpError(400, "end date is before start date")
 	}
 	return rng.From(rng.Start).To(rng.End).UTC(), nil
 }

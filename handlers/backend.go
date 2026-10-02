@@ -7,7 +7,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/httpx"
 )
 
 func NewBackend(db database.DB, domainStatic string, dashTimeout int, ratelimits Ratelimits, auth Auth) chi.Router {
@@ -33,10 +32,10 @@ func (h backend) Mount(r chi.Router, db database.DB, domainStatic string, rateli
 	r.Use(requestLog)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		httpx.ErrPage(w, r, httpx.Error(404, "Not Found"))
+		ErrPage(w, r, httpError(404, "Not Found"))
 	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		httpx.ErrPage(w, r, httpx.Error(405, "Method Not Allowed"))
+		ErrPage(w, r, httpError(405, "Method Not Allowed"))
 	})
 
 	// Health checks do not require a site or dashboard authentication.
@@ -45,7 +44,7 @@ func (h backend) Mount(r chi.Router, db database.DB, domainStatic string, rateli
 	health.Head("/status", status(db))
 
 	r.With(requestContext(3*time.Second), securityHeaders(nil), ratelimits.countMiddleware(), selectSite(true)).
-		Post("/count", httpx.Wrap(h.count))
+		Post("/count", wrap(h.count))
 
 	a := r.With(securityHeaders(http.Header{
 		"Strict-Transport-Security": []string{"max-age=63072000"}, // 2 years
@@ -57,6 +56,6 @@ func (h backend) Mount(r chi.Router, db database.DB, domainStatic string, rateli
 	// Both the dashboard and its widget requests can run expensive queries.
 	// Authenticate before loading any site data.
 	af := a.With(requestContext(time.Duration(h.dashTimeout+1)*time.Second), auth.Middleware, selectSite(false))
-	af.Get("/", httpx.Wrap(h.dashboard))
-	af.Get("/load-widget", httpx.Wrap(h.loadWidget))
+	af.Get("/", wrap(h.dashboard))
+	af.Get("/load-widget", wrap(h.loadWidget))
 }
