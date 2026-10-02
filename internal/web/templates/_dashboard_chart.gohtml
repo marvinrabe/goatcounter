@@ -1,0 +1,3 @@
+<div class="widget hchart text-sm" data-widget="{{.Name}}">
+	{{if .Err}}<em class="text-red-600 dark:text-red-400">Error: {{.Err.Error}}</em>{{else}}{{template "_chart.gohtml" .Chart}}{{end}}
+</div>

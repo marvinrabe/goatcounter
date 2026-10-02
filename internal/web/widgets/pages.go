@@ -58,9 +58,10 @@ func (w Pages) RenderHTML(a Args) (string, any) {
 	if a.RowsOnly {
 		return "_chart.gohtml", chart
 	}
-	return "_dashboard_pages.gohtml", struct {
+	chart.More = w.More
+	return "_dashboard_chart.gohtml", struct {
+		Name  string
 		Err   error
 		Chart Chart
-		More  bool
-	}{w.err, chart, w.More}
+	}{w.name, w.err, chart}
 }

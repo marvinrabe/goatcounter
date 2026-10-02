@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
 // Breakdown shows the visits by one dimension, such as browsers or entry
@@ -15,9 +14,8 @@ type Breakdown struct {
 	// Breakdown kind for the detail of a row; empty if rows have no detail.
 	detailKind string
 
-	Detail        string
-	Data          analytics.Breakdown
-	MostlyUnknown bool // Location lookups don't seem to work.
+	Detail string
+	Data   analytics.Breakdown
 }
 
 func (w *Breakdown) SetDetail(d string) {
@@ -36,10 +34,6 @@ func (w *Breakdown) GetData(ctx context.Context, a Args) (bool, error) {
 	default:
 		w.Data, err = a.Store.Breakdown(ctx, a.Query, w.name, "", hchartSize, a.Offset)
 	}
-	if w.name == "locations" && w.Detail == "" {
-		w.MostlyUnknown = len(w.Data.Rows) > 0 && w.Data.Rows[0].ID == "" &&
-			datetime.StartOf(a.Query.Range.End, datetime.Day).Equal(datetime.StartOf(datetime.Now(), datetime.Day))
-	}
 	return w.Data.More, err
 }
 
@@ -54,10 +48,9 @@ func (w Breakdown) RenderHTML(a Args) (string, any) {
 	if w.Detail != "" || a.RowsOnly {
 		return "_chart.gohtml", chart
 	}
-	return "_dashboard_hchart.gohtml", struct {
-		Name          string
-		Err           error
-		Chart         Chart
-		MostlyUnknown bool
-	}{w.name, w.err, chart, w.MostlyUnknown}
+	return "_dashboard_chart.gohtml", struct {
+		Name  string
+		Err   error
+		Chart Chart
+	}{w.name, w.err, chart}
 }

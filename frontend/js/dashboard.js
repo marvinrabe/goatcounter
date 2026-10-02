@@ -334,7 +334,7 @@ var highlight_filter = function() {
 		return
 
 	let re = new RegExp((kw.includes('at:start') ? '^' : '') + quote_re(s) + (kw.includes('at:end') ? '$' : ''), 'gi')
-	$$('.pages-list .rows.pages .rlink .cutoff').forEach((elem) => {
+	$$('.rows.pages .rlink .cutoff').forEach((elem) => {
 		if ($1('mark', elem))  // Don't apply twice after pagination.
 			return
 		let text = elem.textContent, parts = [], last = 0
