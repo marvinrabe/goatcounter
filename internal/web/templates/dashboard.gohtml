@@ -4,7 +4,7 @@
 	Report for {{tformat .Period.Start ""}} to {{tformat .Period.End ""}}
 </div>
 
-<form id="dash-form" class="mb-5 block {{if .HideUI}}hidden{{end}} print:hidden">
+<form id="dash-form" class="block {{if .HideUI}}hidden{{end}} print:hidden">
 	<input type="hidden" name="site" value="{{.Site.LinkDomain}}">
 	{{/* Keep the first submit button so pressing Enter does not select a period. */}}
 	<button type="submit" tabindex="-1" class="absolute h-0 w-0 overflow-hidden border-0 p-0 opacity-0" aria-label="Submit"></button>
@@ -51,20 +51,10 @@
 			</span>
 		</div>
 	</div>
-	<div id="dash-move" class="mt-3 grid grid-cols-2 items-center gap-2 px-1 text-xs text-slate-500 dark:text-neutral-400 sm:flex sm:justify-between">
-		<div class="flex flex-wrap items-center gap-1">
-			<span aria-hidden="true">←</span>
-			<span class="flex flex-wrap gap-1">
-				{{range list "day" "week" "month" "year"}}<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="{{.}}-b" aria-label="Back one {{.}}">{{.}}</button>{{end}}
-			</span>
-		</div>
+	<div id="dash-move" class="mt-4 mb-4 grid grid-cols-2 items-center gap-2 px-1 text-xs text-slate-500 dark:text-neutral-400 sm:flex sm:justify-between">
+		<button type="button" class="cursor-pointer text-left hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="prev" aria-label="Previous date range"><span aria-hidden="true">←</span> Previous</button>
 		<div id="dash-timerange" class="col-span-2 row-start-1 text-center font-semibold text-slate-700 dark:text-neutral-200 sm:order-none">{{.Period}}</div>
-		<div class="flex flex-wrap items-center justify-end gap-1">
-			<span class="flex flex-wrap gap-1">
-				{{range list "day" "week" "month" "year"}}<button class="cursor-pointer hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="{{.}}-f" aria-label="Forward one {{.}}">{{.}}</button>{{end}}
-			</span>
-			<span aria-hidden="true">→</span>
-		</div>
+		<button type="button" class="cursor-pointer text-right hover:text-fuchsia-700 dark:hover:text-fuchsia-300 hover:underline" name="move" value="next" aria-label="Next date range">Next <span aria-hidden="true">→</span></button>
 	</div>
 </form>
 <span id="dash-total" hidden>{{.Total}}</span>

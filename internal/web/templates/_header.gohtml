@@ -3,6 +3,7 @@
 <head>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{.Site.LinkDomain}} – Analytics</title>
+	<link rel="icon" href="https://a.favicon.im/{{.Site.LinkDomainURL false}}">
 	<link rel="stylesheet" href="{{.Asset "css/app.css"}}">
 </head>
 <body id="page-{{.Path | path_id}}" class="min-h-screen bg-slate-50 text-slate-800 antialiased dark:bg-neutral-950 dark:text-neutral-100">
@@ -13,7 +14,7 @@
 	<nav class="mx-auto flex max-w-7xl items-center gap-4 px-4 py-2 sm:px-6 {{if .HideUI}}hidden{{end}} print:hidden">
 		<div id="domaininfo" class="relative inline-flex items-center">
 			<label class="sr-only" for="site-selector">Site</label>
-			<svg class="pointer-events-none absolute left-3 size-4 text-fuchsia-600 dark:text-fuchsia-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+			<img class="pointer-events-none absolute left-3 size-4 object-contain" src="https://a.favicon.im/{{.Site.LinkDomainURL false}}" alt="" width="16" height="16" loading="lazy" referrerpolicy="no-referrer">
 			<select id="site-selector" aria-label="Site" class="max-w-[52vw] cursor-pointer appearance-none rounded-lg py-2 pr-9 pl-9 text-sm font-bold text-slate-600 transition hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fuchsia-500 sm:max-w-72 dark:text-neutral-300 dark:hover:text-neutral-100">
 				{{range .Sites}}<option value="{{.Key}}" {{if eq .Key $.Site.Key}}selected{{end}}>{{.LinkDomain}}</option>{{end}}
 			</select>
@@ -36,4 +37,4 @@
 		</details>
 	</nav>
 
-	<div class="page mx-auto max-w-7xl px-4 pb-8 pt-1 sm:px-6 {{if .HideUI}}max-w-none! p-0!{{end}} print:max-w-none print:p-0">
+	<div class="page mx-auto max-w-7xl px-4 pb-4 sm:px-6 {{if .HideUI}}max-w-none! p-0!{{end}} print:max-w-none print:p-0">

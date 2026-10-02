@@ -96,7 +96,7 @@ func contentSecurityPolicy() func(http.Handler) http.Handler {
 			writeCSP(b, "script-src", "'self'")
 			writeCSP(b, "style-src", "'self' 'unsafe-inline'")
 			writeCSP(b, "connect-src", "'self'")
-			writeCSP(b, "img-src", "'self' data:")
+			writeCSP(b, "img-src", "'self' data: https://a.favicon.im")
 			writeCSP(b, "frame-src", "'self'")
 
 			w.Header()["Content-Security-Policy"] = []string{b.String()}

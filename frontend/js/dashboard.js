@@ -152,17 +152,14 @@ var bind_header = function() {
 		e.preventDefault()
 		let start = get_date($1('#period-start').value),
 			end   = get_date($1('#period-end').value),
-			[unit, dir] = this.value.split('-'),
-			n = dir === 'b' ? -1 : 1
-		switch (unit) {
-			case 'day':   start.setDate(start.getDate() + n);         end.setDate(end.getDate() + n);         break
-			case 'week':  start.setDate(start.getDate() + 7 * n);     end.setDate(end.getDate() + 7 * n);     break
-			case 'month': start.setMonth(start.getMonth() + n);       end.setMonth(end.getMonth() + n);       break
-			case 'year':  start.setFullYear(start.getFullYear() + n); end.setFullYear(end.getFullYear() + n); break
-		}
-		// Moving a whole month should end at the end of the month.
-		if (unit === 'month' && start.getDate() === 1)
-			end = new Date(start.getFullYear(), start.getMonth() + 1, 0)
+			// Count inclusive calendar days without daylight-saving offsets.
+			days = (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
+				Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000 + 1,
+			n = this.value === 'prev' ? -days : days
+		if (!Number.isFinite(days) || days < 1)
+			return
+		start.setDate(start.getDate() + n)
+		end.setDate(end.getDate() + n)
 		set_period(start, end)
 	})
 

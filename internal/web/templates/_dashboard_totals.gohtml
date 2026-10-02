@@ -21,11 +21,13 @@
 {{define "_metric" -}}
 <button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-600)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0 md:last:border-r-0" data-metric="{{.Key}}" aria-pressed="{{eq .Key "visits"}}">
 	<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">{{.Label}}</span>
-	<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{.Value}}</strong>
+	<span class="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+	<strong class="text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{.Value}}</strong>
 	{{with .Change -}}
-	<span class="metric-change mt-1 block text-xs font-medium tabular-nums {{if not .Show}}text-slate-400 dark:text-neutral-500{{else if .Good}}text-emerald-600 dark:text-emerald-400{{else}}text-rose-600 dark:text-rose-400{{end}}" title="Compared to the previous period">
+	<span class="metric-change whitespace-nowrap text-xs font-medium tabular-nums {{if not .Show}}text-slate-400 dark:text-neutral-500{{else if .Good}}text-emerald-600 dark:text-emerald-400{{else}}text-rose-600 dark:text-rose-400{{end}}" title="Compared to the previous period">
 		{{- if .Show}}{{if .Up}}↑{{else}}↓{{end}} {{.Text}}{{else}}&nbsp;{{end -}}
 	</span>
 	{{- end}}
+	</span>
 </button>
 {{- end}}

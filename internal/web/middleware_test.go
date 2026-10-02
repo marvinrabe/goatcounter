@@ -51,7 +51,7 @@ func TestContentSecurityPolicy(t *testing.T) {
 			form-action     'self'
 			frame-ancestors 'none'
 			frame-src       'self'
-			img-src         'self' data:
+			img-src         'self' data: https://a.favicon.im
 			manifest-src    'self'
 			script-src      'self'
 			style-src       'self' 'unsafe-inline'
