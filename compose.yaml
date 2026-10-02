@@ -36,12 +36,10 @@ services:
       GOGC: '50'
       # Soft limit on the Go heap: as usage approaches it the GC runs more
       # aggressively rather than growing. It is not a reservation, so a low
-      # value costs nothing when the app is idle. A memory-mapped -geodb file
-      # sits outside this, which is what mem_limit below accounts for.
+      # value costs nothing when the app is idle.
       GOMEMLIMIT: '96MiB'
 
-    # Hard backstop for the Go heap and an optional mmapped GeoIP database
-    # (reclaimable page cache rather than anonymous memory).
+    # Hard backstop for the Go heap.
     mem_limit: 256m
     memswap_limit: 256m
 

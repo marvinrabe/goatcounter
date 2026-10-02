@@ -93,7 +93,7 @@ func HitFromRequest(r *http.Request) Hit {
 		CreatedAt:       datetime.Now(ctx),
 		UserAgentHeader: r.UserAgent(),
 		RemoteAddr:      r.RemoteAddr,
-		Country:         Config(ctx).Geo.Country(r),
+		Country:         enrich.Country(r),
 		Language:        enrich.Language(r.Header.Get("Accept-Language")),
 	}
 }

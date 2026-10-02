@@ -21,7 +21,6 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
-	"github.com/oschwald/geoip2-golang/v2"
 )
 
 const usageServe = `
@@ -49,14 +48,6 @@ serve flags (all can also be set as GOATCOUNTER_«FLAG», e.g. GOATCOUNTER_DB):
   -listen      Address to listen on. Default: ":8080". Plain HTTP only; TLS is
                terminated by the proxy in front.
   -static      Serve static files from a different domain. Default: not set.
-  -country-header
-               Request header with the visitor's country code, set by the CDN
-               in front, e.g. CDN-RequestCountryCode for bunny.net or
-               CF-IPCountry for Cloudflare. Only set it if all traffic goes
-               through that CDN, as anyone can send the header. Default: not
-               set.
-  -geodb       Path to a Country or City mmdb GeoIP database, for the country
-               without -country-header. Default: not set.
   -data-updates
                Update the bot and referrer spam lists from upstream once a
                day. Default: true. Without it, or when an update fails, the
@@ -83,8 +74,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		debugFlag    = f.Bool("debug", false, "")
 		debugSQL     = f.Bool("debug-sql", false, "")
 		listen       = f.String("listen", ":8080", "")
-		geodbFlag    = f.String("geodb", "", "")
-		countryHdr   = f.String("country-header", "", "")
 		dataUpdates  = f.Bool("data-updates", true, "")
 		ratelimit    = f.String("ratelimit", "", "")
 		sitesFlag    = f.String("sites", "example.com", "")
@@ -105,9 +94,8 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	setupLog(*debugFlag)
 
-	geodb, geoErr := setupGeo(*geodbFlag)
 	ratelimits, ratelimitErr := setupRatelimits(*ratelimit)
-	errs := []error{geoErr, ratelimitErr}
+	errs := []error{ratelimitErr}
 	if *domainStatic != "" && !validDomain(hostWithoutPort(*domainStatic)) {
 		errs = append(errs, errors.New("-static: must be a valid domain"))
 	}
@@ -124,9 +112,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		return err
 	}
 
-	if geodb != nil {
-		defer geodb.Close()
-	}
 	db, ctx, err := connectDB(*dbConnect, *dbConn)
 	if err != nil {
 		return err
@@ -169,7 +154,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		return err
 	}
 	c.DomainStatic = *domainStatic
-	c.Geo = &enrich.Geo{Header: strings.TrimSpace(*countryHdr), DB: geodb}
 
 	timeout := 60
 	auth := handlers.Auth{Mode: handlers.AuthMode(*authMode)}
@@ -293,17 +277,6 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 }
 
 func defaultDB() string { return "" }
-
-func setupGeo(geodbFlag string) (*geoip2.Reader, error) {
-	if geodbFlag == "" {
-		return nil, nil
-	}
-	geodb, err := enrich.OpenGeoDB(geodbFlag)
-	if err != nil {
-		return nil, fmt.Errorf("-geodb: loading GeoIP database: %w", err)
-	}
-	return geodb, nil
-}
 
 func setupRatelimits(ratelimit string) (handlers.Ratelimits, error) {
 	h := handlers.NewRatelimits()

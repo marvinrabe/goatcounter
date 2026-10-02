@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
 type statusError struct {
@@ -74,5 +76,5 @@ func writeJSON(w http.ResponseWriter, v any) error {
 }
 
 func isSecure(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return r.TLS != nil || strings.EqualFold(r.Header.Get(enrich.ProtoHeader), "https")
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
 type statusWriter interface{ Status() int }
@@ -136,38 +137,16 @@ func noStore(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// realIP uses the visitor's address from the CDN's IPHeader, or else the
+// address of the connection.
 func realIP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		public := func(s string) bool {
-			ip, err := netip.ParseAddr(strings.TrimSpace(s))
-			return err == nil && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
+		if ip, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get(enrich.IPHeader))); err == nil {
+			r.RemoteAddr = ip.String()
+		} else if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			r.RemoteAddr = h
 		}
-		ip := ""
-		for _, h := range []string{"CF-Connecting-IP", "Fly-Client-IP", "X-Azure-SocketIP", "X-Real-IP"} {
-			if v := r.Header.Get(h); public(v) {
-				ip = strings.TrimSpace(v)
-				break
-			}
-		}
-		if ip == "" {
-			values := r.Header.Values("X-Forwarded-For")
-			if len(values) > 0 {
-				parts := strings.Split(values[len(values)-1], ",")
-				for i := len(parts) - 1; i >= 0; i-- {
-					if public(parts[i]) {
-						ip = strings.TrimSpace(parts[i])
-						break
-					}
-				}
-			}
-		}
-		if ip == "" {
-			ip = r.RemoteAddr
-			if h, _, err := net.SplitHostPort(ip); err == nil {
-				ip = h
-			}
-		}
-		r.RemoteAddr = ip
 		next.ServeHTTP(w, r)
 	})
 }

@@ -5,10 +5,11 @@
 //	refspam.go    Referrer spam is stored as a direct visit.
 //	source.go     Source: source and referrer, from the Referer.
 //	useragent.go  ParseUserAgent: browser and OS, from the User-Agent.
-//	location.go   Geo: country, from a CDN header or a GeoIP database.
+//	location.go   Country: from the CDN's header.
 //	language.go   Language: from the Accept-Language.
 //	device.go     Device category, from the screen width; at query time.
 //	dataset.go    Downloads the upstream lists in the background.
+//	cdn.go        Request headers set by the CDN in front.
 //
 // Data files are named after the lookup they're for: bot_ranges.txt,
 // refspam_list.go, and so on.

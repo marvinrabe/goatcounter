@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
 )
 
@@ -153,6 +154,31 @@ func BenchmarkAddCSP(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		mw.ServeHTTP(rr, r)
+	}
+}
+
+func TestRealIP(t *testing.T) {
+	for _, tt := range []struct {
+		remote, realIP, want string
+	}{
+		{"192.0.2.1:1234", "", "192.0.2.1"},
+		{"10.0.0.1:1234", "198.51.100.7", "198.51.100.7"},
+		{"10.0.0.1:1234", " 2001:db8::1 ", "2001:db8::1"},
+		{"10.0.0.1:1234", "not-an-ip", "10.0.0.1"},
+	} {
+		r := httptest.NewRequest("GET", "/count", nil)
+		r.RemoteAddr = tt.remote
+		r.Header.Set(enrich.IPHeader, tt.realIP)
+		// Headers from other CDNs aren't trusted, as bunny.net passes them on.
+		r.Header.Set("CF-Connecting-IP", "203.0.113.9")
+		r.Header.Set("X-Forwarded-For", "203.0.113.9")
+		var have string
+		realIP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			have = r.RemoteAddr
+		})).ServeHTTP(httptest.NewRecorder(), r)
+		if have != tt.want {
+			t.Errorf("%q, %q: have %q; want %q", tt.remote, tt.realIP, have, tt.want)
+		}
 	}
 }
 

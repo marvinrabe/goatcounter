@@ -7,7 +7,6 @@ import (
 
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
-	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
 type contextKey uint8
@@ -24,8 +23,6 @@ type GlobalConfig struct {
 	Timezone     datetime.Timezone
 	DomainStatic string
 	Sites        []Site
-
-	Geo *enrich.Geo
 }
 
 func (c *GlobalConfig) Site(name string) (Site, bool) {

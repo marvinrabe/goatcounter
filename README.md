@@ -103,7 +103,15 @@ are accepted and shown; the name is stored with every row. `TZ` is the
 dashboard timezone, for everyone (default UTC). Use `goatcounter serve -h` for
 all settings; each flag can be set as `GOATCOUNTER_«FLAG»`.
 
-GoatCounter serves plain HTTP; TLS is terminated by the proxy in front.
+GoatCounter serves plain HTTP; TLS is terminated by the CDN in front.
+
+### CDN headers
+
+GoatCounter is made to run behind bunny.net's CDN, and trusts the headers it
+sets for the visitor's IP (`X-Real-IP`), country (`CDN-RequestCountryCode`),
+and whether they connected with TLS (`X-Forwarded-Proto`). As anyone can send
+these headers, all traffic must go through the CDN. They're all defined in
+`internal/enrich/cdn.go`; that's the place to change for another CDN.
 
 ### Multiple containers and regions
 
@@ -144,18 +152,11 @@ Choose a mode with `GOATCOUNTER_AUTH`:
 
 ### Locations
 
-Behind a CDN that sends the visitor's country, set the header name:
-
-    GOATCOUNTER_COUNTRY_HEADER=CDN-RequestCountryCode   # bunny.net
-    GOATCOUNTER_COUNTRY_HEADER=CF-IPCountry             # Cloudflare
-
-bunny.net sends it on every request through a pull zone; the "Vary" country
-options are about caching and aren't needed. Only set it if all traffic goes
-through the CDN, as anyone can send the header.
-
-Without the header, `GOATCOUNTER_GEODB` can name a Country or City mmdb file.
-With neither, locations aren't recorded. Only the country is recorded; the
-Plausible migration drops regions and cities too.
+The country comes from bunny.net's `CDN-RequestCountryCode` header, which it
+sends on every request through a pull zone; the "Vary" country options are
+about caching and aren't needed. Without the header, locations aren't
+recorded. Only the country is recorded; the Plausible migration drops regions
+and cities too.
 
 ### Bot and referrer spam lists
 
