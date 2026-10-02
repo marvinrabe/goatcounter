@@ -85,9 +85,10 @@ Features
   `https://stats.example.com/count`. Override this when needed with
   `data-endpoint`, such as `data-endpoint="//foobar.com/events"`.
 
-The script counts one pageview when the page first becomes visible. It sends
-the current path and query string, referrer, screen width, and an automation
-flag. It does not read canonical URLs or page titles.
+The script counts one pageview when the page first becomes visible and another
+when the browser restores it from the back/forward cache. It sends the current
+path and query string, referrer, screen width, and an automation flag. It does
+not read canonical URLs or page titles.
 
 Once the script has loaded, use `window.goatcounter.count()` to count another
 pageview, or `window.goatcounter.count({path: 'download', event: true})` to count

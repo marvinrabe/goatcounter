@@ -7,7 +7,7 @@
 	const endpoint = script.dataset.endpoint || counter.endpoint || new URL('count', script.src).href
 
 	counter.count = (options = {}) => {
-		const site = options.site ?? script.dataset.site
+		const site = options.site != null ? options.site : script.dataset.site
 		if (!site) {
 			console.error('GoatCounter: missing site; set data-site on the tracking script or pass site to count()')
 			return
@@ -24,8 +24,8 @@
 		const url = new URL(endpoint, document.baseURI)
 		const data = {
 			site,
-			p: options.path ?? location.pathname + location.search,
-			r: options.referrer ?? document.referrer,
+			p: options.path != null ? options.path : location.pathname + location.search,
+			r: options.referrer != null ? options.referrer : document.referrer,
 			e: !!options.event,
 			ns: !!options.no_session,
 			s: window.screen.width,
@@ -37,22 +37,33 @@
 			url.searchParams.set(key, value)
 
 		try {
-			if (navigator.sendBeacon?.(url.href))
+			if (typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url.href))
 				return
-		} catch {
+		} catch (_) {
 			// A blocked beacon can still work as an image request.
 		}
 		new Image().src = url.href
 	}
 
 	if (!counter.no_onload) {
+		let initialCounted = false
 		const count = () => {
 			if (document.visibilityState !== 'visible' || document.prerendering)
 				return
 			document.removeEventListener('visibilitychange', count)
+			initialCounted = true
 			counter.count()
 		}
 		document.addEventListener('visibilitychange', count)
+		window.addEventListener('pageshow', (event) => {
+			if (!event.persisted || document.prerendering || document.visibilityState === 'prerender')
+				return
+			if (!initialCounted) {
+				document.removeEventListener('visibilitychange', count)
+				initialCounted = true
+			}
+			counter.count()
+		})
 		count()
 	}
 })()

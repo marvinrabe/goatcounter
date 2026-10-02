@@ -17,7 +17,7 @@ function load({page = 'https://example.com/docs?ref=newsletter#intro', dataset =
 		visibilityState: visibility,
 		prerendering: visibility === 'prerender',
 	})
-	const window = {goatcounter: settings, screen: {width: 1440}}
+	const window = Object.assign(new EventTarget(), {goatcounter: settings, screen: {width: 1440}})
 	window.self = window
 	window.top = frame ? {} : window
 	const navigator = {webdriver}
@@ -40,6 +40,11 @@ function load({page = 'https://example.com/docs?ref=newsletter#intro', dataset =
 			document.visibilityState = state
 			document.prerendering = state === 'prerender'
 			document.dispatchEvent(new Event('visibilitychange'))
+		},
+		restore(persisted = true) {
+			const event = new Event('pageshow')
+			Object.defineProperty(event, 'persisted', {value: persisted})
+			window.dispatchEvent(event)
 		}}
 }
 
@@ -112,6 +117,25 @@ test('waits for visibility and counts the initial page only once', () => {
 		tracker.show('visible')
 		assert.equal(tracker.requests.length, 1)
 	}
+})
+
+test('counts each back/forward cache restore without duplicating the first view', () => {
+	const tracker = load({page: 'https://example.com/'})
+	assert.equal(tracker.requests.length, 1)
+	tracker.restore(false)
+	assert.equal(tracker.requests.length, 1)
+	tracker.restore()
+	tracker.restore()
+	assert.equal(tracker.requests.length, 3)
+	assert.ok(tracker.requests.every(({url}) => url.searchParams.get('p') === '/'))
+
+	const delayed = load({visibility: 'hidden'})
+	delayed.restore()
+	delayed.show('visible')
+	assert.equal(delayed.requests.length, 1)
+	const manual = load({settings: {no_onload: true}})
+	manual.restore()
+	assert.equal(manual.requests.length, 0)
 })
 
 test('falls back to an image when beacons are unavailable, rejected, or throw', () => {
