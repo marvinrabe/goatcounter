@@ -37,8 +37,12 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 		Location:        goatcounter.LookupIP(r.Context(), r.RemoteAddr),
 		Language:        goatcounter.AcceptLanguage(r.Header.Get("Accept-Language")),
 	}
+	q := r.URL.Query()
+	if q.Get("s") == "" {
+		q.Del("s") // An unknown width is 0, not an error.
+	}
 	err := formam.NewDecoder(&formam.DecoderOptions{TagName: "json", IgnoreUnknownKeys: true}).
-		Decode(r.URL.Query(), &hit)
+		Decode(q, &hit)
 	if err != nil {
 		return fail("error decoding parameters: %s", err)
 	}

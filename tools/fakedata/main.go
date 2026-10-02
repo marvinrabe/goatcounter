@@ -55,7 +55,7 @@ func pick(r *rand.Rand, w []weighted) weighted {
 
 var agents = []struct {
 	browser, ua string
-	width       float64
+	width       int
 	weight      int
 }{
 	{"Chrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36", 1920, 30},
@@ -185,7 +185,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 				for i := range n {
 					h := goatcounter.Hit{
 						Site: siteName, CreatedAt: at, RemoteAddr: ip, UserAgentHeader: agent.ua,
-						Path: entry, Ref: ref, Size: goatcounter.Floats{agent.width},
+						Path: entry, Ref: ref, Width: agent.width,
 						Hostname: siteName, Language: "deu",
 						Location: goatcounter.GeoLocation{Country: loc.Value, Region: loc.Value2},
 					}

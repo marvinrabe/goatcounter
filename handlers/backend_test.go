@@ -99,6 +99,27 @@ func TestBackendPagesMore(t *testing.T) {
 	}
 }
 
+// Screen widths are stored; an empty width is unknown, an invalid one an error.
+func TestCountWidth(t *testing.T) {
+	ctx := testenv.DB(t)
+	handler := newBackend(ctx)
+	for s, code := range map[string]int{"1440": 204, "": 204, "-5": 400, "abc": 400, "999999": 400} {
+		r, rr := newTest(ctx, "POST", "/count?"+url.Values{"p": {"/w" + s}, "s": {s}, "site": {"example.com"}}.Encode(), nil)
+		r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
+		handler.ServeHTTP(rr, r)
+		if rr.Code != code {
+			t.Errorf("s=%q: %d %s; want %d", s, rr.Code, rr.Header().Get("X-Goatcounter"), code)
+		}
+	}
+	var widths []int
+	if err := database.Select(ctx, &widths, `select width from events order by path`); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(widths) != "[0 1440]" {
+		t.Errorf("stored widths %v; want [0 1440]", widths)
+	}
+}
+
 func TestCountMethod(t *testing.T) {
 	ctx := testenv.DB(t)
 	r, rr := newTest(ctx, "GET", "/count?p=/x&site=example.com", nil)

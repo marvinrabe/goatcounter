@@ -3,8 +3,6 @@ package goatcounter
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -25,7 +23,7 @@ type Hit struct {
 	Hostname  string `json:"h,omitempty"`  // location.hostname
 	Name      string `json:"n,omitempty"`  // Custom event name; empty for pageviews.
 	Props     string `json:"pr,omitempty"` // Custom event properties as a JSON object.
-	Size      Floats `json:"s,omitempty"`
+	Width     int    `json:"s,omitempty"`  // Screen width in CSS pixels.
 	Bot       int    `json:"b,omitempty"`
 	NoSession bool   `json:"ns,omitempty"`
 
@@ -41,7 +39,6 @@ type Hit struct {
 	Source, Referrer                                       string `json:"-"`
 	UTMSource, UTMMedium, UTMCampaign, UTMContent, UTMTerm string `json:"-"`
 	Browser, BrowserVersion, OS, OSVersion                 string `json:"-"`
-	Width                                                  int    `json:"-"`
 }
 
 func (h *Hit) Ignore() bool {
@@ -105,10 +102,6 @@ func (h *Hit) Defaults(ctx context.Context) {
 
 	ua := parseUserAgent(h.UserAgentHeader)
 	h.Browser, h.BrowserVersion, h.OS, h.OSVersion = ua.Name, ua.Version, ua.OS, ua.OSVersion
-
-	if len(h.Size) > 0 && h.Size[0] > 0 && h.Size[0] < math.MaxInt32 {
-		h.Width = int(h.Size[0])
-	}
 }
 
 // Validate the request before it's normalized. Props are normalized to a
@@ -125,11 +118,7 @@ func (h *Hit) Validate(ctx context.Context) error {
 	v.Len("hostname", h.Hostname, 0, 253)
 	v.UTF8("user_agent_header", h.UserAgentHeader)
 	v.Len("user_agent_header", h.UserAgentHeader, 0, 512)
-	for _, s := range h.Size {
-		if s > math.MaxInt32 {
-			v.Append("size", fmt.Sprintf("screen size %v is out of range of int32", s))
-		}
-	}
+	v.Range("width", int64(h.Width), 0, 100_000)
 	if h.Props != "" {
 		var props map[string]string
 		switch err := json.Unmarshal([]byte(h.Props), &props); {

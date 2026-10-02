@@ -74,7 +74,7 @@ func TestCollectStoresDimensions(t *testing.T) {
 		"/%C3%BCber-uns/?utm_source=newsletter&utm_medium=email&utm_campaign=A%20%257C%20B&page=2")
 	h.Hostname = "WWW.Example.com"
 	h.Ref = "https://www.google.de/search?q=x"
-	h.Size = Floats{1440}
+	h.Width = 1440
 	h.Language = "deu"
 	testenv.StoreHits(ctx, t, h)
 
