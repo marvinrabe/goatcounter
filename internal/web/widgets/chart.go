@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 // Chart is a horizontal bar chart; html/template owns all markup and escaping.
 type Chart struct {
+	Widget   string // Kind name, for loading more rows or a detail.
 	Rows     []ChartRow
 	Pages    bool // Rows are paths, which can show their referrers.
 	RowsOnly bool // Render only the rows, without the pagination links.
@@ -24,7 +26,7 @@ type ChartRow struct {
 	VisitURL   string
 	Count      int
 	Page, Link bool
-	Detail     *Chart // Referrers below a path.
+	Detail     *Chart // Shown below the row.
 }
 
 // Names for rows without a name.
@@ -33,30 +35,23 @@ const (
 	nameDirect  = "Direct / none"
 )
 
-// newChart creates a chart for a breakdown; link makes the rows load their detail
-// when clicked, and unnamed rows are shown as unnamed.
-func newChart(b analytics.Breakdown, total int, link bool, unnamed string, rowsOnly bool) Chart {
-	data := Chart{More: b.More, RowsOnly: rowsOnly}
+// Chart creates the chart for the rows of the breakdown, or with key for the
+// detail of that row; the percentages are of total.
+func (k Kind) Chart(b analytics.Breakdown, key string, total int) Chart {
+	c := Chart{Widget: k.Name, More: b.More, Pages: k.Pages && key == ""}
 	if total == 0 {
-		return data
+		return c
 	}
+	link := k.Detail != "" && key == ""
+	unnamed := cmp.Or(k.Unnamed, nameUnknown)
 	for _, s := range b.Rows {
 		name := s.Name
-		if name == "" {
-			switch s.ID {
-			case analytics.SizePhones:
-				name = "Phones"
-			case analytics.SizeTablets:
-				name = "Tablets"
-			case analytics.SizeDesktop:
-				name = "Desktop"
-			}
-		}
 		unknown := name == ""
 		if unknown {
 			name = unnamed
 		}
-		row := ChartRow{Key: s.ID, Count: s.Count, Percentage: percentage(s.Count, total), Link: link && !unknown}
+		row := ChartRow{Key: s.ID, Count: s.Count, Percentage: percentage(s.Count, total),
+			Page: c.Pages, Link: link && !unknown}
 		if unknown || (s.RefScheme != nil && *s.RefScheme == analytics.RefSchemeGenerated) {
 			row.Class = "generated"
 		}
@@ -72,29 +67,19 @@ func newChart(b analytics.Breakdown, total int, link bool, unnamed string, rowsO
 			row.Key = name
 		}
 		row.Name = elideCenter(name, 76)
-		data.Rows = append(data.Rows, row)
+		c.Rows = append(c.Rows, row)
 	}
-	return data
+	return c
 }
 
-// pagesChart creates the chart for the pages list, with the referrers below
-// the showRefs path.
-func pagesChart(pages []analytics.Page, total int, showRefs string, refs analytics.Breakdown, rowsOnly bool) Chart {
-	data := Chart{Pages: true, RowsOnly: rowsOnly}
-	if total == 0 {
-		return data
-	}
-	for _, page := range pages {
-		row := ChartRow{Page: true, Link: true, Key: page.Path, Name: elideCenter(page.Path, 76),
-			Count: page.Count, Percentage: percentage(page.Count, total)}
-		if page.Path == showRefs {
-			row.Class = "target"
-			detail := newChart(refs, page.Count, false, nameDirect, false)
-			row.Detail = &detail
+// Expand shows the detail below the row with key.
+func (c *Chart) Expand(key string, detail func(count int) Chart) {
+	for i := range c.Rows {
+		if r := &c.Rows[i]; r.Key == key {
+			d := detail(r.Count)
+			r.Class, r.Detail = "target", &d
 		}
-		data.Rows = append(data.Rows, row)
 	}
-	return data
 }
 
 func percentage(count, total int) string {

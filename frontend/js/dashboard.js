@@ -309,13 +309,7 @@ var bind_widgets = function() {
 				success: function(data) {
 					$$('.detail', chart).forEach((d) => d.remove())
 					$$('.target', chart).forEach((d) => d.classList.remove('target'))
-					let detail = document.createElement('div')
-					detail.className = 'hchart detail ml-3 border-l-2 border-slate-200 dark:border-neutral-700 pl-4'
-					detail.dataset.widget = widget
-					detail.dataset.key    = key
-					detail.dataset.total  = total
-					detail.innerHTML = data.html
-					row.insertAdjacentElement('afterend', detail)
+					row.insertAdjacentHTML('afterend', data.html)
 					row.classList.add('target')
 					done()
 				},

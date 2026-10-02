@@ -62,5 +62,5 @@ func (s *server) routes(r chi.Router, ratelimits Ratelimits, auth Auth) {
 	// Authenticate before loading any site data.
 	af := a.With(requestContext(dashTimeout+time.Second), auth.Middleware, s.selectSite(false))
 	af.Get("/", wrap(s.dashboard))
-	af.Get("/load-widget", wrap(s.loadWidget))
+	af.Get("/load-widget", wrap(s.loadRows))
 }

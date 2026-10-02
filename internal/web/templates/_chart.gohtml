@@ -10,12 +10,15 @@
    <span class="col-count w-14 shrink-0 text-right font-semibold tabular-nums text-slate-800 dark:text-neutral-100">{{nformat .Count}}</span>
    <span class="col-count col-perc hidden w-12 shrink-0 text-right tabular-nums text-slate-400 dark:text-neutral-500 sm:inline">{{.Percentage}}</span>
   </div>
-  {{if .Detail}}
-   <div class="hchart detail ml-3 border-l-2 border-slate-200 dark:border-neutral-700 pl-4" data-widget="pages" data-key="{{.Key}}" data-total="{{.Count}}">{{template "_chart.gohtml" .Detail}}</div>
-  {{end}}
+  {{if .Detail}}{{template "_chart_detail" .}}{{end}}
  {{end}}
  {{if not .RowsOnly}}</div>{{if .More}}{{template "_load_btns" true}}{{end}}{{end}}
 {{- end -}}
+
+{{/* The detail of a row, below it. */}}
+{{define "_chart_detail" -}}
+ <div class="hchart detail ml-3 border-l-2 border-slate-200 dark:border-neutral-700 pl-4" data-widget="{{.Detail.Widget}}" data-key="{{.Key}}" data-total="{{.Count}}">{{template "_chart.gohtml" .Detail}}</div>
+{{- end}}
 
 {{define "_chart_bar" -}}
  <span aria-hidden="true" class="bar absolute inset-y-0 left-0 rounded bg-fuchsia-100 dark:bg-fuchsia-400/15 group-hover:bg-fuchsia-200/70 dark:group-hover:bg-fuchsia-400/25" style="width: {{.Percentage}}"></span>

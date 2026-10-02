@@ -43,12 +43,6 @@ const (
 	RefSchemeGenerated = "g"
 )
 
-// Page is the number of visitors of a path.
-type Page struct {
-	Path  string `db:"path"`
-	Count int    `db:"count"`
-}
-
 // visitsCTE selects the pageviews matching filter as "views", and the first of them
 // in each session as "visits". A visit takes its source, browser, location,
 // etc. from that first pageview. Custom events never create visits.
@@ -252,7 +246,8 @@ func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (Breakdown
 	if err != nil {
 		return h, err
 	}
-	ns := []BreakdownRow{{ID: SizePhones}, {ID: SizeTablets}, {ID: SizeDesktop}, {ID: SizeUnknown}}
+	ns := []BreakdownRow{{ID: SizePhones, Name: "Phones"}, {ID: SizeTablets, Name: "Tablets"},
+		{ID: SizeDesktop, Name: "Desktop"}, {ID: SizeUnknown}}
 	for _, stat := range h.Rows {
 		size, ok := sizes[stat.ID]
 		if !ok {
@@ -272,15 +267,15 @@ func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (Breakdown
 }
 
 // Pages counts the unique visitors of each page, as Plausible does; visitors
-// are unique per day. It also reports if there are more pages.
-func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) ([]Page, bool, error) {
-	var h []Page
+// are unique per day. The rows have the path as ID and name.
+func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) (Breakdown, error) {
+	var h Breakdown
 	filter, params := q.params("path", "name")
 	pageFilter, _ := q.params("path", "")
 	params["limit"] = limit + 1
 	params["offset"] = offset
 
-	err := s.DB.Select(ctx, &h, `
+	err := s.DB.Select(ctx, &h.Rows, `
 		with pages as (
 			select path, count(distinct visitor) as n from events
 			where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and `+filter+`
@@ -290,16 +285,16 @@ func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) ([]Page, 
 			where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and `+pageFilter+`
 			group by path
 		)
-		select path, sum(n) as count from pages
+		select path as id, path as name, sum(n) as count from pages
 		group by path
 		order by count desc, path asc
 		limit :limit offset :offset`, named(params)...)
 	if err != nil {
-		return nil, false, fmt.Errorf("Pages: %w", err)
+		return h, fmt.Errorf("Pages: %w", err)
 	}
-	more := len(h) > limit
-	if more {
-		h = h[:limit]
+	h.More = len(h.Rows) > limit
+	if h.More {
+		h.Rows = h.Rows[:limit]
 	}
-	return h, more, nil
+	return h, nil
 }

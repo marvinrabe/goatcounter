@@ -156,7 +156,8 @@ func TestSizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []BreakdownRow{{ID: SizePhones, Count: 1}, {ID: SizeTablets, Count: 2}, {ID: SizeDesktop, Count: 4}, {ID: SizeUnknown, Count: 1}}
+	want := []BreakdownRow{{ID: SizePhones, Name: "Phones", Count: 1}, {ID: SizeTablets, Name: "Tablets", Count: 2},
+		{ID: SizeDesktop, Name: "Desktop", Count: 4}, {ID: SizeUnknown, Count: 1}}
 	if !slices.Equal(stats.Rows, want) {
 		t.Errorf("\nhave: %+v\nwant: %+v", stats.Rows, want)
 	}
@@ -171,12 +172,12 @@ func TestPathFilter(t *testing.T) {
 		"blog": 1, "BLOG": 1, "/about at:start": 1, "about at:start": 0, "blog :not": 2,
 		"%": 1, "_": 1, "": 3,
 	} {
-		pages, _, err := store.Pages(ctx, query(store, day(at), NewPathFilter(filter)), 10, 0)
+		pages, err := store.Pages(ctx, query(store, day(at), NewPathFilter(filter)), 10, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(pages) != want {
-			t.Errorf("%q: %d pages; want %d", filter, len(pages), want)
+		if len(pages.Rows) != want {
+			t.Errorf("%q: %d pages; want %d", filter, len(pages.Rows), want)
 		}
 	}
 }

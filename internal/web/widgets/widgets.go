@@ -2,169 +2,95 @@ package widgets
 
 import (
 	"context"
-	"html/template"
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
 )
 
-type Widget interface {
-	Name() string
+// Kind is one of the breakdowns on the dashboard cards, such as browsers or
+// entry pages. The name is the breakdown kind for Store.Breakdown.
+type Kind struct {
+	Name, Label string
 
-	// GetData loads the data from the store, and reports if there are more
-	// rows to paginate.
-	GetData(context.Context, Args) (more bool, err error)
-
-	// RenderHTML returns the template name and the data to render it with.
-	RenderHTML(Args) (string, any)
-
-	// SetDetail sets the drill-down key: the browser/system/country/… to
-	// show the details for, or the path to show referrers for.
-	SetDetail(string)
-
-	SetHTML(template.HTML)
-	HTML() template.HTML
-	SetErr(error)
-	Err() error
+	Pages   bool   // Rows are paths; the pages list.
+	Detail  string // Breakdown kind for the detail of a row; empty if rows have no detail.
+	Unnamed string // Name for rows without a name; "(unknown)" if empty.
 }
 
-// Args are passed to every widget.
-type Args struct {
-	Store    *analytics.Store
-	Query    analytics.Query
-	Group    analytics.Period
-	ShowRefs string // Show the referrers for this path in the pages list.
-	Offset   int
-
-	// For rendering.
-	Total    int  // Number of visits; the percentages are relative to this.
-	RowsOnly bool // Only render the rows, for pagination.
+// Panel is a loaded card tab.
+type Panel struct {
+	Kind
+	Err   error
+	Chart Chart
 }
 
-// NewArgs creates the arguments for a query and grouping.
-func NewArgs(store *analytics.Store, q analytics.Query, group analytics.Period) Args {
-	// Align to start of week or month if we're grouping by week or month.
-	//
-	// This gives a really jarring experience if the UI is updated with the new
-	// dates, as switching between day/week/month can really move the date
-	// around. So don't update the UI and just "silently" include the extra date
-	// ranges.
-	align := func(p analytics.Period) {
-		loc := store.Timezone.Loc()
-		q.Range.Start = analytics.StartOf(q.Range.Start.In(loc), p).UTC()
-		q.Range.End = analytics.EndOf(q.Range.End.In(loc), p).UTC()
-	}
-	switch group {
-	case analytics.Week:
-		align(analytics.Week)
-	case analytics.Month:
-		align(analytics.Month)
-	}
-	return Args{Store: store, Query: q, Group: group}
+// Card is a dashboard card, which shows one of its tabs at a time.
+type Card struct {
+	Name, Label string
+	Tabs        []Kind
 }
-
-// base implements the parts of Widget that are the same for every widget.
-type base struct {
-	name string
-	err  error
-	html template.HTML
-}
-
-func (w base) Name() string             { return w.name }
-func (w *base) SetHTML(h template.HTML) { w.html = h }
-func (w base) HTML() template.HTML      { return w.html }
-func (w *base) SetErr(err error)        { w.err = err }
-func (w base) Err() error               { return w.err }
-
-// How many rows every widget shows before you need to press "show more".
-const (
-	pageSize    = 6  // Paths overview.
-	refPageSize = 10 // Referrers for one path.
-	hchartSize  = 6  // Browsers, systems, locations, …
-)
-
-type (
-	// Card is a dashboard card, which shows one of its tabs at a time.
-	Card struct {
-		Name, Label string
-		Tabs        []Tab
-	}
-	Tab struct {
-		Widget, Label string
-	}
-)
 
 // Cards is the dashboard layout below the totals; it is not configurable.
 var Cards = []Card{
-	{"content", "Content", []Tab{
-		{"pages", "Pages"},
-		{"entry_pages", "Entry pages"},
-		{"exit_pages", "Exit pages"},
-		{"events", "Events"},
+	{"content", "Content", []Kind{
+		{Name: "pages", Label: "Pages", Pages: true, Detail: "pagerefs", Unnamed: nameDirect},
+		{Name: "entry_pages", Label: "Entry pages"},
+		{Name: "exit_pages", Label: "Exit pages"},
+		{Name: "events", Label: "Events"},
 	}},
-	{"acquisition", "Acquisition", []Tab{
-		{"toprefs", "Sources"},
-		{"campaigns", "Campaigns"},
-		{"utm_mediums", "UTM mediums"},
-		{"utm_sources", "UTM sources"},
+	{"acquisition", "Acquisition", []Kind{
+		{Name: "toprefs", Label: "Sources", Detail: "refpaths", Unnamed: nameDirect},
+		{Name: "campaigns", Label: "Campaigns", Detail: "campaigns"},
+		{Name: "utm_mediums", Label: "UTM mediums"},
+		{Name: "utm_sources", Label: "UTM sources"},
 	}},
-	{"technology", "Technology", []Tab{
-		{"browsers", "Browsers"},
-		{"systems", "Operating systems"},
-		{"sizes", "Devices"},
+	{"technology", "Technology", []Kind{
+		{Name: "browsers", Label: "Browsers", Detail: "browsers"},
+		{Name: "systems", Label: "Operating systems", Detail: "systems"},
+		{Name: "sizes", Label: "Devices"},
 	}},
-	{"audience", "Audience", []Tab{
-		{"locations", "Locations"},
-		{"languages", "Languages"},
+	{"audience", "Audience", []Kind{
+		{Name: "locations", Label: "Locations"},
+		{Name: "languages", Label: "Languages"},
 	}},
 }
 
-// New creates a widget by name, or returns nil if there is no such widget.
-func New(name string) Widget {
-	switch name {
-	case "totals":
-		return &Totals{base: base{name: name}}
-	case "pages":
-		return &Pages{base: base{name: name}}
-
-	// Breakdowns with a detail view.
-	case "browsers", "systems", "campaigns":
-		return &Breakdown{base: base{name: name}, detailKind: name}
-	case "toprefs":
-		return &Breakdown{base: base{name: name}, detailKind: "refpaths"}
-
-	case "sizes", "languages", "entry_pages", "exit_pages", "events", "utm_mediums", "utm_sources", "locations":
-		return &Breakdown{base: base{name: name}}
-	}
-	return nil
-}
-
-type List []Widget
-
-// NewList creates all widgets on the dashboard.
-func NewList() List {
-	l := List{New("totals")}
+// Kinds are all the breakdowns on the cards.
+func Kinds() []Kind {
+	var l []Kind
 	for _, c := range Cards {
-		for _, t := range c.Tabs {
-			l = append(l, New(t.Widget))
-		}
+		l = append(l, c.Tabs...)
 	}
 	return l
 }
 
-// Get a widget by name, or nil if it's not in the list.
-func (l List) Get(name string) Widget {
-	for _, w := range l {
-		if w.Name() == name {
-			return w
+// Find a breakdown by name.
+func Find(name string) (Kind, bool) {
+	for _, k := range Kinds() {
+		if k.Name == name {
+			return k, true
 		}
 	}
-	return nil
+	return Kind{}, false
 }
 
-// HTML gets the rendered HTML of a widget.
-func (l List) HTML(name string) template.HTML {
-	if w := l.Get(name); w != nil {
-		return w.HTML()
+// How many rows a chart shows before you need to press "show more".
+const (
+	pageSize    = 6
+	refPageSize = 10 // Referrers for one path.
+)
+
+// Load gets the rows of the breakdown, or with key the rows of the detail of
+// that row.
+func (k Kind) Load(ctx context.Context, store *analytics.Store, q analytics.Query, key string, offset int) (analytics.Breakdown, error) {
+	switch {
+	case key != "" && k.Pages:
+		return store.Breakdown(ctx, q, k.Detail, key, refPageSize, offset)
+	case key != "":
+		return store.Breakdown(ctx, q, k.Detail, key, pageSize, offset)
+	case k.Pages:
+		return store.Pages(ctx, q, pageSize, offset)
+	case k.Name == "sizes":
+		return store.Sizes(ctx, q, false)
 	}
-	return ""
+	return store.Breakdown(ctx, q, k.Name, "", pageSize, offset)
 }

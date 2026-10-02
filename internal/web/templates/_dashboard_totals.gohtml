@@ -1,4 +1,4 @@
-<section class="widget totals dashboard-card overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-widget="{{.Name}}">
+<section class="widget totals dashboard-card overflow-hidden rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900" data-widget="totals">
 	<div class="metric-strip grid grid-cols-2 border-b border-slate-200 dark:border-neutral-800 md:grid-cols-6" aria-label="Traffic summary">
 		{{template "_metric" (metric "visitors" "Unique visitors" (nformat .Metrics.Visitors) (change .Metrics.Visitors .Prev.Visitors false))}}
 		{{template "_metric" (metric "visits" "Total visits" (nformat .Metrics.Visits) (change .Metrics.Visits .Prev.Visits false))}}

@@ -95,6 +95,46 @@ func TestServerPagesMore(t *testing.T) {
 	}
 }
 
+// The dashboard renders every widget, with the referrers of the showrefs path,
+// and a detail loads with its wrapper.
+func TestServerDashboard(t *testing.T) {
+	store := testenv.Store(t)
+	handler := newServer(store)
+	count(t, handler, "10.0.0.1", "/a")
+
+	get := func(url string) string {
+		t.Helper()
+		r, rr := newTest("GET", url, nil)
+		login(t, r)
+		handler.ServeHTTP(rr, r)
+		testenv.Code(t, rr, 200)
+		return rr.Body.String()
+	}
+
+	page := get("/?showrefs=/a")
+	var reload map[string]any
+	testenv.MustUnmarshal([]byte(get("/?reload=t&showrefs=/a")), &reload)
+	for _, html := range []string{page, reload["widgets"].(string)} {
+		for _, want := range []string{`data-widget="totals"`, `data-widget="browsers"`, `class="rows pages"`, `rlink`,
+			`class="hchart detail ml-3 border-l-2 border-slate-200 dark:border-neutral-700 pl-4" data-widget="pages" data-key="/a" data-total="1"`} {
+			if !strings.Contains(html, want) {
+				t.Errorf("missing %q", want)
+			}
+		}
+	}
+
+	var detail map[string]any
+	testenv.MustUnmarshal([]byte(get("/load-widget?widget=pages&key=/a&total=1")), &detail)
+	if html := detail["html"].(string); !strings.HasPrefix(html, `<div class="hchart detail`) || !strings.Contains(html, "Direct / none") {
+		t.Errorf("detail: %s", html)
+	}
+
+	r, rr := newTest("GET", "/load-widget?widget=sizes&key=phone", nil)
+	login(t, r)
+	handler.ServeHTTP(rr, r)
+	testenv.Code(t, rr, 400)
+}
+
 func TestCountMethod(t *testing.T) {
 	store := testenv.Store(t)
 	r, rr := newTest("GET", "/count?p=/x&site=example.com", nil)
