@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
@@ -87,13 +88,18 @@ func TestOIDCCookieSigning(t *testing.T) {
 	}
 }
 
-func TestValidateOIDCRedirectURL(t *testing.T) {
-	if err := ValidateOIDCRedirectURL("https://stats.example/auth/callback"); err != nil {
-		t.Fatal(err)
+func TestOIDCRedirectURL(t *testing.T) {
+	a := &OIDCAuth{}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "stats.example"
+	if have := a.config(r).RedirectURL; have != "http://stats.example/auth/callback" {
+		t.Errorf("plain HTTP: %q", have)
 	}
-	for _, value := range []string{"/auth/callback", "https://stats.example/other", "https://stats.example/stats/auth/callback"} {
-		if err := ValidateOIDCRedirectURL(value); err == nil {
-			t.Errorf("ValidateOIDCRedirectURL(%q) unexpectedly succeeded", value)
-		}
+	r.Header.Set(enrich.ProtoHeader, "https")
+	if have := a.config(r).RedirectURL; have != "https://stats.example/auth/callback" {
+		t.Errorf("behind TLS proxy: %q", have)
+	}
+	if a.oauth2.RedirectURL != "" {
+		t.Error("config modified the shared OAuth2 config")
 	}
 }

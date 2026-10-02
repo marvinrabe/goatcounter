@@ -39,11 +39,10 @@ serve flags (all can also be set as GOATCOUNTER_«FLAG», e.g. GOATCOUNTER_DB):
 
   -auth        Dashboard authentication: public, basic, or oidc. Default: public.
   -basic-auth  Comma-separated username:password entries for -auth=basic.
-  -oidc-issuer, -oidc-client-id, -oidc-client-secret, -oidc-redirect-url,
-  -oidc-session-secret, -oidc-scopes
-               OIDC settings for -auth=oidc. The redirect URL must be
-               /auth/callback on the GoatCounter domain. The session secret
-               must be at least 32 bytes.
+  -oidc-issuer, -oidc-client-id, -oidc-client-secret, -oidc-session-secret
+               OIDC settings for -auth=oidc. Register
+               https://«your domain»/auth/callback as the redirect URL. The
+               session secret must be at least 32 bytes.
 
   -listen      Address to listen on. Default: ":8080". Plain HTTP only; TLS is
                terminated by the proxy in front.
@@ -82,9 +81,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		oidcIssuer   = f.String("oidc-issuer", "", "")
 		oidcClientID = f.String("oidc-client-id", "", "")
 		oidcSecret   = f.String("oidc-client-secret", "", "")
-		oidcRedirect = f.String("oidc-redirect-url", "", "")
 		oidcSession  = f.String("oidc-session-secret", "", "")
-		oidcScopes   = f.String("oidc-scopes", "", "")
 		shutdown     = f.Int("shutdown-timeout", 25, "")
 		drain        = f.Int("drain-delay", 0, "")
 	)
@@ -167,8 +164,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	case handlers.AuthOIDC:
 		for name, value := range map[string]string{
 			"-oidc-issuer": *oidcIssuer, "-oidc-client-id": *oidcClientID,
-			"-oidc-client-secret": *oidcSecret, "-oidc-redirect-url": *oidcRedirect,
-			"-oidc-session-secret": *oidcSession,
+			"-oidc-client-secret": *oidcSecret, "-oidc-session-secret": *oidcSession,
 		} {
 			if value == "" {
 				return fmt.Errorf("%s is required with -auth=oidc", name)
@@ -177,14 +173,10 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		if len(*oidcSession) < 32 {
 			return fmt.Errorf("-oidc-session-secret must contain at least 32 bytes")
 		}
-		if err := handlers.ValidateOIDCRedirectURL(*oidcRedirect); err != nil {
-			return fmt.Errorf("-oidc-redirect-url: %w", err)
-		}
 		oidcCtx, cancelOIDC := context.WithTimeout(ctx, 15*time.Second)
 		auth.OIDC, err = handlers.NewOIDCAuth(oidcCtx, handlers.OIDCConfig{
 			Issuer: *oidcIssuer, ClientID: *oidcClientID, ClientSecret: *oidcSecret,
-			RedirectURL: *oidcRedirect, SessionSecret: *oidcSession,
-			Scopes: strings.Split(*oidcScopes, ","),
+			SessionSecret: *oidcSession,
 		})
 		cancelOIDC()
 		if err != nil {

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -34,8 +33,7 @@ type Auth struct {
 }
 
 type OIDCConfig struct {
-	Issuer, ClientID, ClientSecret, RedirectURL, SessionSecret string
-	Scopes                                                     []string
+	Issuer, ClientID, ClientSecret, SessionSecret string
 }
 
 type OIDCAuth struct {
@@ -63,9 +61,6 @@ func NewOIDCAuth(ctx context.Context, cfg OIDCConfig) (*OIDCAuth, error) {
 	if cfg.Issuer == "" || cfg.ClientID == "" || cfg.ClientSecret == "" {
 		return nil, fmt.Errorf("OIDC issuer, client ID, and client secret are required")
 	}
-	if err := ValidateOIDCRedirectURL(cfg.RedirectURL); err != nil {
-		return nil, err
-	}
 	if len(cfg.SessionSecret) < 32 {
 		return nil, fmt.Errorf("OIDC session secret must contain at least 32 bytes")
 	}
@@ -76,24 +71,25 @@ func NewOIDCAuth(ctx context.Context, cfg OIDCConfig) (*OIDCAuth, error) {
 	return &OIDCAuth{
 		oauth2: oauth2.Config{
 			ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
-			Endpoint: provider.Endpoint(), RedirectURL: cfg.RedirectURL,
-			Scopes: uniqueStrings(append([]string{oidc.ScopeOpenID}, cfg.Scopes...)),
+			Endpoint: provider.Endpoint(),
+			Scopes:   []string{oidc.ScopeOpenID},
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
 		secret:   []byte(cfg.SessionSecret),
 	}, nil
 }
 
-func uniqueStrings(in []string) []string {
-	out, seen := make([]string, 0, len(in)), make(map[string]bool, len(in))
-	for _, s := range in {
-		s = strings.TrimSpace(s)
-		if s != "" && !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
+// config gets the OAuth2 config with the redirect URL for the domain the
+// request is for. Providers only accept registered redirect URLs, so a forged
+// Host header can't send the login elsewhere.
+func (a *OIDCAuth) config(r *http.Request) *oauth2.Config {
+	scheme := "http"
+	if isSecure(r) {
+		scheme = "https"
 	}
-	return out
+	c := a.oauth2
+	c.RedirectURL = scheme + "://" + r.Host + "/auth/callback"
+	return &c
 }
 
 func (a Auth) Mount(r chi.Router) {
@@ -172,7 +168,7 @@ func (a *OIDCAuth) middleware(next http.Handler) http.Handler {
 			return
 		}
 		http.SetCookie(w, a.cookie(r, oidcStateCookie, value, 10*time.Minute))
-		http.Redirect(w, r, a.oauth2.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), http.StatusFound)
+		http.Redirect(w, r, a.config(r).AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), http.StatusFound)
 	})
 }
 
@@ -188,7 +184,7 @@ func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 		ErrPage(w, r, httpError(http.StatusBadRequest, "Invalid or expired OIDC state"))
 		return
 	}
-	token, err := a.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(state.Verifier))
+	token, err := a.config(r).Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(state.Verifier))
 	if err != nil {
 		ErrPage(w, r, fmt.Errorf("exchange OIDC code: %w", err))
 		return
@@ -287,15 +283,4 @@ func ParseBasicUsers(value string) (map[string][]byte, error) {
 		return nil, fmt.Errorf("basic authentication requires at least one user")
 	}
 	return users, nil
-}
-
-func ValidateOIDCRedirectURL(value string) error {
-	u, err := url.Parse(value)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return fmt.Errorf("OIDC redirect URL must be an absolute http(s) URL")
-	}
-	if strings.TrimRight(u.Path, "/") != "/auth/callback" {
-		return fmt.Errorf("OIDC redirect URL must be /auth/callback on the GoatCounter domain")
-	}
-	return nil
 }

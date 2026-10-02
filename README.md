@@ -142,13 +142,12 @@ Choose a mode with `GOATCOUNTER_AUTH`:
       GOATCOUNTER_OIDC_ISSUER=https://id.example.com
       GOATCOUNTER_OIDC_CLIENT_ID=goatcounter
       GOATCOUNTER_OIDC_CLIENT_SECRET=provider-client-secret
-      GOATCOUNTER_OIDC_REDIRECT_URL=https://stats.example.com/auth/callback
       GOATCOUNTER_OIDC_SESSION_SECRET=a-random-secret-containing-at-least-32-bytes
 
-  The redirect URL must be `/auth/callback` on the GoatCounter domain. Changing
-  the session secret logs everyone out. `GOATCOUNTER_OIDC_SCOPES` adds
-  comma-separated scopes to `openid`. The login is a signed cookie, so it works
-  on every container.
+  Register `https://«your domain»/auth/callback` as the redirect URL; it's
+  built from the domain the dashboard is opened on. Only the `openid` scope is
+  requested. Changing the session secret logs everyone out. The login is a
+  signed cookie, so it works on every container.
 
 ### Locations
 
