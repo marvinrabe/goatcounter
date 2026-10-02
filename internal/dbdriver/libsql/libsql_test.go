@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
@@ -33,37 +32,9 @@ func TestIsRemote(t *testing.T) {
 	}
 }
 
-func TestConfigureRemotePool(t *testing.T) {
-	db, err := Open(context.Background(), database.ConnectOptions{
-		Connect: FileConnect(filepath.Join(t.TempDir(), "pool.db")),
-		Create:  true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-
-	sqlDB, _ := db.DBSQL()
-	sqlDB.SetMaxIdleConns(1)
-	if err := sqlDB.Ping(); err != nil {
-		t.Fatal(err)
-	}
-	if got := sqlDB.Stats().Idle; got != 1 {
-		t.Fatalf("idle connections before remote configuration = %d; want 1", got)
-	}
-
-	configureRemotePool(db, "libsql+libsql://example.com")
-	if err := sqlDB.Ping(); err != nil {
-		t.Fatal(err)
-	}
-	if got := sqlDB.Stats().Idle; got != 0 {
-		t.Fatalf("idle connections after remote configuration = %d; want 0", got)
-	}
-}
-
 func TestConcurrentEmptyDatabaseInitialization(t *testing.T) {
 	connect := FileConnect(filepath.Join(t.TempDir(), "shared.db"))
-	files := fstest.MapFS{"schema.gotxt": {Data: []byte("create table example (id integer primary key); insert into example values (1);")}}
+	schema := "create table example (id integer primary key); insert into example values (1);"
 	start := make(chan struct{})
 	errs := make(chan error, 3)
 	for range 3 {
@@ -71,7 +42,7 @@ func TestConcurrentEmptyDatabaseInitialization(t *testing.T) {
 			<-start
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			db, err := Open(ctx, database.ConnectOptions{Connect: connect, Create: true, Files: files})
+			db, err := Open(ctx, database.ConnectOptions{Connect: connect, Create: true, Schema: schema})
 			if err == nil {
 				db.Close()
 			}

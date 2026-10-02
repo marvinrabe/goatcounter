@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -34,8 +33,7 @@ func Open(ctx context.Context, opt database.ConnectOptions) (database.DB, error)
 		opt.MaxOpenConns = 1
 		opt.MaxIdleConns = 1
 	}
-	files := opt.Files
-	conn, _, err := openSQL(ctx, strings.TrimPrefix(opt.Connect, "libsql+"), opt.Create)
+	conn, err := openSQL(ctx, strings.TrimPrefix(opt.Connect, "libsql+"), opt.Create)
 	if err != nil {
 		return nil, err
 	}
@@ -45,56 +43,38 @@ func Open(ctx context.Context, opt database.ConnectOptions) (database.DB, error)
 	if opt.MaxIdleConns == 0 {
 		opt.MaxIdleConns = 4
 	}
+	// Remote Hrana streams expire after a short period of inactivity, so don't
+	// keep idle connections; the HTTP transport still reuses its connections.
+	if isRemote(opt.Connect) {
+		opt.MaxIdleConns = 0
+	}
 	conn.SetMaxOpenConns(opt.MaxOpenConns)
 	conn.SetMaxIdleConns(opt.MaxIdleConns)
 	db := database.New(conn)
-	configureRemotePool(db, opt.Connect)
-	if files == nil {
+	if opt.Schema == "" {
 		return db, nil
 	}
 
-	var tables int
+	var tables, events int
 	err = db.Get(ctx, &tables, `select count(*) from sqlite_schema where tbl_name not in ('version', 'init_lock')`)
+	if err == nil {
+		err = db.Get(ctx, &events, `select count(*) from sqlite_schema where type='table' and name='events'`)
+	}
+	switch {
+	case err != nil:
+		err = fmt.Errorf("libsql.Open: inspect schema: %w", err)
+	case tables == 0 && !opt.Create:
+		err = fmt.Errorf("database does not exist: %w", os.ErrNotExist)
+	case tables == 0:
+		err = createSchema(ctx, db, opt.Schema)
+	case events == 0:
+		err = errors.New("libsql.Open: the database has an old schema without the events table; use a new database")
+	}
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("libsql.Open: inspect schema: %w", err)
+		return nil, err
 	}
-	if tables == 0 {
-		if !opt.Create {
-			db.Close()
-			return nil, fmt.Errorf("database does not exist: %w", os.ErrNotExist)
-		}
-		if err := createSchema(ctx, db, files); err != nil {
-			db.Close()
-			return nil, err
-		}
-	} else {
-		var events int
-		if err := db.Get(ctx, &events, `select count(*) from sqlite_schema where type='table' and name='events'`); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("libsql.Open: inspect schema: %w", err)
-		}
-		if events == 0 {
-			db.Close()
-			return nil, errors.New("libsql.Open: the database has an old schema without the events table; use a new database")
-		}
-	}
-
 	return db, nil
-}
-
-// configureRemotePool disables idle connection reuse for remote databases.
-// Remote Hrana streams expire after a short period of inactivity. Opening a
-// fresh stream avoids expired-stream errors across supported server versions;
-// the HTTP transport still reuses its underlying connections.
-//
-// Apply this after setting the configured pool limits.
-func configureRemotePool(db database.DB, connect string) {
-	if !isRemote(connect) {
-		return
-	}
-	sqlDB, _ := db.DBSQL()
-	sqlDB.SetMaxIdleConns(0)
 }
 
 func isRemote(connect string) bool {
@@ -104,18 +84,8 @@ func isRemote(connect string) bool {
 		strings.HasPrefix(connect, "https://")
 }
 
-func createSchema(ctx context.Context, db database.DB, files fs.FS) error {
-	schema, err := fs.ReadFile(files, "db/schema.gotxt")
-	if err != nil {
-		schema, err = fs.ReadFile(files, "schema.gotxt")
-	}
-	if err != nil {
-		return fmt.Errorf("libsql.Open: read schema: %w", err)
-	}
-	rendered, err := database.Template(string(schema))
-	if err != nil {
-		return fmt.Errorf("libsql.Open: render schema: %w", err)
-	}
+func createSchema(ctx context.Context, db database.DB, schema string) error {
+	var err error
 	for {
 		err = db.TX(ctx, func(ctx context.Context) error {
 			// Serialize simultaneous first starts before checking the schema.
@@ -129,7 +99,7 @@ func createSchema(ctx context.Context, db database.DB, files fs.FS) error {
 			if tables > 0 {
 				return nil
 			}
-			return execStatements(ctx, database.MustGetDB(ctx), string(rendered))
+			return execStatements(ctx, database.MustGetDB(ctx), schema)
 		})
 		if err == nil || !strings.Contains(err.Error(), "database is locked") {
 			break
@@ -162,14 +132,14 @@ func execStatements(ctx context.Context, db database.DB, script string) error {
 	})
 }
 
-func openSQL(ctx context.Context, connect string, create bool) (*sql.DB, any, error) {
+func openSQL(ctx context.Context, connect string, create bool) (*sql.DB, error) {
 	path, local, err := localPath(connect)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if local {
 		if err := prepareLocal(path, connect, create); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -177,20 +147,20 @@ func openSQL(ctx context.Context, connect string, create bool) (*sql.DB, any, er
 	if isRemote(connect) {
 		connector, err := remotelibsql.NewConnector(connect)
 		if err != nil {
-			return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+			return nil, fmt.Errorf("libsql.Connect: %w", err)
 		}
 		db = sql.OpenDB(&remoteConnector{Connector: connector})
 	} else {
 		db, err = sql.Open("sqlite", connect)
 		if err != nil {
-			return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+			return nil, fmt.Errorf("libsql.Connect: %w", err)
 		}
 	}
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
-		return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
+		return nil, fmt.Errorf("libsql.Connect: %w", err)
 	}
-	return db, nil, nil
+	return db, nil
 }
 
 func localPath(connect string) (string, bool, error) {

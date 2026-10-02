@@ -12,7 +12,7 @@ no email, no translations, and no background jobs.
 
 How data is stored
 ------------------
-All data is in one table, `events` (see [db/schema.gotxt](db/schema.gotxt)),
+All data is in one table, `events` (see [db/schema.sql](db/schema.sql)),
 plus `salts` for the daily random salts of visitor hashes (older than a day
 are deleted).
 

@@ -2,10 +2,10 @@ package goatcounter
 
 import "embed"
 
-// DB contains the database schema.
+// Schema creates the database tables.
 //
-//go:embed db/schema.gotxt
-var DB embed.FS
+//go:embed db/schema.sql
+var Schema string
 
 // Static contains all the static files to serve.
 //

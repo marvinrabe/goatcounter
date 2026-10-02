@@ -3,7 +3,6 @@ package datetime
 
 import (
 	"context"
-	"iter"
 	"strings"
 	"time"
 )
@@ -107,19 +106,6 @@ func (r Range) String() string {
 		return start.Format("2 Jan") + " – " + end.Format("2 Jan 2006")
 	}
 	return start.Format("2 Jan 2006") + " – " + end.Format("2 Jan 2006")
-}
-func (r Range) Iter(p Period) iter.Seq[time.Time] {
-	return func(yield func(time.Time) bool) {
-		if r.Start.After(r.End) {
-			return
-		}
-		end := EndOf(r.End, p)
-		for t := StartOf(r.Start, p); !t.After(end); t = AddPeriod(t, 1, p) {
-			if !yield(t) {
-				return
-			}
-		}
-	}
 }
 
 // FromString is a fixture convenience; invalid input is a programming error.

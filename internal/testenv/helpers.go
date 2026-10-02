@@ -12,47 +12,7 @@ import (
 	"testing"
 )
 
-type DiffOpt int
-
-const (
-	DiffNormalizeWhitespace DiffOpt = iota + 1
-	DiffJSON
-)
-
-func Diff(got, want string, opts ...DiffOpt) string {
-	for _, opt := range opts {
-		switch opt {
-		case DiffNormalizeWhitespace:
-			normalize := func(s string) string {
-				lines := strings.Split(s, "\n")
-				for i := range lines {
-					lines[i] = strings.TrimSpace(lines[i])
-				}
-				return strings.Join(lines, "\n")
-			}
-			got, want = normalize(got), normalize(want)
-		case DiffJSON:
-			normalize := func(s string) (string, error) {
-				var value any
-				d := json.NewDecoder(strings.NewReader(s))
-				d.UseNumber()
-				if err := d.Decode(&value); err != nil {
-					return "", err
-				}
-				b, err := json.MarshalIndent(value, "", "  ")
-				return string(b), err
-			}
-			var err error
-			got, err = normalize(got)
-			if err != nil {
-				return fmt.Sprintf("invalid actual JSON: %v", err)
-			}
-			want, err = normalize(want)
-			if err != nil {
-				return fmt.Sprintf("invalid expected JSON: %v", err)
-			}
-		}
-	}
+func Diff(got, want string) string {
 	got, want = strings.TrimSpace(got), strings.TrimSpace(want)
 	if got == want {
 		return ""

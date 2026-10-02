@@ -11,16 +11,14 @@ func TestCalendarAcrossDST(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, start := range []time.Time{time.Date(2026, 3, 28, 0, 0, 0, 0, loc), time.Date(2026, 10, 24, 0, 0, 0, 0, loc)} {
-		rng := NewRange(start).To(EndOf(start.AddDate(0, 0, 2), Day))
-		n := 0
-		for day := range rng.Iter(Day) {
+		for n := range 3 {
+			day := AddPeriod(StartOf(start, Day), n, Day)
 			if day.Hour() != 0 || day.Day() != start.Day()+n {
 				t.Errorf("unexpected day: %s", day)
 			}
-			n++
-		}
-		if n != 3 {
-			t.Errorf("iterated %d days", n)
+			if end := EndOf(day, Day); end.Hour() != 23 || end.Day() != day.Day() {
+				t.Errorf("unexpected end of day: %s", end)
+			}
 		}
 	}
 }

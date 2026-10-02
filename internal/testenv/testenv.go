@@ -3,7 +3,6 @@ package testenv
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -25,19 +24,10 @@ func Context(db database.DB) context.Context {
 // DB starts a new database test.
 func DB(t testing.TB) context.Context {
 	t.Helper()
-	return db(t)
-}
 
-func db(t testing.TB) context.Context {
-	t.Helper()
-
-	conn := libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db"))
-	os.Setenv("TESTENV_CONNECT", conn)
-
-	files := os.DirFS(ModuleRoot())
 	db, err := libsqldriver.Open(context.Background(), database.ConnectOptions{
-		Connect: conn,
-		Files:   files,
+		Connect: libsqldriver.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db")),
+		Schema:  goatcounter.Schema,
 		Create:  true,
 	})
 	if err != nil {

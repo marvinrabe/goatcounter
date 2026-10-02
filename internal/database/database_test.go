@@ -32,7 +32,7 @@ func TestNamedQueriesBindData(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got string
-	err := Get(ctx, &got, `select name from items where :filter {{if .limit}}limit :limit{{end}}`, map[string]any{"filter": SQL(`id in (:ids) and name=:name`), "ids": []int{1, 2}, "name": attack, "limit": 1})
+	err := Get(ctx, &got, `select name from items where :filter limit :limit`, map[string]any{"filter": SQL(`id in (:ids) and name=:name`), "ids": []int{1, 2}, "name": attack, "limit": 1})
 	if err != nil || got != attack {
 		t.Fatalf("named query = %q, %v", got, err)
 	}

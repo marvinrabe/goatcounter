@@ -1,37 +1,15 @@
 package database
 
 import (
-	"bytes"
 	"database/sql/driver"
 	"fmt"
 	"maps"
 	"reflect"
 	"strings"
-	"text/template"
 )
 
 // SQL is a trusted SQL fragment, never a value supplied by a client.
 type SQL string
-
-func Template(query string, params ...any) ([]byte, error) {
-	data := map[string]any{}
-	for _, p := range params {
-		if m, ok := p.(map[string]any); ok {
-			maps.Copy(data, m)
-		}
-	}
-	funcs := template.FuncMap{
-		"auto_increment": func(...bool) string { return "integer primary key autoincrement" },
-		"blob":           func() string { return "blob" },
-	}
-	t, err := template.New("sql").Funcs(funcs).Parse(query)
-	if err != nil {
-		return nil, err
-	}
-	var b bytes.Buffer
-	err = t.Execute(&b, data)
-	return b.Bytes(), err
-}
 
 func (db *Database) prepare(query string, params ...any) (string, []any, error) {
 	data := map[string]any{}
@@ -42,13 +20,6 @@ func (db *Database) prepare(query string, params ...any) (string, []any, error) 
 		} else {
 			positional = append(positional, p)
 		}
-	}
-	if strings.Contains(query, "{{") {
-		b, err := Template(query, data)
-		if err != nil {
-			return "", nil, err
-		}
-		query = string(b)
 	}
 	var out strings.Builder
 	var args []any

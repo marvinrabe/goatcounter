@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"io/fs"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -23,7 +22,7 @@ type Database struct {
 type ConnectOptions struct {
 	Connect                    string
 	Create                     bool
-	Files                      fs.FS
+	Schema                     string // Creates the tables in an empty database.
 	MaxOpenConns, MaxIdleConns int
 }
 
@@ -33,12 +32,6 @@ func New(conn *sql.DB) DB {
 	return &Database{conn: sqlx.NewDb(conn, "sqlite3")}
 }
 func (db *Database) Close() error { return db.conn.Close() }
-func (db *Database) DBSQL() (*sql.DB, *sql.Tx) {
-	if db.tx != nil {
-		return db.conn.DB, db.tx.Tx
-	}
-	return db.conn.DB, nil
-}
 
 type contextKey struct{}
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"os"
 	"strconv"
@@ -95,16 +94,11 @@ func connectDB(connect, dbConn string) (database.DB, context.Context, error) {
 		}
 	}
 
-	fsys, err := fs.Sub(goatcounter.DB, "db")
-	if err != nil {
-		return nil, nil, err
-	}
-
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelConnect()
 	db, err := libsqldriver.Open(connectCtx, database.ConnectOptions{
 		Connect:      connect,
-		Files:        fsys,
+		Schema:       goatcounter.Schema,
 		Create:       true,
 		MaxOpenConns: open,
 		MaxIdleConns: idle,

@@ -4,7 +4,7 @@
 //	TZ=Europe/Berlin go run ./tools/plausible-migrate -db 'libsql://…?authToken=…' -site example.com export.zip
 //
 // Each CSV row becomes one row with its daily totals, and aggregate set to the
-// CSV's kind; see db/schema.gotxt. Its timestamp is midnight in TZ, which must
+// CSV's kind; see db/schema.sql. Its timestamp is midnight in TZ, which must
 // be the dashboard's timezone, and the timezone Plausible used for the export.
 //
 // Values are stored as Plausible exported them, which is how the collector
@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"regexp"
 	"slices"
@@ -85,8 +84,7 @@ func run(connect, site, file string) error {
 	defer archive.Close()
 
 	ctx := context.Background()
-	schema, _ := fs.Sub(goatcounter.DB, "db")
-	db, err := libsqldriver.Open(ctx, database.ConnectOptions{Connect: connect, Files: schema, Create: true})
+	db, err := libsqldriver.Open(ctx, database.ConnectOptions{Connect: connect, Schema: goatcounter.Schema, Create: true})
 	if err != nil {
 		return err
 	}
