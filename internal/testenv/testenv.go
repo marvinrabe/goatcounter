@@ -15,11 +15,7 @@ import (
 func Store(t testing.TB) *analytics.Store {
 	t.Helper()
 
-	db, err := database.Open(context.Background(), database.ConnectOptions{
-		Connect: database.FileConnect(filepath.Join(t.TempDir(), "goatcounter.db")),
-		Schema:  database.Schema,
-		Create:  true,
-	})
+	db, err := database.Open(context.Background(), filepath.Join(t.TempDir(), "goatcounter.db"))
 	if err != nil {
 		t.Fatalf("connect to DB: %s", err)
 	}

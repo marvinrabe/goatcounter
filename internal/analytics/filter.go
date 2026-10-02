@@ -1,10 +1,6 @@
 package analytics
 
-import (
-	"strings"
-
-	"github.com/marvinrabe/goatcounter/internal/database"
-)
+import "strings"
 
 // PathFilter limits dashboard data to paths matching the filter query from
 // the dashboard's filter box.
@@ -69,9 +65,10 @@ func NewPathFilter(query string) PathFilter {
 }
 
 // SQL returns a condition on the given path column, and the event name
-// column if it's not empty. The column names must be constants, never user
-// input.
-func (p PathFilter) SQL(pathCol, nameCol string) (database.SQL, map[string]any) {
+// column if it's not empty, to put in a query. The column names must be
+// constants, never user input; the filter itself is the :filter_like
+// parameter.
+func (p PathFilter) SQL(pathCol, nameCol string) (string, map[string]any) {
 	if p.Empty() {
 		return "1=1", map[string]any{}
 	}
@@ -89,7 +86,7 @@ func (p PathFilter) SQL(pathCol, nameCol string) (database.SQL, map[string]any) 
 	} else if p.onlyEvent {
 		cond = "0=1"
 	}
-	return database.SQL(cond), map[string]any{"filter_like": p.like}
+	return cond, map[string]any{"filter_like": p.like}
 }
 
 func findFilter(filter string, find ...string) (string, []string) {

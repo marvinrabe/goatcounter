@@ -82,7 +82,7 @@ func run(connect, site, file string) error {
 	defer archive.Close()
 
 	ctx := context.Background()
-	db, err := database.Open(ctx, database.ConnectOptions{Connect: connect, Schema: database.Schema, Create: true})
+	db, err := database.Open(ctx, connect)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func run(connect, site, file string) error {
 	fmt.Printf("Timezone: %s\n", tz)
 
 	counts := make(map[string]int)
-	err = db.TX(ctx, func(tx database.DB) error {
+	err = db.TX(ctx, func(tx *database.DB) error {
 		if err := tx.Exec(ctx, `delete from events where site = ? and aggregate <> ''`, site); err != nil {
 			return err
 		}
@@ -124,7 +124,7 @@ func run(connect, site, file string) error {
 	return nil
 }
 
-func migrateFile(ctx context.Context, db database.DB, f *zip.File, site, kind string, loc *time.Location) (int, error) {
+func migrateFile(ctx context.Context, db *database.DB, f *zip.File, site, kind string, loc *time.Location) (int, error) {
 	in, err := f.Open()
 	if err != nil {
 		return 0, err
@@ -144,7 +144,7 @@ func migrateFile(ctx context.Context, db database.DB, f *zip.File, site, kind st
 	}
 
 	cols := append(append([]string{"site", "ts", "aggregate", "props"}, dimensions...), metrics...)
-	ins, err := database.NewBulkInsert(ctx, db, "events", cols)
+	ins, err := newBulkInsert(ctx, db, "events", cols)
 	if err != nil {
 		return 0, err
 	}

@@ -1,8 +1,9 @@
-package database
+package main
 
 import (
 	"context"
 	"fmt"
+	"github.com/marvinrabe/goatcounter/internal/database"
 	"slices"
 	"strings"
 )
@@ -19,32 +20,33 @@ func identifier(s string) bool {
 	return s != ""
 }
 
-type BulkInsert struct {
+// bulkInsert inserts rows in batches of at most 900 parameters.
+type bulkInsert struct {
 	ctx   context.Context
-	db    DB
+	db    *database.DB
 	table string
 	cols  []string
 	rows  [][]any
 	err   error
 }
 
-func NewBulkInsert(ctx context.Context, db DB, table string, columns []string) (BulkInsert, error) {
+func newBulkInsert(ctx context.Context, db *database.DB, table string, columns []string) (bulkInsert, error) {
 	if len(columns) == 0 {
-		return BulkInsert{}, fmt.Errorf("database: empty insert columns")
+		return bulkInsert{}, fmt.Errorf("insert: empty insert columns")
 	}
 	for _, name := range append([]string{table}, columns...) {
 		if !identifier(name) {
-			return BulkInsert{}, fmt.Errorf("database: invalid table or column name %q", name)
+			return bulkInsert{}, fmt.Errorf("insert: invalid table or column name %q", name)
 		}
 	}
-	return BulkInsert{ctx: ctx, db: db, table: table, cols: slices.Clone(columns)}, nil
+	return bulkInsert{ctx: ctx, db: db, table: table, cols: slices.Clone(columns)}, nil
 }
-func (b *BulkInsert) Values(v ...any) {
+func (b *bulkInsert) Values(v ...any) {
 	if b.err != nil {
 		return
 	}
 	if len(v) != len(b.cols) {
-		b.err = fmt.Errorf("database: insert has %d values for %d columns", len(v), len(b.cols))
+		b.err = fmt.Errorf("insert: insert has %d values for %d columns", len(v), len(b.cols))
 		return
 	}
 	b.rows = append(b.rows, slices.Clone(v))
@@ -52,7 +54,7 @@ func (b *BulkInsert) Values(v ...any) {
 		b.flush()
 	}
 }
-func (b *BulkInsert) flush() {
+func (b *bulkInsert) flush() {
 	if b.err != nil || len(b.rows) == 0 {
 		return
 	}
@@ -65,4 +67,4 @@ func (b *BulkInsert) flush() {
 	b.err = b.db.Exec(b.ctx, query, args...)
 	b.rows = nil
 }
-func (b *BulkInsert) Finish() error { b.flush(); return b.err }
+func (b *bulkInsert) Finish() error { b.flush(); return b.err }

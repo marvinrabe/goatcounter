@@ -54,7 +54,7 @@ func (s *Store) Collect(ctx context.Context, site Site, e Event) error {
 			:source, :referrer, :utm_source, :utm_medium, :utm_campaign, :utm_content, :utm_term,
 			:browser, :browser_version, :os, :os_version, :width,
 			:country, :language
-		)`, map[string]any{
+		)`, named(map[string]any{
 		"site": e.Site, "ts": e.CreatedAt.Unix(),
 		"visitor": visitor, "prev_visitor": prevVisitor,
 		"since":   e.CreatedAt.Add(-SessionTimeout).Unix(),
@@ -67,7 +67,7 @@ func (s *Store) Collect(ctx context.Context, site Site, e Event) error {
 		"os": e.OS, "os_version": e.OSVersion, "width": e.Width,
 		"country":  e.Country,
 		"language": e.Language,
-	})
+	})...)
 	if err != nil {
 		return fmt.Errorf("Collect: %w", err)
 	}

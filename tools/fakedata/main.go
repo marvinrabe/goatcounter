@@ -98,7 +98,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 	}
 
 	ctx := context.Background()
-	db, err := database.Open(ctx, database.ConnectOptions{Connect: connect})
+	db, err := database.Open(ctx, connect)
 	if err != nil {
 		return err
 	}

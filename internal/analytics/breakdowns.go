@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
@@ -50,16 +49,17 @@ type Page struct {
 	Count int    `db:"count"`
 }
 
-// visitsCTE selects the matching pageviews as "views", and the first of them
+// visitsCTE selects the pageviews matching filter as "views", and the first of them
 // in each session as "visits". A visit takes its source, browser, location,
 // etc. from that first pageview. Custom events never create visits.
 //
 // SQLite takes the bare columns of an aggregate query with a single min()
 // from the row with the minimum, so this needs no window functions.
-const visitsCTE = `
+func visitsCTE(filter string) string {
+	return `
 with views as (
 	select * from events
-	where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter
+	where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and ` + filter + `
 ), visits as (
 	select session, min(ts) as ts, hostname, path, source, referrer,
 		utm_source, utm_medium, utm_campaign, utm_content, utm_term,
@@ -67,6 +67,7 @@ with views as (
 		country, language
 	from views group by session
 )`
+}
 
 type breakdownQuery struct {
 	live     string // Selects id, name, count from collected rows.
@@ -84,12 +85,17 @@ func sameColumns(id, name, where, kind, metric string) breakdownQuery {
 		live: `select ` + id + ` as id, ` + name + ` as name, count(*) as count
 			from visits where ` + where + ` group by 1, 2`,
 		migrated: `select ` + id + ` as id, ` + name + ` as name, sum(` + metric + `) as count
-			from events where :migrated and ` + where + ` group by 1, 2`,
+			from events where ` + migratedRows + ` and ` + where + ` group by 1, 2`,
 		kind: kind,
 	}
 }
 
-func breakdown(kind, detail string) (breakdownQuery, error) {
+// migratedRows selects the migrated rows of a breakdown's kind.
+const migratedRows = `site = :site and aggregate = :kind and ts >= :start and ts <= :end`
+
+// breakdown gets the queries for a kind of breakdown; filter is the condition
+// for the pageviews.
+func breakdown(kind, detail, filter string) (breakdownQuery, error) {
 	switch kind {
 	case "browsers":
 		if detail == "" {
@@ -128,7 +134,7 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 		if detail == "" {
 			return breakdownQuery{
 				live:     `select ` + enrich.DeviceFromWidth + ` as id, '' as name, count(*) as count from visits group by 1`,
-				migrated: `select ` + enrich.DeviceFromPlausible + ` as id, '' as name, sum(visits) as count from events where :migrated group by 1`,
+				migrated: `select ` + enrich.DeviceFromPlausible + ` as id, '' as name, sum(visits) as count from events where ` + migratedRows + ` group by 1`,
 				kind:     "devices",
 			}, nil
 		}
@@ -136,7 +142,7 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 			live: `select '' as id, '↔' || char(0xfe0e) || ' ' || width || 'px' as name, count(*) as count
 				from visits where ` + enrich.DeviceFromWidth + ` = :detail and width > 0 group by width`,
 			migrated: `select '' as id, device as name, sum(visits) as count
-				from events where :migrated and ` + enrich.DeviceFromPlausible + ` = :detail group by 2`,
+				from events where ` + migratedRows + ` and ` + enrich.DeviceFromPlausible + ` = :detail group by 2`,
 			kind: "devices",
 		}, nil
 	case "exit_pages":
@@ -145,19 +151,19 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 					select session, max(ts), path from views group by session
 				) group by 2`,
 			migrated: `select '' as id, path as name, sum(exits) as count from events
-				where :migrated group by 2`,
+				where ` + migratedRows + ` group by 2`,
 			kind: "exit_pages",
 		}, nil
 	case "events":
 		// Unique visitors with the event, as in Plausible.
 		return breakdownQuery{
 			live: `select '' as id, name, count(distinct visitor) as count from events
-				where site = :site and aggregate = '' and ts >= :start and ts <= :end and name <> 'pageview' and :filter
+				where site = :site and aggregate = '' and ts >= :start and ts <= :end and name <> 'pageview' and ` + filter + `
 				group by 2`,
 			// Plausible's own "engagement" events measure scroll depth and
 			// time on page, and aren't custom events.
 			migrated: `select '' as id, name, sum(visitors) as count from events
-				where :migrated and name <> 'engagement' group by 2`,
+				where ` + migratedRows + ` and name <> 'engagement' group by 2`,
 			kind: "custom_events",
 		}, nil
 	case "refpaths":
@@ -188,16 +194,15 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 // pageview, as Plausible exports don't break down dimensions by page.
 func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string, limit, offset int) (Breakdown, error) {
 	var h Breakdown
-	q, err := breakdown(kind, detail)
+	filter, params := query.params("path", "name")
+	q, err := breakdown(kind, detail, filter)
 	if err != nil {
 		return h, err
 	}
-	params := query.params("path", "name")
 	params["detail"] = detail
 	params["limit"] = limit + 1
 	params["offset"] = offset
 	params["kind"] = q.kind
-	params["migrated"] = database.SQL(`site = :site and aggregate = :kind and ts >= :start and ts <= :end`)
 	if limit <= 0 {
 		params["limit"] = -1
 	}
@@ -207,11 +212,11 @@ func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string,
 		union += "\nunion all\n" + q.migrated
 	}
 	// Collected and migrated rows with the same ID (or name) are one row.
-	err = s.DB.Select(ctx, &h.Rows, visitsCTE+`
+	err = s.DB.Select(ctx, &h.Rows, visitsCTE(filter)+`
 		select min(id) as id, min(name) as name, sum(count) as count from (`+union+`)
 		group by case when id <> '' then lower(id) else lower(name) end
 		order by count desc, name asc
-		limit :limit offset :offset`, params)
+		limit :limit offset :offset`, named(params)...)
 	if err != nil {
 		return h, fmt.Errorf("Breakdown(%s): %w", kind, err)
 	}
@@ -270,26 +275,25 @@ func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (Breakdown
 // are unique per day. It also reports if there are more pages.
 func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) ([]Page, bool, error) {
 	var h []Page
-	params := q.params("path", "name")
-	iparams := q.params("path", "")
-	params["ifilter"] = iparams["filter"]
+	filter, params := q.params("path", "name")
+	pageFilter, _ := q.params("path", "")
 	params["limit"] = limit + 1
 	params["offset"] = offset
 
 	err := s.DB.Select(ctx, &h, `
 		with pages as (
 			select path, count(distinct visitor) as n from events
-			where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter
+			where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and `+filter+`
 			group by path
 			union all
 			select path, sum(visitors) from events
-			where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and :ifilter
+			where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and `+pageFilter+`
 			group by path
 		)
 		select path, sum(n) as count from pages
 		group by path
 		order by count desc, path asc
-		limit :limit offset :offset`, params)
+		limit :limit offset :offset`, named(params)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("Pages: %w", err)
 	}

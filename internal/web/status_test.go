@@ -13,10 +13,7 @@ import (
 
 func TestStatus(t *testing.T) {
 	// A health check needs a reachable database, but no site or schema.
-	db, err := database.Open(context.Background(), database.ConnectOptions{
-		Connect: database.FileConnect(filepath.Join(t.TempDir(), "status.db")),
-		Create:  true,
-	})
+	db, err := database.Open(context.Background(), filepath.Join(t.TempDir(), "status.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

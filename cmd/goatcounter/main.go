@@ -72,15 +72,10 @@ Usage: goatcounter [serve|healthcheck] [flags]
   healthcheck  Check that a running instance is healthy; for Docker HEALTHCHECK.
 ` + usageServe + cmdHealthcheck
 
-func connectDB(connect string) (database.DB, error) {
-	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelConnect()
-	db, err := database.Open(connectCtx, database.ConnectOptions{
-		Connect: connect,
-		Schema:  database.Schema,
-		Create:  true,
-	})
-	return db, err
+func connectDB(connect string) (*database.DB, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return database.Open(ctx, connect)
 }
 
 func setupLog(debug bool) {
@@ -93,7 +88,7 @@ func setupLog(debug bool) {
 }
 
 // Bound final cleanup even if a driver is still closing a connection.
-func closeDB(db database.DB) {
+func closeDB(db *database.DB) {
 	done := make(chan struct{})
 	go func() { db.Close(); close(done) }()
 	select {

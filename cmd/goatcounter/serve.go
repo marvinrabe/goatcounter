@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/marvinrabe/goatcounter/internal/web"
@@ -79,7 +78,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	}
 	defer closeDB(db)
 	if *debug {
-		db = database.WithQueryLog(db, os.Stderr)
+		db = db.WithQueryLog(os.Stderr)
 	}
 	store := &analytics.Store{DB: db}
 

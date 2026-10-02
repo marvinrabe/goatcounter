@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -82,14 +83,23 @@ func PrevRange(rng datetime.Range) datetime.Range {
 	return datetime.NewRange(rng.Start.Add(-d)).To(rng.End.Add(-d))
 }
 
-// rangeParams are the query parameters shared by all dashboard queries.
-func (q Query) params(pathCol, nameCol string) map[string]any {
+// params gets the condition for the query's filter, and the parameters for
+// the dashboard queries: :site, :start, :end, and the filter's.
+func (q Query) params(pathCol, nameCol string) (string, map[string]any) {
 	filter, params := q.Filter.SQL(pathCol, nameCol)
 	params["site"] = q.Site.Key
 	params["start"] = q.Range.Start.Unix()
 	params["end"] = q.Range.End.Unix()
-	params["filter"] = filter
-	return params
+	return filter, params
+}
+
+// named converts parameters to the named arguments of a query.
+func named(params map[string]any) []any {
+	args := make([]any, 0, len(params))
+	for k, v := range params {
+		args = append(args, sql.Named(k, v))
+	}
+	return args
 }
 
 // Hourly buckets are selected in UTC and converted here, so that a period
@@ -133,7 +143,7 @@ func (s *Store) Dashboard(ctx context.Context, q Query, group Group) (DashboardD
 // metricBuckets loads per-hour buckets in the local timezone, keyed as
 // "2006-01-02 15", and the totals for the period.
 func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[string]dashboardMetricBucket, DashboardMetrics, error) {
-	params := q.params("path", "name")
+	filter, params := q.params("path", "name")
 
 	// Each visit is counted in the hour of its first pageview. As in
 	// Plausible, a custom event (such as an outbound link click) makes a
@@ -148,7 +158,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 				sum(name <> 'pageview')                      as custom_events,
 				max(ts) - min(ts)                            as duration
 			from events
-			where site = :site and aggregate = '' and ts >= :start and ts <= :end and :filter
+			where site = :site and aggregate = '' and ts >= :start and ts <= :end and `+filter+`
 			group by session
 			-- Not the alias: events has a pageviews column for migrated rows.
 			having sum(name = 'pageview') > 0
@@ -161,7 +171,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 			sum(pageviews = 1 and custom_events = 0)           as bounces,
 			sum(duration)                                      as duration
 		from visits
-		group by hour`, params)
+		group by hour`, named(params)...)
 	if err != nil {
 		return nil, DashboardMetrics{}, fmt.Errorf("Dashboard: %w", err)
 	}
@@ -200,7 +210,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 	err = s.DB.Select(ctx, &visitorHours, `
 		select distinct strftime('%Y-%m-%d %H', ts, 'unixepoch') as hour, visitor
 		from events
-		where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter`, params)
+		where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and `+filter, named(params)...)
 	if err != nil {
 		return nil, DashboardMetrics{}, fmt.Errorf("Dashboard visitors: %w", err)
 	}
@@ -230,6 +240,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 	totalVisitors = len(seenTotal)
 
 	// Migrated Plausible rows are daily totals, at midnight.
+	pageFilter, pageParams := q.params("path", "")
 	query := `
 		select strftime('%Y-%m-%d %H', ts, 'unixepoch') as hour,
 			sum(visitors) as visitors, sum(visits) as visits, sum(pageviews) as pageviews,
@@ -250,7 +261,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 			with pages as (
 				select ts, sum(visitors) as visitors, sum(visits) as visits, sum(pageviews) as pageviews
 				from events
-				where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and :filter
+				where site = :site and aggregate = 'pages' and ts >= :start and ts <= :end and ` + pageFilter + `
 				group by ts
 			), days as (
 				select ts, sum(visitors) as visitors, sum(visits) as visits
@@ -266,7 +277,7 @@ func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[st
 			from pages left join days using (ts)`
 	}
 	var migrated []dashboardMetricBucket
-	err = s.DB.Select(ctx, &migrated, query, q.params("path", ""))
+	err = s.DB.Select(ctx, &migrated, query, named(pageParams)...)
 	if err != nil {
 		return nil, DashboardMetrics{}, fmt.Errorf("Dashboard migrated: %w", err)
 	}

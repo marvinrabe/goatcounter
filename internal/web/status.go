@@ -12,7 +12,7 @@ import (
 //
 // A successful check is reused for a minute, so frequent health probes don't
 // keep the database busy.
-func status(db database.DB) http.HandlerFunc {
+func status(db *database.DB) http.HandlerFunc {
 	var (
 		mu     sync.Mutex
 		lastOK time.Time

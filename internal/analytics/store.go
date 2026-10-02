@@ -13,7 +13,7 @@ import (
 // Store collects and queries the pageviews of the configured sites. The
 // settings are set before it's used and don't change.
 type Store struct {
-	DB       database.DB
+	DB       *database.DB
 	Timezone datetime.Timezone // Of the dashboard; days start at midnight here.
 	Sites    []Site
 

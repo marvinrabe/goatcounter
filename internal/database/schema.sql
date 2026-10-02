@@ -34,7 +34,7 @@
 --
 -- Its ts is midnight of the day in the dashboard timezone, so date ranges
 -- select collected and migrated rows the same way.
-create table events (
+create table if not exists events (
 	site             text     not null,
 	ts               integer  not null,                 -- Unix time, seconds.
 	aggregate        text     not null default '',      -- '' for collected rows; see above.
@@ -79,11 +79,11 @@ create table events (
 ) strict;
 -- Covers the dashboard's range scans of collected and migrated rows, and the
 -- 30-minute session lookup done for every collected pageview.
-create index "events#site#aggregate#ts" on events(site, aggregate, ts, visitor, session);
+create index if not exists "events#site#aggregate#ts" on events(site, aggregate, ts, visitor, session);
 
 -- Daily random salts for visitor hashes. Salts older than yesterday are
 -- deleted, after which visitor hashes can no longer be linked to an IP.
-create table salts (
+create table if not exists salts (
 	day   text  not null primary key,
 	salt  blob  not null
 ) strict;
