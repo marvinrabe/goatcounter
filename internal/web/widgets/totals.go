@@ -19,11 +19,11 @@ func (w Totals) Visits() int { return w.Data.Metrics.Visits }
 
 func (w *Totals) GetData(ctx context.Context, a Args) (bool, error) {
 	var err error
-	w.Data, err = analytics.GetDashboardData(ctx, a.Rng, a.PathFilter, a.Group)
+	w.Data, err = a.Store.Dashboard(ctx, a.Query, a.Group)
 	return false, err
 }
 
-func (w Totals) RenderHTML(ctx context.Context, a Args) (string, any) {
+func (w Totals) RenderHTML(a Args) (string, any) {
 	return "_dashboard_totals.gohtml", struct {
 		Name    string
 		Err     error

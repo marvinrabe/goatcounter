@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 )
 
@@ -84,44 +83,45 @@ func PrevRange(rng datetime.Range) datetime.Range {
 }
 
 // rangeParams are the query parameters shared by all dashboard queries.
-func rangeParams(ctx context.Context, rng datetime.Range, pathFilter PathFilter, pathCol, nameCol string) map[string]any {
-	filter, params := pathFilter.SQL(pathCol, nameCol)
-	params["site"] = MustGetSite(ctx).Key
-	params["start"] = rng.Start.Unix()
-	params["end"] = rng.End.Unix()
+func (q Query) params(pathCol, nameCol string) map[string]any {
+	filter, params := q.Filter.SQL(pathCol, nameCol)
+	params["site"] = q.Site.Key
+	params["start"] = q.Range.Start.Unix()
+	params["end"] = q.Range.End.Unix()
 	params["filter"] = filter
 	return params
 }
 
 // Hourly buckets are selected in UTC and converted here, so that a period
 // with a DST change still has correct days.
-func localHour(ctx context.Context, utcHour string) (time.Time, error) {
+func (s *Store) localHour(utcHour string) (time.Time, error) {
 	t, err := time.ParseInLocation("2006-01-02 15", utcHour, time.UTC)
-	return t.In(Config(ctx).Timezone.Loc()), err
+	return t.In(s.Timezone.Loc()), err
 }
 
-// GetDashboardData calculates totals and chart points together. Totals are
+// Dashboard calculates totals and chart points together. Totals are
 // weighted by visits, rather than averaging the per-bucket rates.
-func GetDashboardData(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) (DashboardData, error) {
-	loc := Config(ctx).Timezone.Loc()
-	group = ChartGroup(rng.In(loc), group)
+func (s *Store) Dashboard(ctx context.Context, q Query, group Group) (DashboardData, error) {
+	loc := s.Timezone.Loc()
+	group = ChartGroup(q.Range.In(loc), group)
 
-	cur, metrics, err := metricBuckets(ctx, rng, pathFilter, group)
+	cur, metrics, err := s.metricBuckets(ctx, q, group)
 	if err != nil {
 		return DashboardData{}, err
 	}
-	prevRng := PrevRange(rng)
-	prev, prevMetrics, err := metricBuckets(ctx, prevRng, pathFilter, group)
+	prevQ := q
+	prevQ.Range = PrevRange(q.Range)
+	prev, prevMetrics, err := s.metricBuckets(ctx, prevQ, group)
 	if err != nil {
 		return DashboardData{}, err
 	}
 
 	series := DashboardMetricSeries{Group: group.String()}
-	series.Points, err = metricPoints(ctx, cur, rng.In(loc), group)
+	series.Points, err = metricPoints(ctx, cur, q.Range.In(loc), group)
 	if err != nil {
 		return DashboardData{}, err
 	}
-	series.Prev, err = metricPoints(ctx, prev, prevRng.In(loc), group)
+	series.Prev, err = metricPoints(ctx, prev, prevQ.Range.In(loc), group)
 	if err != nil {
 		return DashboardData{}, err
 	}
@@ -132,15 +132,15 @@ func GetDashboardData(ctx context.Context, rng datetime.Range, pathFilter PathFi
 
 // metricBuckets loads per-hour buckets in the local timezone, keyed as
 // "2006-01-02 15", and the totals for the period.
-func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilter, group Group) (map[string]dashboardMetricBucket, DashboardMetrics, error) {
-	params := rangeParams(ctx, rng, pathFilter, "path", "name")
+func (s *Store) metricBuckets(ctx context.Context, q Query, group Group) (map[string]dashboardMetricBucket, DashboardMetrics, error) {
+	params := q.params("path", "name")
 
 	// Each visit is counted in the hour of its first pageview. As in
 	// Plausible, a custom event (such as an outbound link click) makes a
 	// visit not a bounce, and counts for its duration. With a filter only the
 	// matching events are considered, as if the others didn't exist.
 	var rows []dashboardMetricBucket
-	err := database.Select(ctx, &rows, `
+	err := s.DB.Select(ctx, &rows, `
 		with visits as (
 			select
 				min(case when name = 'pageview' then ts end) as started,
@@ -163,7 +163,7 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		from visits
 		group by hour`, params)
 	if err != nil {
-		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData: %w", err)
+		return nil, DashboardMetrics{}, fmt.Errorf("Dashboard: %w", err)
 	}
 
 	var total dashboardMetricBucket
@@ -185,7 +185,7 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		total.RateVisits += row.RateVisits
 	}
 	for _, row := range rows {
-		t, err := localHour(ctx, row.Hour)
+		t, err := s.localHour(row.Hour)
 		if err != nil {
 			return nil, DashboardMetrics{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
 		}
@@ -197,12 +197,12 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		Hour    string `db:"hour"`
 		Visitor int64  `db:"visitor"`
 	}
-	err = database.Select(ctx, &visitorHours, `
+	err = s.DB.Select(ctx, &visitorHours, `
 		select distinct strftime('%Y-%m-%d %H', ts, 'unixepoch') as hour, visitor
 		from events
 		where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter`, params)
 	if err != nil {
-		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData visitors: %w", err)
+		return nil, DashboardMetrics{}, fmt.Errorf("Dashboard visitors: %w", err)
 	}
 	type bucketVisitor struct {
 		key     string
@@ -214,7 +214,7 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		totalVisitors int
 	)
 	for _, row := range visitorHours {
-		t, err := localHour(ctx, row.Hour)
+		t, err := s.localHour(row.Hour)
 		if err != nil {
 			return nil, DashboardMetrics{}, fmt.Errorf("parse dashboard metric bucket: %w", err)
 		}
@@ -237,7 +237,7 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 		from events
 		where site = :site and aggregate = 'visitors' and ts >= :start and ts <= :end
 		group by ts`
-	if !pathFilter.AllPageviews() {
+	if !q.Filter.AllPageviews() {
 		// With a filter only the per-page totals can be used. Pageviews add
 		// up, but a visit to several matching pages is in each of their rows,
 		// and Plausible doesn't say which pages were in the same visit. The sum
@@ -266,12 +266,12 @@ func metricBuckets(ctx context.Context, rng datetime.Range, pathFilter PathFilte
 			from pages left join days using (ts)`
 	}
 	var migrated []dashboardMetricBucket
-	err = database.Select(ctx, &migrated, query, rangeParams(ctx, rng, pathFilter, "path", ""))
+	err = s.DB.Select(ctx, &migrated, query, q.params("path", ""))
 	if err != nil {
-		return nil, DashboardMetrics{}, fmt.Errorf("GetDashboardData migrated: %w", err)
+		return nil, DashboardMetrics{}, fmt.Errorf("Dashboard migrated: %w", err)
 	}
 	for _, row := range migrated {
-		t, err := localHour(ctx, row.Hour)
+		t, err := s.localHour(row.Hour)
 		if err != nil {
 			return nil, DashboardMetrics{}, fmt.Errorf("parse migrated bucket: %w", err)
 		}

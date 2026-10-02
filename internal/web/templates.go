@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -30,11 +29,11 @@ func parseTemplates(files fs.FS) error {
 			return string(b), err
 		},
 		"nformat": formatNumber,
-		"tformat": func(ctx context.Context, t time.Time, format string) string {
+		"tformat": func(t time.Time, format string) string {
 			if format == "" {
 				format = "2006-01-02"
 			}
-			return t.In(analytics.Config(ctx).Timezone.Loc()).Format(format)
+			return t.Format(format)
 		},
 		"path_id": func(p string) string {
 			p = strings.ReplaceAll(strings.TrimLeft(p, "/"), "/", "-")

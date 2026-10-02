@@ -11,7 +11,6 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/marvinrabe/goatcounter/internal/analytics"
 	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
@@ -73,7 +72,7 @@ Usage: goatcounter [serve|healthcheck] [flags]
   healthcheck  Check that a running instance is healthy; for Docker HEALTHCHECK.
 ` + usageServe + cmdHealthcheck
 
-func connectDB(connect string) (database.DB, context.Context, error) {
+func connectDB(connect string) (database.DB, error) {
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelConnect()
 	db, err := database.Open(connectCtx, database.ConnectOptions{
@@ -81,12 +80,7 @@ func connectDB(connect string) (database.DB, context.Context, error) {
 		Schema:  database.Schema,
 		Create:  true,
 	})
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return db, analytics.NewContext(context.Background(), db), nil
+	return db, err
 }
 
 func setupLog(debug bool) {

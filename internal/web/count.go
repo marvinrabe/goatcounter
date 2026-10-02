@@ -13,7 +13,7 @@ import (
 // fetch(). Parameters are in the query string; the response is always empty.
 //
 // Errors are reported in the X-Goatcounter header, for debugging.
-func (h backend) count(w http.ResponseWriter, r *http.Request) error {
+func (s *server) count(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	fail := func(msg string, args ...any) error {
 		w.Header().Set("X-Goatcounter", fmt.Sprintf(msg, args...))
@@ -28,7 +28,6 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	hit := analytics.HitFromRequest(r)
-	hit.Site = Site(r.Context()).Key
 	q := r.URL.Query()
 	if q.Get("s") == "" {
 		q.Del("s") // An unknown width is 0, not an error.
@@ -45,11 +44,11 @@ func (h backend) count(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
-	if err := hit.Validate(r.Context()); err != nil {
+	if err := hit.Validate(); err != nil {
 		return fail("not valid: %s", err)
 	}
 
-	if err := analytics.Collect(r.Context(), hit); err != nil {
+	if err := s.store.Collect(r.Context(), siteFrom(r.Context()), hit); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -1,7 +1,7 @@
 {{- template "_backend_top.gohtml" . -}}
 
 <div id="print-header" class="hidden text-center text-lg font-semibold print:block">
-	Report for {{tformat $.Context .Period.Start ""}} to {{tformat $.Context .Period.End ""}}
+	Report for {{tformat .Period.Start ""}} to {{tformat .Period.End ""}}
 </div>
 
 <form id="dash-form" class="mb-5 block {{if .HideUI}}hidden{{end}} print:hidden">
@@ -15,9 +15,9 @@
 			<span class="sr-only">Date range</span>
 			<span class="flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400">
 				<input type="date" autocomplete="off" id="period-start" name="period-start" aria-label="First day to display"
-					value="{{tformat $.Context .Period.Start ""}}" class="min-w-0 w-36 rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 px-2 py-2 text-xs text-slate-800 dark:text-neutral-100 outline-none focus:border-fuchsia-500 sm:w-40 sm:text-sm">to
+					value="{{tformat .Period.Start ""}}" class="min-w-0 w-36 rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 px-2 py-2 text-xs text-slate-800 dark:text-neutral-100 outline-none focus:border-fuchsia-500 sm:w-40 sm:text-sm">to
 				<input type="date" autocomplete="off" id="period-end" name="period-end" aria-label="Last day to display"
-					value="{{tformat $.Context .Period.End ""}}" class="min-w-0 w-36 rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 px-2 py-2 text-xs text-slate-800 dark:text-neutral-100 outline-none focus:border-fuchsia-500 sm:w-40 sm:text-sm">
+					value="{{tformat .Period.End ""}}" class="min-w-0 w-36 rounded-lg border border-slate-300 bg-white dark:border-neutral-700 dark:bg-neutral-900 px-2 py-2 text-xs text-slate-800 dark:text-neutral-100 outline-none focus:border-fuchsia-500 sm:w-40 sm:text-sm">
 			</span>
 			<span id="dash-select-period" class="mt-2 flex flex-wrap items-center gap-0 text-xs text-slate-500 dark:text-neutral-400">
 				<span class="mr-1">Last</span>

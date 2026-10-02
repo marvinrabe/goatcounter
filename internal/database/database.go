@@ -38,19 +38,6 @@ func New(conn *sql.DB) DB {
 }
 func (db *Database) Close() error { return db.conn.Close() }
 
-type contextKey struct{}
-
-func WithDB(ctx context.Context, db DB) context.Context {
-	return context.WithValue(ctx, contextKey{}, db)
-}
-func MustGetDB(ctx context.Context) DB {
-	db, ok := ctx.Value(contextKey{}).(DB)
-	if !ok || db == nil {
-		panic("database: no connection in context")
-	}
-	return db
-}
-
 func (db *Database) queryer() sqlx.ExtContext {
 	if db.tx != nil {
 		return db.tx
@@ -70,11 +57,7 @@ func (db *Database) Get(ctx context.Context, dest any, query string, params ...a
 	db.record(q, args)
 	return sqlx.GetContext(ctx, db.queryer(), dest, q, args...)
 }
-func Get(ctx context.Context, dest any, query string, params ...any) error {
-	return MustGetDB(ctx).Get(ctx, dest, query, params...)
-}
-func Select(ctx context.Context, dest any, query string, params ...any) error {
-	db := MustGetDB(ctx)
+func (db *Database) Select(ctx context.Context, dest any, query string, params ...any) error {
 	q, args, err := db.prepare(query, params...)
 	if err != nil {
 		return err
@@ -82,8 +65,7 @@ func Select(ctx context.Context, dest any, query string, params ...any) error {
 	db.record(q, args)
 	return sqlx.SelectContext(ctx, db.queryer(), dest, q, args...)
 }
-func NumRows(ctx context.Context, query string, params ...any) (int64, error) {
-	db := MustGetDB(ctx)
+func (db *Database) NumRows(ctx context.Context, query string, params ...any) (int64, error) {
 	q, args, err := db.prepare(query, params...)
 	if err != nil {
 		return 0, err
@@ -95,16 +77,17 @@ func NumRows(ctx context.Context, query string, params ...any) (int64, error) {
 	}
 	return result.RowsAffected()
 }
-func Exec(ctx context.Context, query string, params ...any) error {
-	_, err := NumRows(ctx, query, params...)
+func (db *Database) Exec(ctx context.Context, query string, params ...any) error {
+	_, err := db.NumRows(ctx, query, params...)
 	return err
 }
 
-// TX reuses an active transaction, so nested operations commit or roll back
-// together. A panic also rolls back before it propagates to the caller.
-func (db *Database) TX(ctx context.Context, fn func(context.Context) error) error {
+// TX runs fn with a DB in a transaction. Inside a transaction it reuses it, so
+// nested operations commit or roll back together. A panic also rolls back
+// before it propagates to the caller.
+func (db *Database) TX(ctx context.Context, fn func(tx DB) error) error {
 	if db.tx != nil {
-		return fn(WithDB(ctx, db))
+		return fn(db)
 	}
 	tx, err := db.conn.BeginTxx(ctx, nil)
 	if err != nil {
@@ -113,11 +96,10 @@ func (db *Database) TX(ctx context.Context, fn func(context.Context) error) erro
 	defer tx.Rollback()
 	child := *db
 	child.tx = tx
-	if err := fn(WithDB(ctx, &child)); err != nil {
+	if err := fn(&child); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
-func TX(ctx context.Context, fn func(context.Context) error) error { return MustGetDB(ctx).TX(ctx, fn) }
 
 func WithQueryLog(db DB, w io.Writer) DB { clone := *db; clone.log = w; return &clone }

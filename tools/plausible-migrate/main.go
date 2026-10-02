@@ -87,7 +87,6 @@ func run(connect, site, file string) error {
 		return err
 	}
 	defer db.Close()
-	ctx = database.WithDB(ctx, db)
 
 	if os.Getenv("TZ") == "" {
 		return fmt.Errorf("TZ must be set to the dashboard's timezone, e.g. TZ=Europe/Berlin")
@@ -99,8 +98,8 @@ func run(connect, site, file string) error {
 	fmt.Printf("Timezone: %s\n", tz)
 
 	counts := make(map[string]int)
-	err = database.TX(ctx, func(ctx context.Context) error {
-		if err := database.Exec(ctx, `delete from events where site = ? and aggregate <> ''`, site); err != nil {
+	err = db.TX(ctx, func(tx database.DB) error {
+		if err := tx.Exec(ctx, `delete from events where site = ? and aggregate <> ''`, site); err != nil {
 			return err
 		}
 		for _, f := range archive.File {
@@ -108,7 +107,7 @@ func run(connect, site, file string) error {
 			if m == nil || !slices.Contains(kinds, m[1]) {
 				return fmt.Errorf("unexpected file in archive: %q", f.Name)
 			}
-			n, err := migrateFile(ctx, f, site, m[1], tz.Loc())
+			n, err := migrateFile(ctx, tx, f, site, m[1], tz.Loc())
 			if err != nil {
 				return fmt.Errorf("%s: %w", f.Name, err)
 			}
@@ -125,7 +124,7 @@ func run(connect, site, file string) error {
 	return nil
 }
 
-func migrateFile(ctx context.Context, f *zip.File, site, kind string, loc *time.Location) (int, error) {
+func migrateFile(ctx context.Context, db database.DB, f *zip.File, site, kind string, loc *time.Location) (int, error) {
 	in, err := f.Open()
 	if err != nil {
 		return 0, err
@@ -145,7 +144,7 @@ func migrateFile(ctx context.Context, f *zip.File, site, kind string, loc *time.
 	}
 
 	cols := append(append([]string{"site", "ts", "aggregate", "props"}, dimensions...), metrics...)
-	ins, err := database.NewBulkInsert(ctx, "events", cols)
+	ins, err := database.NewBulkInsert(ctx, db, "events", cols)
 	if err != nil {
 		return 0, err
 	}

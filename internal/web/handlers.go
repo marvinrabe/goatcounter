@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -12,12 +11,9 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/analytics"
 )
 
-// Site calls analytics.MustGetSite; it's just shorter :-)
-func Site(ctx context.Context) *analytics.Site { return analytics.MustGetSite(ctx) }
-
+// Globals are passed to every page template.
 type Globals struct {
-	Context         context.Context
-	Site            *analytics.Site
+	Site            analytics.Site
 	Sites           []analytics.Site
 	Path            string
 	StaticDomain    string
@@ -27,7 +23,9 @@ type Globals struct {
 }
 
 // Asset resolves a source asset to its Vite-generated, content-hashed URL.
-func (g Globals) Asset(name string) (string, error) {
+func (g Globals) Asset(name string) (string, error) { return assetURL(name) }
+
+func assetURL(name string) (string, error) {
 	paths, err := assetPaths()
 	if err != nil {
 		return "", err
@@ -39,21 +37,17 @@ func (g Globals) Asset(name string) (string, error) {
 	return "/" + file, nil
 }
 
-func newGlobals(r *http.Request) Globals {
-	ctx := r.Context()
-	cfg := analytics.Config(ctx)
-	g := Globals{
-		Context: ctx,
-		Site:    analytics.GetSite(ctx),
-		Sites:   cfg.Sites,
-		Path:    r.URL.Path,
+func (s *server) globals(r *http.Request) Globals {
+	return Globals{
+		Site:  siteFrom(r.Context()),
+		Sites: s.store.Sites,
+		Path:  r.URL.Path,
 
-		TZName:          cfg.Timezone.Abbr(),
-		TZOffsetDisplay: cfg.Timezone.OffsetDisplay(),
+		TZName:          s.store.Timezone.Abbr(),
+		TZOffsetDisplay: s.store.Timezone.OffsetDisplay(),
 		StaticDomain:    r.Host,
 		HideUI:          r.URL.Query().Get("hideui") != "",
 	}
-	return g
 }
 
 // ErrPage logs internal errors and renders a safe response for the client.
@@ -100,7 +94,7 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			return
 		}
 
-		styleURL, _ := newGlobals(r).Asset("assets/css/backend.css")
+		styleURL, _ := assetURL("assets/css/backend.css")
 		err := t.ExecuteTemplate(w, "error.gohtml", struct {
 			Code     int
 			Error    error

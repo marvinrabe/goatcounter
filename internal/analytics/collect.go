@@ -7,10 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
-	"sync"
 	"time"
-
-	"github.com/marvinrabe/goatcounter/internal/database"
 )
 
 // SessionTimeout is the inactivity after which a visitor starts a new visit;
@@ -23,13 +20,13 @@ const SessionTimeout = 30 * time.Minute
 // in the same statement from the visitor's most recent hit in the last 30
 // minutes, so any replica in any region can accept any hit, and nothing
 // runs while there is no traffic.
-func Collect(ctx context.Context, h Hit) error {
-	h.Defaults(ctx)
+func (s *Store) Collect(ctx context.Context, site Site, h Hit) error {
+	h.Defaults(site)
 	if h.Ignore() {
 		return nil
 	}
 
-	salt, prevSalt, err := salts(ctx, h.CreatedAt)
+	salt, prevSalt, err := s.daySalts(ctx, h.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("Collect: %w", err)
 	}
@@ -41,7 +38,7 @@ func Collect(ctx context.Context, h Hit) error {
 		visitor, prevVisitor = rand.Int64(), -1
 	}
 
-	err = database.Exec(ctx, `insert into events (
+	err = s.DB.Exec(ctx, `insert into events (
 			site, ts, visitor, session, name, hostname, path, props,
 			source, referrer, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
 			browser, browser_version, os, os_version, width,
@@ -92,24 +89,17 @@ func visitorID(salt []byte, h *Hit) int64 {
 	return int64(binary.BigEndian.Uint64(sum.Sum(nil)) >> 1)
 }
 
-// Salts rotate at midnight in the dashboard timezone, so visitors are unique
-// per dashboard day. Yesterday's salt is kept so that a visit which
-// crosses midnight remains one visit; older salts are deleted.
-var saltCache struct {
-	mu        sync.Mutex
-	db        database.DB
-	day       string
-	cur, prev []byte
-}
-
-func salts(ctx context.Context, now time.Time) (cur, prev []byte, err error) {
-	local := now.In(Config(ctx).Timezone.Loc())
+// daySalts gets the salts for today and yesterday. Salts rotate at midnight
+// in the dashboard timezone, so visitors are unique per dashboard day.
+// Yesterday's salt is kept so that a visit which crosses midnight remains one
+// visit; older salts are deleted.
+func (s *Store) daySalts(ctx context.Context, now time.Time) (cur, prev []byte, err error) {
+	local := now.In(s.Timezone.Loc())
 	day := local.Format("2006-01-02")
-	saltCache.mu.Lock()
-	defer saltCache.mu.Unlock()
-	db := database.MustGetDB(ctx)
-	if saltCache.day == day && saltCache.db == db {
-		return saltCache.cur, saltCache.prev, nil
+	s.salts.mu.Lock()
+	defer s.salts.mu.Unlock()
+	if s.salts.day == day {
+		return s.salts.cur, s.salts.prev, nil
 	}
 
 	yesterday := local.AddDate(0, 0, -1).Format("2006-01-02")
@@ -119,18 +109,18 @@ func salts(ctx context.Context, now time.Time) (cur, prev []byte, err error) {
 	}
 	// Every replica races to insert the salt for a new day; the first one
 	// wins and the others read it back.
-	if err := database.Exec(ctx, `insert into salts (day, salt) values (?, ?)
+	if err := s.DB.Exec(ctx, `insert into salts (day, salt) values (?, ?)
 		on conflict (day) do nothing`, day, newSalt); err != nil {
 		return nil, nil, err
 	}
-	if err := database.Exec(ctx, `delete from salts where day < ?`, yesterday); err != nil {
+	if err := s.DB.Exec(ctx, `delete from salts where day < ?`, yesterday); err != nil {
 		return nil, nil, err
 	}
 	var rows []struct {
 		Day  string `db:"day"`
 		Salt []byte `db:"salt"`
 	}
-	if err := database.Select(ctx, &rows, `select day, salt from salts where day in (?, ?)`, day, yesterday); err != nil {
+	if err := s.DB.Select(ctx, &rows, `select day, salt from salts where day in (?, ?)`, day, yesterday); err != nil {
 		return nil, nil, err
 	}
 	for _, r := range rows {
@@ -143,6 +133,6 @@ func salts(ctx context.Context, now time.Time) (cur, prev []byte, err error) {
 	if len(cur) == 0 {
 		return nil, nil, fmt.Errorf("salt for %s not found", day)
 	}
-	saltCache.db, saltCache.day, saltCache.cur, saltCache.prev = db, day, cur, prev
+	s.salts.day, s.salts.cur, s.salts.prev = day, cur, prev
 	return cur, prev, nil
 }

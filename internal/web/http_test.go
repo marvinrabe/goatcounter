@@ -2,7 +2,6 @@ package web
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,8 +27,8 @@ func login(t *testing.T, r *http.Request) {
 	t.Helper()
 	r.SetBasicAuth("test@example.com", "coconuts")
 }
-func newTest(ctx context.Context, method, path string, body io.Reader) (*http.Request, *httptest.ResponseRecorder) {
-	r, rr := testenv.NewRequest(method, path, body).WithContext(ctx), httptest.NewRecorder()
+func newTest(method, path string, body io.Reader) (*http.Request, *httptest.ResponseRecorder) {
+	r, rr := testenv.NewRequest(method, path, body), httptest.NewRecorder()
 	r.Header.Set("User-Agent", "GoatCounter test runner/1.0")
 	r.Host = "test"
 	return r, rr

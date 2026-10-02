@@ -72,21 +72,21 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	if *dbConnect == "" {
 		return errors.New("-db: a database URL or path is required")
 	}
-	db, ctx, err := connectDB(*dbConnect)
+	ctx := context.Background()
+	db, err := connectDB(*dbConnect)
 	if err != nil {
 		return err
 	}
+	defer closeDB(db)
 	if *debug {
 		db = database.WithQueryLog(db, os.Stderr)
-		ctx = database.WithDB(ctx, db)
 	}
-	defer closeDB(db)
+	store := &analytics.Store{DB: db}
 
 	if err := web.LoadTemplates(); err != nil {
 		return err
 	}
 
-	c := analytics.Config(ctx)
 	seenSites := make(map[string]bool)
 	for _, name := range strings.Split(*siteList, ",") {
 		name = strings.TrimSpace(strings.TrimRight(name, "/"))
@@ -100,17 +100,16 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		seenSites[key] = true
 		s := analytics.Site{Key: name, LinkDomain: name}
 		s.Defaults()
-		c.Sites = append(c.Sites, s)
+		store.Sites = append(store.Sites, s)
 	}
-	if len(c.Sites) == 0 {
+	if len(store.Sites) == 0 {
 		return fmt.Errorf("-sites must contain at least one site")
 	}
-	c.Timezone, err = datetime.LoadTimezone()
+	store.Timezone, err = datetime.LoadTimezone()
 	if err != nil {
 		return err
 	}
 
-	timeout := 60
 	auth := web.Auth{Mode: web.AuthMode(*authMode)}
 	switch auth.Mode {
 	case web.AuthPublic:
@@ -146,8 +145,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           web.New(db, timeout, web.NewRatelimits(), auth),
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		Handler:           web.New(store, web.NewRatelimits(), auth),
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,
 		Protocols: func() *http.Protocols {
@@ -168,7 +166,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(ln) }()
 	slog.InfoContext(ctx, "GoatCounter ready",
-		"listen", ln.Addr().String(), "timezone", c.Timezone.String())
+		"listen", ln.Addr().String(), "timezone", store.Timezone.String())
 	ready <- struct{}{}
 	updates, stopUpdates := context.WithCancel(ctx)
 	defer stopUpdates()

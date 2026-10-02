@@ -1,7 +1,6 @@
 package analytics
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,9 +87,8 @@ func (h *Hit) splitPath() {
 // language. The rest is sent by count.js in the query string, and derived from
 // that by Defaults.
 func HitFromRequest(r *http.Request) Hit {
-	ctx := r.Context()
 	return Hit{
-		CreatedAt:       datetime.Now(ctx),
+		CreatedAt:       datetime.Now(),
 		UserAgentHeader: r.UserAgent(),
 		RemoteAddr:      r.RemoteAddr,
 		Country:         enrich.Country(r),
@@ -98,14 +96,11 @@ func HitFromRequest(r *http.Request) Hit {
 	}
 }
 
-// Defaults normalizes the hit and derives the stored dimensions. It never
-// touches the database.
-func (h *Hit) Defaults(ctx context.Context) {
-	if h.Site == "" {
-		h.Site = MustGetSite(ctx).Key
-	}
+// Defaults normalizes the hit for a site and derives the stored dimensions.
+func (h *Hit) Defaults(site Site) {
+	h.Site = site.Key
 	if h.CreatedAt.IsZero() {
-		h.CreatedAt = datetime.Now(ctx)
+		h.CreatedAt = datetime.Now()
 	}
 	h.Name = strings.TrimSpace(h.Name)
 	if h.Name == "" {
@@ -113,7 +108,7 @@ func (h *Hit) Defaults(ctx context.Context) {
 	}
 	h.Hostname = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(h.Hostname)), "www.")
 	h.splitPath()
-	h.Source, h.Referrer = enrich.Source(h.Ref, MustGetSite(ctx).LinkDomain)
+	h.Source, h.Referrer = enrich.Source(h.Ref, site.LinkDomain)
 	if h.UTMSource != "" {
 		h.Source = h.UTMSource
 	}
@@ -123,7 +118,7 @@ func (h *Hit) Defaults(ctx context.Context) {
 
 // Validate the request before it's normalized. Props are normalized to a
 // compact JSON object with string values.
-func (h *Hit) Validate(ctx context.Context) error {
+func (h *Hit) Validate() error {
 	var errs []string
 	check := func(ok bool, field, msg string) {
 		if !ok {

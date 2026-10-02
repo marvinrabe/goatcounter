@@ -6,21 +6,26 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/marvinrabe/goatcounter/internal/database"
+	"github.com/marvinrabe/goatcounter/internal/analytics"
 )
 
-func New(db database.DB, dashTimeout int, ratelimits Ratelimits, auth Auth) chi.Router {
+// The dashboard's queries are cancelled after this.
+const dashTimeout = 60 * time.Second
+
+// New creates the handler for the collector, the dashboard, and the assets.
+func New(store *analytics.Store, ratelimits Ratelimits, auth Auth) chi.Router {
 	r := chi.NewRouter()
-	backend{dashTimeout: dashTimeout}.Mount(r, db, ratelimits, auth)
+	s := &server{store: store}
+	s.routes(r, ratelimits, auth)
 	static(r)
 	return r
 }
 
-type backend struct {
-	dashTimeout int
+type server struct {
+	store *analytics.Store
 }
 
-func (h backend) Mount(r chi.Router, db database.DB, ratelimits Ratelimits, auth Auth) {
+func (s *server) routes(r chi.Router, ratelimits Ratelimits, auth Auth) {
 	r.Use(
 		realIP,
 		wrapWriter,
@@ -40,11 +45,11 @@ func (h backend) Mount(r chi.Router, db database.DB, ratelimits Ratelimits, auth
 
 	// Health checks do not require a site or dashboard authentication.
 	health := r.With(requestContext(3 * time.Second))
-	health.Get("/status", status(db))
-	health.Head("/status", status(db))
+	health.Get("/status", status(s.store.DB))
+	health.Head("/status", status(s.store.DB))
 
-	r.With(requestContext(3*time.Second), securityHeaders(nil), ratelimits.countMiddleware(), selectSite(true)).
-		Post("/count", wrap(h.count))
+	r.With(requestContext(3*time.Second), securityHeaders(nil), ratelimits.countMiddleware(), s.selectSite(true)).
+		Post("/count", wrap(s.count))
 
 	a := r.With(securityHeaders(http.Header{
 		"Strict-Transport-Security": []string{"max-age=63072000"}, // 2 years
@@ -55,7 +60,7 @@ func (h backend) Mount(r chi.Router, db database.DB, ratelimits Ratelimits, auth
 
 	// Both the dashboard and its widget requests can run expensive queries.
 	// Authenticate before loading any site data.
-	af := a.With(requestContext(time.Duration(h.dashTimeout+1)*time.Second), auth.Middleware, selectSite(false))
-	af.Get("/", wrap(h.dashboard))
-	af.Get("/load-widget", wrap(h.loadWidget))
+	af := a.With(requestContext(dashTimeout+time.Second), auth.Middleware, s.selectSite(false))
+	af.Get("/", wrap(s.dashboard))
+	af.Get("/load-widget", wrap(s.loadWidget))
 }

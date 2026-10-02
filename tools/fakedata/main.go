@@ -103,15 +103,12 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 		return err
 	}
 	defer db.Close()
-	ctx = analytics.NewContext(ctx, db)
 	site := analytics.Site{Key: siteName, LinkDomain: siteName}
-	analytics.Config(ctx).Sites = []analytics.Site{site}
-	analytics.Config(ctx).Timezone = tz
-	ctx = analytics.WithSite(ctx, &site)
+	store := &analytics.Store{DB: db, Timezone: tz, Sites: []analytics.Site{site}}
 
 	dist := func(aggregate, value, value2, metric string, fallback []weighted) ([]weighted, error) {
 		var w []weighted
-		err := database.Select(ctx, &w, `select `+value+` as value, `+value2+` as value2, sum(`+metric+`) as weight
+		err := db.Select(ctx, &w, `select `+value+` as value, `+value2+` as value2, sum(`+metric+`) as weight
 			from events where site = ? and aggregate = ? and `+metric+` > 0 group by 1, 2`, siteName, aggregate)
 		if len(w) == 0 {
 			w = fallback
@@ -191,7 +188,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 					if i > 0 {
 						h.Path, h.Ref = pick(r, allPages).Value, "https://"+siteName+"/"
 					}
-					if err := analytics.Collect(ctx, h); err != nil {
+					if err := store.Collect(ctx, site, h); err != nil {
 						return err
 					}
 					if p, _, _ := cut(h.Path, "?"); !seenPage[p] {
@@ -210,7 +207,7 @@ func run(connect, siteName, from, to string, perDay int, seed uint64) error {
 						Props:   `{"url":"https://www.roll-pastuch.de/"}`,
 						Country: loc.Value,
 					}
-					if err := analytics.Collect(ctx, h); err != nil {
+					if err := store.Collect(ctx, site, h); err != nil {
 						return err
 					}
 					if !hadEvent {

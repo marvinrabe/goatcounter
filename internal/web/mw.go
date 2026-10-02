@@ -37,25 +37,32 @@ func requestContext(timeout time.Duration) func(http.Handler) http.Handler {
 	}
 }
 
-// selectSite selects the configured site without reading the database. The collector
+type siteKey struct{}
+
+// siteFrom gets the site selected for the request by selectSite.
+func siteFrom(ctx context.Context) analytics.Site {
+	site, _ := ctx.Value(siteKey{}).(analytics.Site)
+	return site
+}
+
+// selectSite selects the configured site for the request. The collector
 // requires an explicit name when multiple sites are configured; pages default
 // to the first site.
-func selectSite(requireName bool) func(http.Handler) http.Handler {
+func (s *server) selectSite(requireName bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			cfg := analytics.Config(ctx)
+			sites := s.store.Sites
 			name := r.URL.Query().Get("site")
-			if name == "" && len(cfg.Sites) > 0 && (!requireName || len(cfg.Sites) == 1) {
-				name = cfg.Sites[0].LinkDomain
+			if name == "" && len(sites) > 0 && (!requireName || len(sites) == 1) {
+				name = sites[0].LinkDomain
 			}
-			s, ok := cfg.Site(name)
+			site, ok := s.store.Site(name)
 			if !ok {
 				ErrPage(w, r, httpError(http.StatusBadRequest, "Unknown or missing site"))
 				return
 			}
-			s.Defaults()
-			next.ServeHTTP(w, r.WithContext(analytics.WithSite(ctx, &s)))
+			site.Defaults()
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), siteKey{}, site)))
 		})
 	}
 }

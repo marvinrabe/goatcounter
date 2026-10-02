@@ -24,7 +24,8 @@ func (w *Pages) SetDetail(d string) { w.RefsForPath = d }
 
 func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 	if w.RefsForPath != "" {
-		err := w.Refs.ListVisitorBreakdown(ctx, "pagerefs", w.RefsForPath, a.Rng, a.PathFilter, refPageSize, a.Offset)
+		var err error
+		w.Refs, err = a.Store.Breakdown(ctx, a.Query, "pagerefs", w.RefsForPath, refPageSize, a.Offset)
 		return w.Refs.More, err
 	}
 
@@ -39,17 +40,17 @@ func (w *Pages) GetData(ctx context.Context, a Args) (bool, error) {
 					slog.ErrorContext(ctx, "background task panic", "panic", p, "stack", string(debug.Stack()))
 				}
 			}()
-			refsErr = w.Refs.ListVisitorBreakdown(ctx, "pagerefs", a.ShowRefs, a.Rng, a.PathFilter, refPageSize, 0)
+			w.Refs, refsErr = a.Store.Breakdown(ctx, a.Query, "pagerefs", a.ShowRefs, refPageSize, 0)
 		})
 	}
 
 	var err error
-	_, w.More, err = w.Pages.ListVisitorPages(ctx, a.Rng, a.PathFilter, pageSize, a.Offset)
+	w.Pages, w.More, err = a.Store.Pages(ctx, a.Query, pageSize, a.Offset)
 	wg.Wait()
 	return w.More, errors.Join(err, refsErr)
 }
 
-func (w Pages) RenderHTML(ctx context.Context, a Args) (string, any) {
+func (w Pages) RenderHTML(a Args) (string, any) {
 	if w.RefsForPath != "" {
 		return "_chart.gohtml", newChart(w.Refs, a.Total, false, nameDirect, a.RowsOnly)
 	}

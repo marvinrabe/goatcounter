@@ -2,12 +2,12 @@
 package datetime
 
 import (
-	"context"
 	"strings"
 	"time"
 )
 
-func Now(context.Context) time.Time { return time.Now().UTC() }
+// Now is the current time in UTC.
+func Now() time.Time { return time.Now().UTC() }
 
 type Period int
 

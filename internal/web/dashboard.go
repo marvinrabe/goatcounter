@@ -28,19 +28,19 @@ const defaultPeriod = "week"
 
 // The dashboard view is whatever is in the query string; there is nothing
 // saved or configurable.
-func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
+func (s *server) dashboard(w http.ResponseWriter, r *http.Request) error {
 	ctx, q := r.Context(), r.URL.Query()
 
-	rng, err := getPeriod(r)
+	rng, err := s.getPeriod(r)
 	if err != nil {
 		return err
 	}
 	group, allowGroups := getGroup(r, rng)
-	args := widgets.NewArgs(ctx, rng, group, analytics.NewPathFilter(q.Get("filter")))
+	args := widgets.NewArgs(s.store, s.query(r, rng), group)
 	args.ShowRefs = q.Get("showrefs")
 
 	wid := widgets.NewList()
-	if err := h.loadWidgets(r, wid, args); err != nil {
+	if err := s.loadWidgets(r, wid, args); err != nil {
 		return err
 	}
 	args.Total = wid.Get("totals").(*widgets.Totals).Visits()
@@ -49,7 +49,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		html, err := renderTemplate(widget.RenderHTML(ctx, args))
+		html, err := renderTemplate(widget.RenderHTML(args))
 		if err != nil {
 			slog.With("module", "dashboard").ErrorContext(ctx, "render dashboard widget",
 				"error", err, "widget", widget.Name(), requestAttrs(r))
@@ -58,7 +58,7 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		widget.SetHTML(template.HTML(html))
 	}
 
-	rng = rng.In(analytics.Config(ctx).Timezone.Loc())
+	rng = rng.In(s.store.Timezone.Loc())
 
 	// When reloading the dashboard from e.g. the filter we don't need to render
 	// header/footer/menu, etc. Render just the widgets and return that as JSON.
@@ -91,12 +91,12 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 		Total       int
 		Widgets     widgets.List
 		Cards       []widgets.Card
-	}{newGlobals(r), countDomain, rng, periods, highlightedPeriod(ctx, rng), group, allowGroups,
+	}{s.globals(r), countDomain, rng, periods, s.highlightedPeriod(rng), group, allowGroups,
 		q.Get("filter"), args.ShowRefs, args.Total, wid, widgets.Cards})
 }
 
 // loadWidget loads more rows of a widget, or the detail of one of its rows.
-func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
+func (s *server) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	ctx, q := r.Context(), r.URL.Query()
 
 	total, err := intParam(q, "total")
@@ -107,7 +107,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rng, err := getPeriod(r)
+	rng, err := s.getPeriod(r)
 	if err != nil {
 		return err
 	}
@@ -118,14 +118,14 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	wid.SetDetail(q.Get("key"))
 
 	group, _ := getGroup(r, rng)
-	args := widgets.NewArgs(ctx, rng, group, analytics.NewPathFilter(q.Get("filter")))
+	args := widgets.NewArgs(s.store, s.query(r, rng), group)
 	args.Offset, args.Total, args.RowsOnly = offset, total, offset > 0
 
 	more, err := wid.GetData(ctx, args)
 	if err != nil {
 		return err
 	}
-	html, err := renderTemplate(wid.RenderHTML(ctx, args))
+	html, err := renderTemplate(wid.RenderHTML(args))
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 // loadWidgets runs the widget queries concurrently. Cancellation reaches
 // every query, and waiting for all of them prevents rendering partially
 // written data.
-func (h backend) loadWidgets(r *http.Request, list widgets.List, args widgets.Args) error {
+func (s *server) loadWidgets(r *http.Request, list widgets.List, args widgets.Args) error {
 	ctx := r.Context()
 	log := slog.With("module", "dashboard")
 	var wg sync.WaitGroup
@@ -149,7 +149,7 @@ func (h backend) loadWidgets(r *http.Request, list widgets.List, args widgets.Ar
 					widget.SetErr(userErr)
 				}
 			}()
-			wctx, cancel := context.WithTimeout(ctx, time.Duration(h.dashTimeout)*time.Second)
+			wctx, cancel := context.WithTimeout(ctx, dashTimeout)
 			defer cancel()
 			start := time.Now()
 			_, err := widget.GetData(wctx, args)
@@ -174,9 +174,9 @@ func (h backend) loadWidgets(r *http.Request, list widgets.List, args widgets.Ar
 }
 
 // highlightedPeriod is the "Last …" shortcut that describes rng, if any.
-func highlightedPeriod(ctx context.Context, rng datetime.Range) string {
+func (s *server) highlightedPeriod(rng datetime.Range) string {
 	for _, p := range periods {
-		if want := lastPeriod(ctx, p); rng.Start.Equal(want.Start) && rng.End.Equal(want.End) {
+		if want := s.lastPeriod(p); rng.Start.Equal(want.Start) && rng.End.Equal(want.End) {
 			return p
 		}
 	}
@@ -189,8 +189,8 @@ func highlightedPeriod(ctx context.Context, rng datetime.Range) string {
 // The return value is always in UTC, and is the UTC day range corresponding
 // to the configured timezone. So, for example a week in +08:00 would be:
 // 2020-12-20 16:00:00 - 2020-12-27 15:59:59
-func lastPeriod(ctx context.Context, period string) datetime.Range {
-	rng := datetime.NewRange(datetime.Now(ctx).In(analytics.Config(ctx).Timezone.Loc())).Current(datetime.Day)
+func (s *server) lastPeriod(period string) datetime.Range {
+	rng := datetime.NewRange(datetime.Now().In(s.store.Timezone.Loc())).Current(datetime.Day)
 	switch period {
 	case "week":
 		rng = rng.Last(datetime.Week(false))
@@ -208,14 +208,14 @@ func lastPeriod(ctx context.Context, period string) datetime.Range {
 
 // getPeriod gets the period from the query string: a "Last …" shortcut in
 // "period", or the dates in "period-start" and "period-end".
-func getPeriod(r *http.Request) (datetime.Range, error) {
+func (s *server) getPeriod(r *http.Request) (datetime.Range, error) {
 	var (
 		q   = r.URL.Query()
-		loc = analytics.Config(r.Context()).Timezone.Loc()
+		loc = s.store.Timezone.Loc()
 		rng datetime.Range
 	)
 	if p := q.Get("period"); slices.Contains(periods, p) {
-		return lastPeriod(r.Context(), p), nil
+		return s.lastPeriod(p), nil
 	}
 	if d := q.Get("period-start"); d != "" {
 		var err error
@@ -233,12 +233,21 @@ func getPeriod(r *http.Request) (datetime.Range, error) {
 	}
 
 	if q.Get("period-start") == "" || q.Get("period-end") == "" {
-		return lastPeriod(r.Context(), defaultPeriod), nil
+		return s.lastPeriod(defaultPeriod), nil
 	}
 	if rng.End.Before(rng.Start) {
 		return rng, httpError(400, "end date is before start date")
 	}
 	return rng.From(rng.Start).To(rng.End).UTC(), nil
+}
+
+// query gets the dashboard's query for the request's site.
+func (s *server) query(r *http.Request, rng datetime.Range) analytics.Query {
+	return analytics.Query{
+		Site:   siteFrom(r.Context()),
+		Range:  rng,
+		Filter: analytics.NewPathFilter(r.URL.Query().Get("filter")),
+	}
 }
 
 // getGroup gets the chart grouping from the query string, and the groupings

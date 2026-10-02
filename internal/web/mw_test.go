@@ -103,8 +103,7 @@ func TestRequestContext(t *testing.T) {
 }
 
 func TestSelectSite(t *testing.T) {
-	ctx := testenv.Context(nil)
-	first := analytics.Config(ctx).Sites[0]
+	first := analytics.Site{Key: "example.com", LinkDomain: "example.com"}
 	second := first
 	second.Key, second.LinkDomain = "second.example.com", "second.example.com"
 	for _, tt := range []struct {
@@ -123,11 +122,11 @@ func TestSelectSite(t *testing.T) {
 		{"unknown site", []analytics.Site{first, second}, "?site=unknown", false, ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			analytics.Config(ctx).Sites = tt.sites
-			r := httptest.NewRequest(http.MethodGet, "/"+tt.query, nil).WithContext(ctx)
+			s := &server{store: &analytics.Store{Sites: tt.sites}}
+			r := httptest.NewRequest(http.MethodGet, "/"+tt.query, nil)
 			w := httptest.NewRecorder()
-			h := selectSite(tt.requireName)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if got := Site(r.Context()).Key; got != tt.want {
+			h := s.selectSite(tt.requireName)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := siteFrom(r.Context()).Key; got != tt.want {
 					t.Errorf("site = %q; want %q", got, tt.want)
 				}
 				w.WriteHeader(http.StatusNoContent)
@@ -146,10 +145,9 @@ func TestSelectSite(t *testing.T) {
 
 func BenchmarkAddCSP(b *testing.B) {
 	var (
-		ctx = analytics.WithSite(context.Background(), &analytics.Site{})
-		r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
-		rr  = httptest.NewRecorder()
-		mw  = addcsp()(http.NewServeMux())
+		r  = testenv.NewRequest("GET", "/", nil)
+		rr = httptest.NewRecorder()
+		mw = addcsp()(http.NewServeMux())
 	)
 	b.ResetTimer()
 	for b.Loop() {
@@ -185,10 +183,9 @@ func TestRealIP(t *testing.T) {
 func BenchmarkRequestContext(b *testing.B) {
 	b.Run("without site", func(b *testing.B) {
 		var (
-			ctx = analytics.WithSite(context.Background(), &analytics.Site{})
-			r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
-			rr  = httptest.NewRecorder()
-			mw  = requestContext(10 * time.Second)(http.NewServeMux())
+			r  = testenv.NewRequest("GET", "/", nil)
+			rr = httptest.NewRecorder()
+			mw = requestContext(10 * time.Second)(http.NewServeMux())
 		)
 		b.ResetTimer()
 		for b.Loop() {
@@ -198,10 +195,10 @@ func BenchmarkRequestContext(b *testing.B) {
 
 	b.Run("with site", func(b *testing.B) {
 		var (
-			ctx = testenv.DB(b)
-			r   = testenv.NewRequest("GET", "/", nil).WithContext(ctx)
-			rr  = httptest.NewRecorder()
-			mw  = requestContext(10 * time.Second)(selectSite(false)(http.NewServeMux()))
+			s  = &server{store: testenv.Store(b)}
+			r  = testenv.NewRequest("GET", "/", nil)
+			rr = httptest.NewRecorder()
+			mw = requestContext(10 * time.Second)(s.selectSite(false)(http.NewServeMux()))
 		)
 		r.Host = "testenv.localhost"
 		b.ResetTimer()

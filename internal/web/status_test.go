@@ -21,12 +21,12 @@ func TestStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	ctx := analytics.NewContext(context.Background(), db)
-	router := New(db, 10, Ratelimits{}, Auth{Mode: AuthBasic})
+	store := &analytics.Store{DB: db}
+	router := New(store, Ratelimits{}, Auth{Mode: AuthBasic})
 
 	check := func(method string, code int, body string) {
 		t.Helper()
-		r := httptest.NewRequest(method, "/status?site=unknown", nil).WithContext(ctx)
+		r := httptest.NewRequest(method, "/status?site=unknown", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, r)
 		if w.Code != code || w.Body.String() != body {
@@ -42,13 +42,13 @@ func TestStatus(t *testing.T) {
 	check(http.MethodGet, http.StatusOK, "OK")
 	check(http.MethodHead, http.StatusOK, "")
 	live := httptest.NewRecorder()
-	router.ServeHTTP(live, httptest.NewRequest(http.MethodGet, "/live", nil).WithContext(ctx))
+	router.ServeHTTP(live, httptest.NewRequest(http.MethodGet, "/live", nil))
 	if live.Code != http.StatusNotFound {
 		t.Errorf("removed /live route = %d; want 404", live.Code)
 	}
 
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/status", nil).WithContext(ctx))
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/status", nil))
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /status: got %d; want 405", w.Code)
 	}
@@ -59,6 +59,6 @@ func TestStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(http.MethodGet, http.StatusOK, "OK")
-	router = New(db, 10, Ratelimits{}, Auth{Mode: AuthBasic})
+	router = New(store, Ratelimits{}, Auth{Mode: AuthBasic})
 	check(http.MethodGet, http.StatusServiceUnavailable, "database unreachable\n")
 }

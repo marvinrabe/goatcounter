@@ -11,17 +11,18 @@ func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"
 
 type BulkInsert struct {
 	ctx   context.Context
+	db    DB
 	table string
 	cols  []string
 	rows  [][]any
 	err   error
 }
 
-func NewBulkInsert(ctx context.Context, table string, columns []string) (BulkInsert, error) {
+func NewBulkInsert(ctx context.Context, db DB, table string, columns []string) (BulkInsert, error) {
 	if len(columns) == 0 {
 		return BulkInsert{}, fmt.Errorf("database: empty insert columns")
 	}
-	return BulkInsert{ctx: ctx, table: table, cols: slices.Clone(columns)}, nil
+	return BulkInsert{ctx: ctx, db: db, table: table, cols: slices.Clone(columns)}, nil
 }
 func (b *BulkInsert) Values(v ...any) {
 	if b.err != nil {
@@ -50,7 +51,7 @@ func (b *BulkInsert) flush() {
 		args = append(args, v...)
 	}
 	query := "insert into " + quote(b.table) + " (" + strings.Join(cols, ",") + ") values " + strings.TrimSuffix(strings.Repeat(row+",", len(b.rows)), ",")
-	b.err = Exec(b.ctx, query, args...)
+	b.err = b.db.Exec(b.ctx, query, args...)
 	b.rows = nil
 }
 func (b *BulkInsert) Finish() error { b.flush(); return b.err }

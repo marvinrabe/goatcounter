@@ -12,19 +12,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/marvinrabe/goatcounter/internal/analytics"
-	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/testenv"
 )
 
-func TestBackendSiteIndependentRoutes(t *testing.T) {
-	ctx := analytics.NewConfig(context.Background())
+func TestServerSiteIndependentRoutes(t *testing.T) {
 	users, err := ParseBasicUsers("admin:password")
 	if err != nil {
 		t.Fatal(err)
 	}
 	auth := Auth{Mode: AuthBasic, BasicUsers: users}
-	router := New(nil, 10, Ratelimits{}, auth)
+	router := New(&analytics.Store{}, Ratelimits{}, auth)
 	for _, tt := range []struct {
 		path, authorization string
 		code                int
@@ -33,7 +31,7 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 		{"/load-widget", "", http.StatusUnauthorized},
 		{"/missing", "", http.StatusNotFound},
 	} {
-		r := httptest.NewRequest(http.MethodGet, tt.path+"?site=unknown", nil).WithContext(ctx)
+		r := httptest.NewRequest(http.MethodGet, tt.path+"?site=unknown", nil)
 		r.Header.Set("Authorization", tt.authorization)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, r)
@@ -43,22 +41,22 @@ func TestBackendSiteIndependentRoutes(t *testing.T) {
 	}
 
 	auth = Auth{Mode: AuthOIDC, OIDC: &OIDCAuth{}}
-	router = New(nil, 10, Ratelimits{}, auth)
+	router = New(&analytics.Store{}, Ratelimits{}, auth)
 	for path, code := range map[string]int{
 		"/auth/callback?error=access_denied": http.StatusUnauthorized,
 		"/auth/logout":                       http.StatusFound,
 	} {
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx))
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 		if w.Code != code {
 			t.Errorf("%s: got %d; want %d", path, w.Code, code)
 		}
 	}
 }
 
-func count(t testing.TB, ctx context.Context, handler http.Handler, ip, path string) {
+func count(t testing.TB, handler http.Handler, ip, path string) {
 	t.Helper()
-	r, rr := newTest(ctx, "POST", "/count?"+url.Values{"p": {path}, "s": {"1440"}, "site": {"example.com"}}.Encode(), nil)
+	r, rr := newTest("POST", "/count?"+url.Values{"p": {path}, "s": {"1440"}, "site": {"example.com"}}.Encode(), nil)
 	r.RemoteAddr = ip
 	r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
 	handler.ServeHTTP(rr, r)
@@ -68,20 +66,20 @@ func count(t testing.TB, ctx context.Context, handler http.Handler, ip, path str
 }
 
 // Pageviews sent to /count show up in the paginated page list.
-func TestBackendPagesMore(t *testing.T) {
-	ctx := testenv.DB(t)
-	now := datetime.Now(ctx)
-	handler := newBackend(ctx)
+func TestServerPagesMore(t *testing.T) {
+	store := testenv.Store(t)
+	now := datetime.Now()
+	handler := newServer(store)
 	for i := range 10 {
 		// /1 has one visit, /10 has ten.
 		for v := range i + 1 {
-			count(t, ctx, handler, fmt.Sprintf("10.0.0.%d", v), fmt.Sprintf("/%d", i+1))
+			count(t, handler, fmt.Sprintf("10.0.0.%d", v), fmt.Sprintf("/%d", i+1))
 		}
 	}
 
 	url := fmt.Sprintf("/load-widget?widget=pages&offset=5&total=10&period-start=%s&period-end=%s",
 		now.Format("2006-01-02"), now.Format("2006-01-02"))
-	r, rr := newTest(ctx, "GET", url, nil)
+	r, rr := newTest("GET", url, nil)
 	login(t, r)
 	handler.ServeHTTP(rr, r)
 	testenv.Code(t, rr, 200)
@@ -100,10 +98,10 @@ func TestBackendPagesMore(t *testing.T) {
 
 // Screen widths are stored; an empty width is unknown, an invalid one an error.
 func TestCountWidth(t *testing.T) {
-	ctx := testenv.DB(t)
-	handler := newBackend(ctx)
+	store := testenv.Store(t)
+	handler := newServer(store)
 	for s, code := range map[string]int{"1440": 204, "": 204, "-5": 400, "abc": 400, "999999": 400} {
-		r, rr := newTest(ctx, "POST", "/count?"+url.Values{"p": {"/w" + s}, "s": {s}, "site": {"example.com"}}.Encode(), nil)
+		r, rr := newTest("POST", "/count?"+url.Values{"p": {"/w" + s}, "s": {s}, "site": {"example.com"}}.Encode(), nil)
 		r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:72.0) Gecko/20100101 Firefox/72.0")
 		handler.ServeHTTP(rr, r)
 		if rr.Code != code {
@@ -111,7 +109,7 @@ func TestCountWidth(t *testing.T) {
 		}
 	}
 	var widths []int
-	if err := database.Select(ctx, &widths, `select width from events order by path`); err != nil {
+	if err := store.DB.Select(context.Background(), &widths, `select width from events order by path`); err != nil {
 		t.Fatal(err)
 	}
 	if fmt.Sprint(widths) != "[0 1440]" {
@@ -120,23 +118,23 @@ func TestCountWidth(t *testing.T) {
 }
 
 func TestCountMethod(t *testing.T) {
-	ctx := testenv.DB(t)
-	r, rr := newTest(ctx, "GET", "/count?p=/x&site=example.com", nil)
-	newBackend(ctx).ServeHTTP(rr, r)
+	store := testenv.Store(t)
+	r, rr := newTest("GET", "/count?p=/x&site=example.com", nil)
+	newServer(store).ServeHTTP(rr, r)
 	if rr.Code < 400 || rr.Code >= 500 {
 		t.Errorf("GET /count: %d; want a 4xx error", rr.Code)
 	}
 }
 
 func BenchmarkCount(b *testing.B) {
-	ctx := testenv.DB(b)
-	handler := newBackend(ctx)
+	store := testenv.Store(b)
+	handler := newServer(store)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		count(b, ctx, handler, "10.0.0.1", "/test.html")
+		count(b, handler, "10.0.0.1", "/test.html")
 	}
 }
 
-func newBackend(ctx context.Context) chi.Router {
-	return New(database.MustGetDB(ctx), 10, Ratelimits{}, Auth{Mode: AuthPublic})
+func newServer(store *analytics.Store) chi.Router {
+	return New(store, Ratelimits{}, Auth{Mode: AuthPublic})
 }

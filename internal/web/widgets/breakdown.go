@@ -30,20 +30,20 @@ func (w *Breakdown) GetData(ctx context.Context, a Args) (bool, error) {
 	var err error
 	switch {
 	case w.Detail != "":
-		err = w.Stats.ListVisitorBreakdown(ctx, w.detailKind, w.Detail, a.Rng, a.PathFilter, hchartSize, a.Offset)
+		w.Stats, err = a.Store.Breakdown(ctx, a.Query, w.detailKind, w.Detail, hchartSize, a.Offset)
 	case w.name == "sizes":
-		err = w.Stats.ListVisitorSizes(ctx, a.Rng, a.PathFilter, false)
+		w.Stats, err = a.Store.Sizes(ctx, a.Query, false)
 	default:
-		err = w.Stats.ListVisitorBreakdown(ctx, w.name, "", a.Rng, a.PathFilter, hchartSize, a.Offset)
+		w.Stats, err = a.Store.Breakdown(ctx, a.Query, w.name, "", hchartSize, a.Offset)
 	}
 	if w.name == "locations" && w.Detail == "" {
 		w.MostlyUnknown = len(w.Stats.Stats) > 0 && w.Stats.Stats[0].ID == "" &&
-			datetime.StartOf(a.Rng.End, datetime.Day).Equal(datetime.StartOf(datetime.Now(ctx), datetime.Day))
+			datetime.StartOf(a.Query.Range.End, datetime.Day).Equal(datetime.StartOf(datetime.Now(), datetime.Day))
 	}
 	return w.Stats.More, err
 }
 
-func (w Breakdown) RenderHTML(ctx context.Context, a Args) (string, any) {
+func (w Breakdown) RenderHTML(a Args) (string, any) {
 	unnamed := nameUnknown
 	if w.name == "toprefs" {
 		unnamed = nameDirect

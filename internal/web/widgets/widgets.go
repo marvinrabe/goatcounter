@@ -11,12 +11,12 @@ import (
 type Widget interface {
 	Name() string
 
-	// GetData loads the data from the database, and reports if there are
-	// more rows to paginate.
+	// GetData loads the data from the store, and reports if there are more
+	// rows to paginate.
 	GetData(context.Context, Args) (more bool, err error)
 
 	// RenderHTML returns the template name and the data to render it with.
-	RenderHTML(context.Context, Args) (string, any)
+	RenderHTML(Args) (string, any)
 
 	// SetDetail sets the drill-down key: the browser/system/country/… to
 	// show the details for, or the path to show referrers for.
@@ -30,19 +30,19 @@ type Widget interface {
 
 // Args are passed to every widget.
 type Args struct {
-	Rng        datetime.Range
-	PathFilter analytics.PathFilter
-	Group      analytics.Group
-	ShowRefs   string // Show the referrers for this path in the pages list.
-	Offset     int
+	Store    *analytics.Store
+	Query    analytics.Query
+	Group    analytics.Group
+	ShowRefs string // Show the referrers for this path in the pages list.
+	Offset   int
 
 	// For rendering.
 	Total    int  // Number of visits; the percentages are relative to this.
 	RowsOnly bool // Only render the rows, for pagination.
 }
 
-// NewArgs creates the arguments for a period and grouping.
-func NewArgs(ctx context.Context, rng datetime.Range, group analytics.Group, filter analytics.PathFilter) Args {
+// NewArgs creates the arguments for a query and grouping.
+func NewArgs(store *analytics.Store, q analytics.Query, group analytics.Group) Args {
 	// Align to start of week or month if we're grouping by week or month.
 	//
 	// This gives a really jarring experience if the UI is updated with the new
@@ -50,9 +50,9 @@ func NewArgs(ctx context.Context, rng datetime.Range, group analytics.Group, fil
 	// around. So don't update the UI and just "silently" include the extra date
 	// ranges.
 	align := func(p datetime.Period) {
-		loc := analytics.Config(ctx).Timezone.Loc()
-		rng.Start = datetime.StartOf(rng.Start.In(loc), p).UTC()
-		rng.End = datetime.EndOf(rng.End.In(loc), p).UTC()
+		loc := store.Timezone.Loc()
+		q.Range.Start = datetime.StartOf(q.Range.Start.In(loc), p).UTC()
+		q.Range.End = datetime.EndOf(q.Range.End.In(loc), p).UTC()
 	}
 	switch group {
 	case analytics.GroupWeekly:
@@ -60,7 +60,7 @@ func NewArgs(ctx context.Context, rng datetime.Range, group analytics.Group, fil
 	case analytics.GroupMonthly:
 		align(datetime.Month)
 	}
-	return Args{Rng: rng, Group: group, PathFilter: filter}
+	return Args{Store: store, Query: q, Group: group}
 }
 
 // base implements the parts of Widget that are the same for every widget.

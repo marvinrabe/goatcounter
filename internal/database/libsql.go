@@ -78,19 +78,19 @@ func isRemote(connect string) bool {
 func createSchema(ctx context.Context, db DB, schema string) error {
 	var err error
 	for {
-		err = db.TX(ctx, func(ctx context.Context) error {
+		err = db.TX(ctx, func(tx DB) error {
 			// Serialize simultaneous first starts before checking the schema.
-			if err := Exec(ctx, `create table if not exists init_lock(id integer primary key)`); err != nil {
+			if err := tx.Exec(ctx, `create table if not exists init_lock(id integer primary key)`); err != nil {
 				return err
 			}
 			var tables int
-			if err := Get(ctx, &tables, `select count(*) from sqlite_schema where type='table' and name not in ('init_lock','version')`); err != nil {
+			if err := tx.Get(ctx, &tables, `select count(*) from sqlite_schema where type='table' and name not in ('init_lock','version')`); err != nil {
 				return err
 			}
 			if tables > 0 {
 				return nil
 			}
-			return execStatements(ctx, MustGetDB(ctx), schema)
+			return execStatements(ctx, tx, schema)
 		})
 		if err == nil || !strings.Contains(err.Error(), "database is locked") {
 			break
@@ -110,12 +110,12 @@ func createSchema(ctx context.Context, db DB, schema string) error {
 // execStatements splits and executes a SQL script in one transaction.
 func execStatements(ctx context.Context, db DB, script string) error {
 	statements, _ := sqliteparserutils.SplitStatement(script)
-	return TX(WithDB(ctx, db), func(txctx context.Context) error {
+	return db.TX(ctx, func(tx DB) error {
 		for _, statement := range statements {
 			if strings.TrimSpace(statement) == "" {
 				continue
 			}
-			if err := Exec(txctx, statement); err != nil {
+			if err := tx.Exec(ctx, statement); err != nil {
 				return err
 			}
 		}

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 )
 
@@ -143,17 +142,18 @@ func breakdown(kind, detail string) (breakdownQuery, error) {
 	return breakdownQuery{}, fmt.Errorf("unknown visitor breakdown: %s", kind)
 }
 
-// ListVisitorBreakdown returns visits attributed to one value of a dashboard
-// dimension. A visit appears in only one row of each top-level breakdown.
+// Breakdown returns visits attributed to one value of a dashboard dimension;
+// detail selects the rows of one browser, system, etc. A visit appears in only one row of each top-level breakdown.
 //
 // Migrated Plausible rows are only included when the filter matches every
 // pageview, as Plausible exports don't break down dimensions by page.
-func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string, rng datetime.Range, pathFilter PathFilter, limit, offset int) error {
+func (s *Store) Breakdown(ctx context.Context, query Query, kind, detail string, limit, offset int) (HitStats, error) {
+	var h HitStats
 	q, err := breakdown(kind, detail)
 	if err != nil {
-		return err
+		return h, err
 	}
-	params := rangeParams(ctx, rng, pathFilter, "path", "name")
+	params := query.params("path", "name")
 	params["detail"] = detail
 	params["limit"] = limit + 1
 	params["offset"] = offset
@@ -164,17 +164,17 @@ func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string
 	}
 
 	union := q.live
-	if q.migrated != "" && pathFilter.AllPageviews() {
+	if q.migrated != "" && query.Filter.AllPageviews() {
 		union += "\nunion all\n" + q.migrated
 	}
 	// Collected and migrated rows with the same ID (or name) are one row.
-	err = database.Select(ctx, &h.Stats, visitsCTE+`
+	err = s.DB.Select(ctx, &h.Stats, visitsCTE+`
 		select min(id) as id, min(name) as name, sum(count) as count from (`+union+`)
 		group by case when id <> '' then lower(id) else lower(name) end
 		order by count desc, name asc
 		limit :limit offset :offset`, params)
 	if err != nil {
-		return fmt.Errorf("ListVisitorBreakdown(%s): %w", kind, err)
+		return h, fmt.Errorf("Breakdown(%s): %w", kind, err)
 	}
 	h.More = limit > 0 && len(h.Stats) > limit
 	if h.More {
@@ -182,34 +182,35 @@ func (h *HitStats) ListVisitorBreakdown(ctx context.Context, kind, detail string
 	}
 
 	for i := range h.Stats {
-		s := &h.Stats[i]
+		st := &h.Stats[i]
 		switch kind {
 		case "locations":
-			if n := enrich.CountryName(s.Name); n != "" {
-				s.Name = n
+			if n := enrich.CountryName(st.Name); n != "" {
+				st.Name = n
 			}
 		case "languages":
-			if n := enrich.LanguageName(s.ID); n != "" {
-				s.Name = n
+			if n := enrich.LanguageName(st.ID); n != "" {
+				st.Name = n
 			}
 		case "toprefs", "pagerefs", "campaigns":
 			if kind == "campaigns" && detail == "" {
 				continue
 			}
 			scheme := RefSchemeGenerated
-			if strings.Contains(s.Name, ".") && !strings.Contains(s.Name, " ") {
+			if strings.Contains(st.Name, ".") && !strings.Contains(st.Name, " ") {
 				scheme = RefSchemeHTTP
 			}
-			s.RefScheme = &scheme
+			st.RefScheme = &scheme
 		}
 	}
-	return nil
+	return h, nil
 }
 
-// ListVisitorSizes groups visits into the four dashboard device categories.
-func (h *HitStats) ListVisitorSizes(ctx context.Context, rng datetime.Range, pathFilter PathFilter, sortByCount bool) error {
-	if err := h.ListVisitorBreakdown(ctx, "sizes", "", rng, pathFilter, 0, 0); err != nil {
-		return err
+// Sizes groups visits into the four dashboard device categories.
+func (s *Store) Sizes(ctx context.Context, q Query, sortByCount bool) (HitStats, error) {
+	h, err := s.Breakdown(ctx, q, "sizes", "", 0, 0)
+	if err != nil {
+		return h, err
 	}
 	ns := []HitStat{{ID: SizePhones}, {ID: SizeTablets}, {ID: SizeDesktop}, {ID: SizeUnknown}}
 	for _, stat := range h.Stats {
@@ -223,19 +224,20 @@ func (h *HitStats) ListVisitorSizes(ctx context.Context, rng datetime.Range, pat
 		slices.SortStableFunc(ns, func(a, b HitStat) int { return cmp.Compare(b.Count, a.Count) })
 	}
 	h.Stats, h.More = ns, false
-	return nil
+	return h, nil
 }
 
-// ListVisitorPages counts the unique visitors of each page, as Plausible
-// does; visitors are unique per day.
-func (h *HitLists) ListVisitorPages(ctx context.Context, rng datetime.Range, pathFilter PathFilter, limit, offset int) (int, bool, error) {
-	params := rangeParams(ctx, rng, pathFilter, "path", "name")
-	iparams := rangeParams(ctx, rng, pathFilter, "path", "")
+// Pages counts the unique visitors of each page, as Plausible does; visitors
+// are unique per day. It also reports if there are more pages.
+func (s *Store) Pages(ctx context.Context, q Query, limit, offset int) (HitLists, bool, error) {
+	var h HitLists
+	params := q.params("path", "name")
+	iparams := q.params("path", "")
 	params["ifilter"] = iparams["filter"]
 	params["limit"] = limit + 1
 	params["offset"] = offset
 
-	err := database.Select(ctx, h, `
+	err := s.DB.Select(ctx, &h, `
 		with pages as (
 			select path, count(distinct visitor) as n from events
 			where site = :site and aggregate = '' and ts >= :start and ts <= :end and name = 'pageview' and :filter
@@ -250,15 +252,11 @@ func (h *HitLists) ListVisitorPages(ctx context.Context, rng datetime.Range, pat
 		order by count desc, path asc
 		limit :limit offset :offset`, params)
 	if err != nil {
-		return 0, false, fmt.Errorf("ListVisitorPages: %w", err)
+		return nil, false, fmt.Errorf("Pages: %w", err)
 	}
-	more := len(*h) > limit
+	more := len(h) > limit
 	if more {
-		*h = (*h)[:limit]
+		h = h[:limit]
 	}
-	var displayed int
-	for _, p := range *h {
-		displayed += p.Count
-	}
-	return displayed, more, nil
+	return h, more, nil
 }
