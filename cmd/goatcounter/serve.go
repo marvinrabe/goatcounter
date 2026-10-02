@@ -18,7 +18,6 @@ import (
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/handlers"
 	"github.com/marvinrabe/goatcounter/internal/database"
-	"github.com/marvinrabe/goatcounter/internal/dataset"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
 	"github.com/marvinrabe/goatcounter/internal/validation"
@@ -256,7 +255,7 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 	if *dataUpdates {
 		updates, stopUpdates := context.WithCancel(ctx)
 		defer stopUpdates()
-		go dataset.Run(updates, enrich.Datasets()...)
+		go enrich.Update(updates)
 	}
 	var serveErr error
 	select {

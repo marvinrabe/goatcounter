@@ -1,4 +1,4 @@
-package dataset
+package enrich
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func TestRefresh(t *testing.T) {
 	defer srv.Close()
 
 	ctx := t.Context()
-	d := New("test", []string{"snapshot"}, srv.URL, parseWords)
+	d := newDataset("test", []string{"snapshot"}, srv.URL, parseWords)
 	check := func(wantChanged, wantErr bool, want string) {
 		t.Helper()
 		changed, err := d.Refresh(ctx, srv.Client())
@@ -80,11 +80,11 @@ func TestRefresh(t *testing.T) {
 
 func TestRefreshTooLarge(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, strings.Repeat("x ", MaxSize/2+1))
+		io.WriteString(w, strings.Repeat("x ", maxSize/2+1))
 	}))
 	defer srv.Close()
 
-	d := New("test", []string{"snapshot"}, srv.URL, parseWords)
+	d := newDataset("test", []string{"snapshot"}, srv.URL, parseWords)
 	if _, err := d.Refresh(t.Context(), srv.Client()); !errors.Is(err, errTooLarge) {
 		t.Fatalf("err = %v", err)
 	}
@@ -93,9 +93,9 @@ func TestRefreshTooLarge(t *testing.T) {
 	}
 }
 
-func TestRun(t *testing.T) {
-	defer func(f, i, r time.Duration) { FirstDelay, Interval, RetryDelay = f, i, r }(FirstDelay, Interval, RetryDelay)
-	FirstDelay, Interval, RetryDelay = time.Millisecond, time.Hour, time.Millisecond
+func TestRunDatasets(t *testing.T) {
+	defer func(f, i, r time.Duration) { firstDelay, interval, retryDelay = f, i, r }(firstDelay, interval, retryDelay)
+	firstDelay, interval, retryDelay = time.Millisecond, time.Hour, time.Millisecond
 
 	var fail atomic.Bool
 	fail.Store(true)
@@ -108,10 +108,10 @@ func TestRun(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := New("test", []string{"snapshot"}, srv.URL, parseWords)
+	d := newDataset("test", []string{"snapshot"}, srv.URL, parseWords)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
-	go func() { Run(ctx, d); close(done) }()
+	go func() { run(ctx, d); close(done) }()
 
 	// The first try fails, and the retry succeeds.
 	deadline := time.Now().Add(5 * time.Second)

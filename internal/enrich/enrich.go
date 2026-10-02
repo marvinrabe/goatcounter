@@ -8,23 +8,25 @@
 //	location.go   Geo: country, from a CDN header or a GeoIP database.
 //	language.go   Language: from the Accept-Language.
 //	device.go     Device category, from the screen width; at query time.
+//	dataset.go    Downloads the upstream lists in the background.
 //
 // Data files are named after the lookup they're for: bot_ranges.txt,
 // refspam_list.go, and so on.
 //
 // The bot networks and spam list change upstream. They start from the snapshot
-// compiled in, and Datasets keeps them up to date.
+// compiled in, and Update keeps them up to date.
 package enrich
 
-import "github.com/marvinrabe/goatcounter/internal/dataset"
+import "context"
 
-// Datasets that have an upstream to update from, for dataset.Run.
-func Datasets() []dataset.Refresher {
-	sets := []dataset.Refresher{spammers}
+// Update keeps the datasets that have an upstream up to date until ctx is
+// cancelled.
+func Update(ctx context.Context) {
+	sets := []refresher{spammers}
 	for _, d := range cloudRanges {
-		if d.Updatable() {
+		if d.updatable() {
 			sets = append(sets, d)
 		}
 	}
-	return sets
+	run(ctx, sets...)
 }

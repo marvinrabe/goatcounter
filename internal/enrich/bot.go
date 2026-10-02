@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-
-	"github.com/marvinrabe/goatcounter/internal/dataset"
 )
 
 // IsBot reports whether the request is from a bot or a prefetch, which aren't
@@ -70,16 +68,16 @@ func botUserAgent(ua string) bool {
 // cloudRanges has a dataset of networks for every hosting provider. They start
 // from the snapshot in bot_ranges.txt; the providers that publish their
 // networks are kept up to date from there.
-var cloudRanges = func() []*dataset.Dataset[Ranges] {
+var cloudRanges = func() []*dataset[Ranges] {
 	snapshot := map[string][]netip.Prefix{}
 	for _, record := range strings.Fields(cloudSnapshot) {
 		cidr, name, _ := strings.Cut(record, ",")
 		snapshot[name] = append(snapshot[name], netip.MustParsePrefix(cidr))
 	}
-	p := func(name, url string, parse func(io.Reader) (Ranges, error)) *dataset.Dataset[Ranges] {
-		return dataset.New("cloud ranges "+name, NewRanges(snapshot[name]), url, parse)
+	p := func(name, url string, parse func(io.Reader) (Ranges, error)) *dataset[Ranges] {
+		return newDataset("cloud ranges "+name, NewRanges(snapshot[name]), url, parse)
 	}
-	return []*dataset.Dataset[Ranges]{
+	return []*dataset[Ranges]{
 		p("AWS", "https://ip-ranges.amazonaws.com/ip-ranges.json", parseAWS),
 		p("DigitalOcean", "https://digitalocean.com/geo/google.csv", parseGeofeed),
 		p("GoogleCloud", "https://www.gstatic.com/ipranges/cloud.json", parseGoogleCloud),

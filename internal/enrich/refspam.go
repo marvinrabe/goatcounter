@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/marvinrabe/goatcounter/internal/dataset"
 )
 
 // spammers is Matomo's referrer-spam-list. It starts from the snapshot in
 // refspam_list.go, which "go generate" updates.
-var spammers = dataset.New("referrer spam", spamSnapshot,
+var spammers = newDataset("referrer spam", spamSnapshot,
 	"https://raw.githubusercontent.com/matomo-org/referrer-spam-list/master/spammers.txt",
 	parseSpammers)
 

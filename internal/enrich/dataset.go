@@ -1,11 +1,12 @@
-// Package dataset keeps lookup data from upstream lists fresh in a long-running
+package enrich
+
+// A dataset keeps lookup data from an upstream list fresh in a long-running
 // process.
 //
 // Every dataset starts from a snapshot that is compiled in, so startup never
-// touches the network. Run then downloads the upstream list now and then and
+// touches the network. Update then downloads the upstream list now and then and
 // swaps it in; if that fails for whatever reason, the data in use is kept and
 // the download is retried later.
-package dataset
 
 import (
 	"context"
@@ -20,9 +21,9 @@ import (
 	"time"
 )
 
-// Dataset is a value that is replaced, as a whole, by a newer upstream
+// dataset is a value that is replaced, as a whole, by a newer upstream
 // version. It is safe for concurrent use; Load never blocks.
-type Dataset[T any] struct {
+type dataset[T any] struct {
 	name  string
 	url   string
 	parse func(io.Reader) (T, error)
@@ -32,33 +33,33 @@ type Dataset[T any] struct {
 	etag, lastMod string
 }
 
-// New creates a dataset that holds initial until a download of url has been
+// newDataset creates a dataset that holds initial until a download of url has been
 // parsed successfully. parse must reject incomplete data, as it replaces the
 // current value as a whole.
-func New[T any](name string, initial T, url string, parse func(io.Reader) (T, error)) *Dataset[T] {
-	d := &Dataset[T]{name: name, url: url, parse: parse}
+func newDataset[T any](name string, initial T, url string, parse func(io.Reader) (T, error)) *dataset[T] {
+	d := &dataset[T]{name: name, url: url, parse: parse}
 	d.v.Store(&initial)
 	return d
 }
 
 // Load gets the current value.
-func (d *Dataset[T]) Load() T { return *d.v.Load() }
+func (d *dataset[T]) Load() T { return *d.v.Load() }
 
-// Updatable reports whether there is an upstream to refresh from. Datasets
+// updatable reports whether there is an upstream to refresh from. Datasets
 // without one only have their initial value.
-func (d *Dataset[T]) Updatable() bool { return d.url != "" }
+func (d *dataset[T]) updatable() bool { return d.url != "" }
 
 // Name of the dataset, for logs.
-func (d *Dataset[T]) Name() string { return d.name }
+func (d *dataset[T]) Name() string { return d.name }
 
-// MaxSize is the largest download accepted, so that a broken upstream can't
+// maxSize is the largest download accepted, so that a broken upstream can't
 // use up the memory.
-const MaxSize = 16 << 20
+const maxSize = 16 << 20
 
 // Refresh downloads the upstream list and replaces the value if it changed.
 // The download is conditional, so an unchanged list costs a request and no
 // parsing.
-func (d *Dataset[T]) Refresh(ctx context.Context, client *http.Client) (changed bool, err error) {
+func (d *dataset[T]) Refresh(ctx context.Context, client *http.Client) (changed bool, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -86,7 +87,7 @@ func (d *Dataset[T]) Refresh(ctx context.Context, client *http.Client) (changed 
 		return false, fmt.Errorf("%s: %s", d.url, resp.Status)
 	}
 
-	v, err := d.parse(&limitReader{r: resp.Body, n: MaxSize})
+	v, err := d.parse(&limitReader{r: resp.Body, n: maxSize})
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", d.url, err)
 	}
@@ -95,31 +96,31 @@ func (d *Dataset[T]) Refresh(ctx context.Context, client *http.Client) (changed 
 	return true, nil
 }
 
-// Refresher is a dataset as Run sees it.
-type Refresher interface {
+// refresher is a dataset as run sees it.
+type refresher interface {
 	Name() string
 	Refresh(context.Context, *http.Client) (bool, error)
 }
 
-// Schedule for Run. Datasets are refreshed one at a time, so only one download
+// Schedule for run. Datasets are refreshed one at a time, so only one download
 // is in memory at once.
 var (
-	FirstDelay  = 10 * time.Minute // First refresh: random, up to this.
-	Interval    = 24 * time.Hour   // Then: this, plus up to 10% at random.
-	RetryDelay  = 5 * time.Minute  // After an error: doubled for every error,
-	MaxRetry    = 6 * time.Hour    // to at most this.
-	HTTPTimeout = time.Minute
+	firstDelay  = 10 * time.Minute // First refresh: random, up to this.
+	interval    = 24 * time.Hour   // Then: this, plus up to 10% at random.
+	retryDelay  = 5 * time.Minute  // After an error: doubled for every error,
+	maxRetry    = 6 * time.Hour    // to at most this.
+	httpTimeout = time.Minute
 )
 
-// Run refreshes the datasets until ctx is cancelled. Failures are logged and
+// run refreshes the datasets until ctx is cancelled. Failures are logged and
 // retried with backoff; the data in use stays as it was.
-func Run(ctx context.Context, sets ...Refresher) {
+func run(ctx context.Context, sets ...refresher) {
 	if len(sets) == 0 {
 		return
 	}
 	// The connections are closed after each refresh: there's no use in
 	// keeping them around for a day.
-	client := &http.Client{Timeout: HTTPTimeout, Transport: &http.Transport{
+	client := &http.Client{Timeout: httpTimeout, Transport: &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		TLSHandshakeTimeout: 10 * time.Second,
 		DisableKeepAlives:   true,
@@ -133,7 +134,7 @@ func Run(ctx context.Context, sets ...Refresher) {
 	now := time.Now()
 	states := make([]state, len(sets))
 	for i := range states {
-		states[i].next = now.Add(jitter(FirstDelay))
+		states[i].next = now.Add(jitter(firstDelay))
 	}
 
 	timer := time.NewTimer(0)
@@ -159,14 +160,14 @@ func Run(ctx context.Context, sets ...Refresher) {
 		case ctx.Err() != nil:
 			return
 		case err != nil:
-			delay := min(RetryDelay<<st.fails, MaxRetry)
+			delay := min(retryDelay<<st.fails, maxRetry)
 			st.fails = min(st.fails+1, 16)
 			st.next = time.Now().Add(delay + jitter(delay/10))
 			l.WarnContext(ctx, "dataset update failed; keeping the current data",
 				"dataset", s.Name(), "retry_in", delay.Round(time.Second).String(), "error", err)
 		default:
 			st.fails = 0
-			st.next = time.Now().Add(Interval + jitter(Interval/10))
+			st.next = time.Now().Add(interval + jitter(interval/10))
 			if changed {
 				l.InfoContext(ctx, "dataset updated", "dataset", s.Name())
 			} else {
@@ -190,11 +191,11 @@ type limitReader struct {
 	n int64
 }
 
-var errTooLarge = errors.New("larger than dataset.MaxSize")
+var errTooLarge = errors.New("download is too large")
 
 func (l *limitReader) Read(p []byte) (int, error) {
 	if l.n <= 0 {
-		// See if there's more, as a list of exactly MaxSize is fine.
+		// See if there's more, as a list of exactly maxSize is fine.
 		var b [1]byte
 		if n, _ := l.r.Read(b[:]); n > 0 {
 			return 0, errTooLarge
