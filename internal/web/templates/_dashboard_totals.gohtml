@@ -19,7 +19,7 @@
 </section>
 
 {{define "_metric" -}}
-<button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-500)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0 md:last:border-r-0" data-metric="{{.Key}}" aria-pressed="{{eq .Key "visits"}}">
+<button type="button" class="metric min-w-0 cursor-pointer border-b border-r border-slate-200 dark:border-neutral-800 px-4 py-5 text-left hover:bg-fuchsia-50 dark:hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-fuchsia-500 aria-pressed:bg-fuchsia-50 aria-pressed:shadow-[inset_0_-3px_0_var(--color-fuchsia-600)] dark:aria-pressed:bg-fuchsia-950/30 md:border-b-0 md:last:border-r-0" data-metric="{{.Key}}" aria-pressed="{{eq .Key "visits"}}">
 	<span class="block truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-neutral-400">{{.Label}}</span>
 	<strong class="mt-2 block text-2xl font-semibold tracking-tight text-slate-800 dark:text-neutral-100">{{.Value}}</strong>
 	{{with .Change -}}
