@@ -3,14 +3,16 @@ package goatcounter
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
-	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 // EventPageview is the name of pageview events.
@@ -122,34 +124,44 @@ func (h *Hit) Defaults(ctx context.Context) {
 // Validate the request before it's normalized. Props are normalized to a
 // compact JSON object with string values.
 func (h *Hit) Validate(ctx context.Context) error {
-	v := validation.New()
-	v.Required("path", h.Path)
-	v.UTF8("path", h.Path)
-	v.Len("path", h.Path, 1, 2048)
-	v.UTF8("ref", h.Ref)
-	v.Len("ref", h.Ref, 0, 2048)
-	v.UTF8("name", h.Name)
-	v.Len("name", h.Name, 0, 120)
-	v.Len("hostname", h.Hostname, 0, 253)
-	v.UTF8("user_agent_header", h.UserAgentHeader)
-	v.Len("user_agent_header", h.UserAgentHeader, 0, 512)
-	v.Range("width", int64(h.Width), 0, 100_000)
+	var errs []string
+	check := func(ok bool, field, msg string) {
+		if !ok {
+			errs = append(errs, field+": "+msg)
+		}
+	}
+	check(h.Path != "", "path", "must be set")
+	for _, f := range []struct {
+		name, value string
+		max         int
+	}{
+		{"path", h.Path, 2048},
+		{"ref", h.Ref, 2048},
+		{"name", h.Name, 120},
+		{"hostname", h.Hostname, 253},
+		{"user_agent_header", h.UserAgentHeader, 512},
+	} {
+		check(utf8.ValidString(f.value), f.name, "must be UTF-8")
+		check(utf8.RuneCountInString(f.value) <= f.max, f.name, fmt.Sprintf("must be at most %d characters", f.max))
+	}
+	check(h.Width >= 0 && h.Width <= 100_000, "width", "must be between 0 and 100000")
 	if h.Props != "" {
 		var props map[string]string
 		switch err := json.Unmarshal([]byte(h.Props), &props); {
 		case err != nil:
-			v.Append("props", "must be a JSON object with string values")
+			check(false, "props", "must be a JSON object with string values")
 		case len(props) > 30:
-			v.Append("props", "at most 30 properties")
+			check(false, "props", "at most 30 properties")
 		case len(props) == 0:
 			h.Props = ""
 		default:
 			b, _ := json.Marshal(props)
-			if len(b) > 4096 {
-				v.Append("props", "longer than 4096 bytes")
-			}
+			check(len(b) <= 4096, "props", "longer than 4096 bytes")
 			h.Props = string(b)
 		}
 	}
-	return v.ErrorOrNil()
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
 }

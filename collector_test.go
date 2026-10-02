@@ -1,6 +1,8 @@
 package goatcounter_test
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -219,5 +221,14 @@ func TestFilteredMigratedTotals(t *testing.T) {
 			t.Errorf("filter %q: %+v; want visits=%d pageviews=%d bounce=%v",
 				tt.filter, m.Metrics, tt.visits, tt.pageviews, tt.bounceRate)
 		}
+	}
+}
+
+func TestHitValidate(t *testing.T) {
+	h := Hit{Name: strings.Repeat("x", 121), Width: -1, Props: "[]"}
+	err := h.Validate(context.Background())
+	want := "path: must be set; name: must be at most 120 characters; width: must be between 0 and 100000; props: must be a JSON object with string values"
+	if err == nil || err.Error() != want {
+		t.Errorf("\nhave: %v\nwant: %s", err, want)
 	}
 }

@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/marvinrabe/goatcounter"
-	"github.com/marvinrabe/goatcounter/internal/validation"
 )
 
 // Site calls goatcounter.MustGetSite; it's just shorter :-)
@@ -88,25 +86,7 @@ func ErrPage(w http.ResponseWriter, r *http.Request, reported error) {
 			w.WriteHeader(code)
 		}
 
-		var (
-			j   []byte
-			err error
-		)
-
-		var validationPtr *validation.Validator
-		var validationValue validation.Validator
-		if errors.As(userErr, &validationPtr) {
-			j, err = json.Marshal(validationPtr)
-		} else if errors.As(userErr, &validationValue) {
-			j, err = json.Marshal(validationValue)
-		} else if jErr, ok := userErr.(json.Marshaler); ok {
-			j, err = jErr.MarshalJSON()
-		} else {
-			j, err = json.Marshal(map[string]string{"error": userErr.Error()})
-		}
-		if err != nil {
-			slog.ErrorContext(r.Context(), "marshal error response", "error", err, requestAttrs(r))
-		}
+		j, _ := json.Marshal(map[string]string{"error": userErr.Error()})
 		w.Write(j)
 
 	case strings.HasPrefix(ct, "text/plain") || strings.HasPrefix(ctresp, "text/plain"):

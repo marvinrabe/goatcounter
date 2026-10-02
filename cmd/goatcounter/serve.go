@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/database"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
-	"github.com/marvinrabe/goatcounter/internal/validation"
 	"github.com/oschwald/geoip2-golang/v2"
 )
 
@@ -103,22 +103,25 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 		return err
 	}
 
-	v := validation.New()
-
 	setupLog(*debugFlag)
 
-	geodb := setupGeo(&v, *geodbFlag)
-	ratelimits := setupRatelimits(&v, *ratelimit)
-	setupDomains(&v, *domainStatic)
-
-	v.Range("-shutdown-timeout", int64(*shutdown), 1, 0)
-	v.Range("-drain-delay", int64(*drain), 0, int64(*shutdown-1))
-	if *dbConnect == "" {
-		v.Append("-db", "a database URL or path is required")
+	geodb, geoErr := setupGeo(*geodbFlag)
+	ratelimits, ratelimitErr := setupRatelimits(*ratelimit)
+	errs := []error{geoErr, ratelimitErr}
+	if *domainStatic != "" && !validDomain(hostWithoutPort(*domainStatic)) {
+		errs = append(errs, errors.New("-static: must be a valid domain"))
 	}
-
-	if v.HasErrors() {
-		return v
+	if *shutdown < 1 {
+		errs = append(errs, errors.New("-shutdown-timeout: must be 1 or higher"))
+	}
+	if *drain < 0 || *drain >= max(*shutdown, 1) {
+		errs = append(errs, errors.New("-drain-delay: must be 0 or higher, and lower than -shutdown-timeout"))
+	}
+	if *dbConnect == "" {
+		errs = append(errs, errors.New("-db: a database URL or path is required"))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
 	if geodb != nil {
@@ -291,26 +294,27 @@ func cmdServe(args []string, ready chan<- struct{}, stop chan struct{}) error {
 
 func defaultDB() string { return "" }
 
-func setupGeo(v *validation.Validator, geodbFlag string) *geoip2.Reader {
+func setupGeo(geodbFlag string) (*geoip2.Reader, error) {
 	if geodbFlag == "" {
-		return nil
+		return nil, nil
 	}
 	geodb, err := enrich.OpenGeoDB(geodbFlag)
 	if err != nil {
-		v.Append("-geodb", fmt.Sprintf("loading GeoIP database: %s", err))
+		return nil, fmt.Errorf("-geodb: loading GeoIP database: %w", err)
 	}
-	return geodb
+	return geodb, nil
 }
 
-func setupRatelimits(v *validation.Validator, ratelimit string) handlers.Ratelimits {
+func setupRatelimits(ratelimit string) (handlers.Ratelimits, error) {
 	h := handlers.NewRatelimits()
 	if strings.TrimSpace(ratelimit) == "" {
-		return h
+		return h, nil
 	}
+	var errs []error
 	for entry := range strings.SplitSeq(ratelimit, ",") {
 		name, spec, _ := strings.Cut(entry, ":")
 		if strings.ToLower(strings.TrimSpace(name)) != "count" {
-			v.Append("-ratelimit.name", fmt.Sprintf("unknown limit %q; only count is supported", name))
+			errs = append(errs, fmt.Errorf("-ratelimit: unknown limit %q; only count is supported", name))
 			continue
 		}
 		if strings.TrimSpace(spec) == "none" {
@@ -318,25 +322,33 @@ func setupRatelimits(v *validation.Validator, ratelimit string) handlers.Ratelim
 			continue
 		}
 
-		v2 := validation.New()
 		requests, seconds, _ := strings.Cut(spec, "/")
-		tokens := v2.Integer("-ratelimit.requests", requests)
-		secs := v2.Integer("-ratelimit.seconds", seconds)
-		v2.Range("-ratelimit.requests", tokens, 1, 0)
-		v2.Range("-ratelimit.seconds", secs, 1, int64((1<<63-1)/time.Second))
-		if v2.HasErrors() {
-			v.Merge(v2)
+		tokens, err1 := strconv.ParseUint(strings.TrimSpace(requests), 10, 64)
+		secs, err2 := strconv.ParseInt(strings.TrimSpace(seconds), 10, 64)
+		if err1 != nil || err2 != nil || tokens < 1 || secs < 1 || secs > int64((1<<63-1)/time.Second) {
+			errs = append(errs, fmt.Errorf("-ratelimit: %q must be count:requests/seconds with whole numbers of 1 or higher", entry))
 			continue
 		}
-		h.SetCount(uint64(tokens), time.Duration(secs)*time.Second)
+		h.SetCount(tokens, time.Duration(secs)*time.Second)
 	}
-	return h
+	return h, errors.Join(errs...)
 }
 
-func setupDomains(v *validation.Validator, domainStatic string) {
-	if domainStatic != "" {
-		v.Domain("-static", hostWithoutPort(domainStatic))
+func validDomain(host string) bool {
+	if len(host) == 0 || len(host) > 253 {
+		return false
 	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func hostWithoutPort(host string) string {

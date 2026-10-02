@@ -7,15 +7,16 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/marvinrabe/goatcounter"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
-	"github.com/marvinrabe/goatcounter/internal/validation"
 	"github.com/marvinrabe/goatcounter/internal/widgets"
 )
 
@@ -102,11 +103,13 @@ func (h backend) dashboard(w http.ResponseWriter, r *http.Request) error {
 func (h backend) loadWidget(w http.ResponseWriter, r *http.Request) error {
 	ctx, q := r.Context(), r.URL.Query()
 
-	v := validation.New()
-	total := int(v.Integer("total", q.Get("total")))
-	offset := int(v.Integer("offset", q.Get("offset")))
-	if v.HasErrors() {
-		return v
+	total, err := intParam(q, "total")
+	if err != nil {
+		return err
+	}
+	offset, err := intParam(q, "offset")
+	if err != nil {
+		return err
 	}
 	rng, err := getPeriod(r)
 	if err != nil {
@@ -277,4 +280,17 @@ func getGroup(r *http.Request, rng datetime.Range) (goatcounter.Group, goatcount
 		}
 	}
 	return group, allow
+}
+
+// intParam parses an optional integer query parameter.
+func intParam(q url.Values, key string) (int, error) {
+	v := strings.TrimSpace(q.Get(key))
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, httpErrorf(400, "%s: must be a whole number", key)
+	}
+	return n, nil
 }
