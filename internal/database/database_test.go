@@ -113,3 +113,18 @@ func TestTransactionPanicRollsBack(t *testing.T) {
 		t.Fatalf("rollback left %d rows: %v", count, err)
 	}
 }
+
+func TestBulkInsertRejectsNames(t *testing.T) {
+	db, ctx := testDB(t), context.Background()
+	for _, cols := range [][]string{{`name"; drop table items; --`}, {"Name"}, {"1id"}, {""}} {
+		if _, err := NewBulkInsert(ctx, db, "items", cols); err == nil {
+			t.Errorf("%q accepted", cols)
+		}
+	}
+	if _, err := NewBulkInsert(ctx, db, "items; --", []string{"id"}); err == nil {
+		t.Error("table name accepted")
+	}
+	if _, err := NewBulkInsert(ctx, db, "items", []string{"id", "name_2"}); err != nil {
+		t.Error(err)
+	}
+}

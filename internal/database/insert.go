@@ -7,7 +7,17 @@ import (
 	"strings"
 )
 
-func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+// identifier reports if s is a plain lowercase SQL name. Table and column
+// names can't be bound as parameters, so only these are accepted rather than
+// escaping arbitrary strings.
+func identifier(s string) bool {
+	for i, c := range s {
+		if !(c == '_' || c >= 'a' && c <= 'z' || i > 0 && c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return s != ""
+}
 
 type BulkInsert struct {
 	ctx   context.Context
@@ -21,6 +31,11 @@ type BulkInsert struct {
 func NewBulkInsert(ctx context.Context, db DB, table string, columns []string) (BulkInsert, error) {
 	if len(columns) == 0 {
 		return BulkInsert{}, fmt.Errorf("database: empty insert columns")
+	}
+	for _, name := range append([]string{table}, columns...) {
+		if !identifier(name) {
+			return BulkInsert{}, fmt.Errorf("database: invalid table or column name %q", name)
+		}
 	}
 	return BulkInsert{ctx: ctx, db: db, table: table, cols: slices.Clone(columns)}, nil
 }
@@ -41,16 +56,12 @@ func (b *BulkInsert) flush() {
 	if b.err != nil || len(b.rows) == 0 {
 		return
 	}
-	cols := make([]string, len(b.cols))
-	for i, c := range b.cols {
-		cols[i] = quote(c)
-	}
-	row := "(" + strings.TrimSuffix(strings.Repeat("?,", len(cols)), ",") + ")"
-	args := make([]any, 0, len(b.rows)*len(cols))
+	row := "(" + strings.TrimSuffix(strings.Repeat("?,", len(b.cols)), ",") + ")"
+	args := make([]any, 0, len(b.rows)*len(b.cols))
 	for _, v := range b.rows {
 		args = append(args, v...)
 	}
-	query := "insert into " + quote(b.table) + " (" + strings.Join(cols, ",") + ") values " + strings.TrimSuffix(strings.Repeat(row+",", len(b.rows)), ",")
+	query := "insert into " + b.table + " (" + strings.Join(b.cols, ",") + ") values " + strings.TrimSuffix(strings.Repeat(row+",", len(b.rows)), ",")
 	b.err = b.db.Exec(b.ctx, query, args...)
 	b.rows = nil
 }
