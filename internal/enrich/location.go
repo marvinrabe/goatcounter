@@ -2,11 +2,11 @@ package enrich
 
 import (
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 
-	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
+	"github.com/oschwald/geoip2-golang/v2"
 )
 
 // Geo finds the visitor's country. The zero value, and nil, finds nothing.
@@ -41,11 +41,15 @@ func (g *Geo) Country(r *http.Request) string {
 	if g.DB == nil {
 		return ""
 	}
-	loc, err := g.DB.Country(net.ParseIP(r.RemoteAddr))
+	ip, err := netip.ParseAddr(r.RemoteAddr)
 	if err != nil {
 		return ""
 	}
-	return loc.Country.IsoCode
+	loc, err := g.DB.Country(ip)
+	if err != nil {
+		return ""
+	}
+	return loc.Country.ISOCode
 }
 
 // CountryName gets the English name for a country code, or "" if it's

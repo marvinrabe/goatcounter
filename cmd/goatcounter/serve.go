@@ -21,9 +21,9 @@ import (
 	"github.com/marvinrabe/goatcounter/internal/dataset"
 	"github.com/marvinrabe/goatcounter/internal/datetime"
 	"github.com/marvinrabe/goatcounter/internal/enrich"
-	"github.com/marvinrabe/goatcounter/internal/geo/geoip2"
 	"github.com/marvinrabe/goatcounter/internal/httpx"
 	"github.com/marvinrabe/goatcounter/internal/validation"
+	"github.com/oschwald/geoip2-golang/v2"
 )
 
 const usageServe = `
