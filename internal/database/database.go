@@ -28,6 +28,8 @@ type ConnectOptions struct {
 }
 
 func New(conn *sql.DB) DB {
+	// The driver name only selects sqlx's "?" placeholder style; prepare()
+	// expands named parameters itself.
 	return &Database{conn: sqlx.NewDb(conn, "sqlite3")}
 }
 func (db *Database) Close() error { return db.conn.Close() }

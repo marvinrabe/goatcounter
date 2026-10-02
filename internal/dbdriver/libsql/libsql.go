@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/marvinrabe/goatcounter/internal/database"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	remotelibsql "github.com/tursodatabase/libsql-client-go/libsql"
 	"github.com/tursodatabase/libsql-client-go/sqliteparserutils"
 )
@@ -181,7 +181,7 @@ func openSQL(ctx context.Context, connect string, create bool) (*sql.DB, any, er
 		}
 		db = sql.OpenDB(&remoteConnector{Connector: connector})
 	} else {
-		db, err = sql.Open("sqlite3", connect)
+		db, err = sql.Open("sqlite", connect)
 		if err != nil {
 			return nil, nil, fmt.Errorf("libsql.Connect: %w", err)
 		}

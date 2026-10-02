@@ -181,7 +181,9 @@ start with a new database and import again.
 
 Building from source
 --------------------
-You need Go 1.27 or newer, Node.js 22.12 or newer, and a C compiler.
+You need Go 1.27 or newer and Node.js 22.12 or newer. Everything is pure Go,
+including SQLite ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)),
+so no C compiler is needed and `CGO_ENABLED=0` builds a static binary.
 
     % npm ci
     % npm run build

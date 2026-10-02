@@ -16,13 +16,12 @@ copy go.mod go.sum ./
 run --mount=type=cache,target=/go/pkg/mod go mod download
 copy --exclude=goatcounter-data --exclude=node_modules --exclude=public --exclude=Dockerfile . /goatcounter
 copy --from=assets /goatcounter/public ./public
-env CGO_ENABLED=1
+# Pure Go, including SQLite, so the binary is static without a C toolchain.
+env CGO_ENABLED=0
 env GOTOOLCHAIN=auto
 run --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
-	go build -trimpath -ldflags='-s -w -extldflags=-static' \
-	-tags='osusergo,netgo' \
-	./cmd/goatcounter
+	go build -trimpath -ldflags='-s -w' ./cmd/goatcounter
 
 # The final image is "from scratch", so assemble its user and temporary
 # directories here. Persistent state belongs to the shared database service.
@@ -42,9 +41,8 @@ run <<EOF
 EOF
 
 ### Build container
-# The binary is fully static (CGO with -extldflags=-static, plus the osusergo
-# and netgo tags) and embeds its own tzdata, so there is nothing left for a base
-# image to provide.
+# The binary is fully static (no CGO) and embeds its own tzdata, so there is
+# nothing left for a base image to provide.
 from scratch
 copy --from=build /rootfs/ /
 copy --from=build /goatcounter/goatcounter /bin/goatcounter
