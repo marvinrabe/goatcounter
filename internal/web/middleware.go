@@ -74,7 +74,7 @@ func writeCSP(b *strings.Builder, k, v string) {
 	b.WriteByte(';')
 }
 
-func addcsp() func(http.Handler) http.Handler {
+func contentSecurityPolicy() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Only really needs to run on HTML pages; but best to add it

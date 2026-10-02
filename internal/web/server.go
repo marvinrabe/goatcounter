@@ -30,7 +30,7 @@ func (s *server) routes(r chi.Router, ratelimits Ratelimits, auth Auth) {
 		realIP,
 		wrapWriter,
 		middleware.Recoverer,
-		addcsp(),
+		contentSecurityPolicy(),
 		middleware.RedirectSlashes,
 		noStore,
 		middleware.Compress(5))

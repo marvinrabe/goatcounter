@@ -120,3 +120,42 @@ func metricChange(cur, prev any, lowerIsBetter bool) change {
 	}
 	return c
 }
+
+// Globals are passed to every page template.
+type Globals struct {
+	Site            analytics.Site
+	Sites           []analytics.Site
+	Path            string
+	StaticDomain    string
+	TZName          string
+	TZOffsetDisplay string
+	HideUI          bool
+}
+
+// Asset resolves a source asset to its Vite-generated, content-hashed URL.
+func (g Globals) Asset(name string) (string, error) { return assetURL(name) }
+
+func assetURL(name string) (string, error) {
+	paths, err := assetPaths()
+	if err != nil {
+		return "", err
+	}
+	file, ok := paths[name]
+	if !ok {
+		return "", fmt.Errorf("asset %q is missing from Vite manifest", name)
+	}
+	return "/" + file, nil
+}
+
+func (s *server) globals(r *http.Request) Globals {
+	return Globals{
+		Site:  siteFrom(r.Context()),
+		Sites: s.store.Sites,
+		Path:  r.URL.Path,
+
+		TZName:          s.store.Timezone.Abbr(),
+		TZOffsetDisplay: s.store.Timezone.OffsetDisplay(),
+		StaticDomain:    r.Host,
+		HideUI:          r.URL.Query().Get("hideui") != "",
+	}
+}

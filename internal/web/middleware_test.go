@@ -39,7 +39,7 @@ func fmtCSP(h string) string {
 	return s.String()
 }
 
-func TestAddCSP(t *testing.T) {
+func TestContentSecurityPolicy(t *testing.T) {
 	tests := []struct {
 		path string
 		want string
@@ -59,7 +59,7 @@ func TestAddCSP(t *testing.T) {
 		{"/count", ``},
 	}
 
-	mw := addcsp()(http.NewServeMux())
+	mw := contentSecurityPolicy()(http.NewServeMux())
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			var (
@@ -143,11 +143,11 @@ func TestSelectSite(t *testing.T) {
 	}
 }
 
-func BenchmarkAddCSP(b *testing.B) {
+func BenchmarkContentSecurityPolicy(b *testing.B) {
 	var (
 		r  = testenv.NewRequest("GET", "/", nil)
 		rr = httptest.NewRecorder()
-		mw = addcsp()(http.NewServeMux())
+		mw = contentSecurityPolicy()(http.NewServeMux())
 	)
 	b.ResetTimer()
 	for b.Loop() {

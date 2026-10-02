@@ -1,4 +1,4 @@
-{{- template "_backend_top.gohtml" . -}}
+{{- template "_header.gohtml" . -}}
 
 <div id="print-header" class="hidden text-center text-lg font-semibold print:block">
 	Report for {{tformat .Period.Start ""}} to {{tformat .Period.End ""}}
@@ -71,4 +71,4 @@
 
 {{template "_dashboard_widgets.gohtml" .}}
 
-{{- template "_backend_bottom.gohtml" . }}
+{{- template "_footer.gohtml" . }}
