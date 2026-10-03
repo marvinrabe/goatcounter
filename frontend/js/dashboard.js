@@ -166,8 +166,10 @@ var bind_header = function() {
 	on('#dash-form', 'submit', function(e) {
 		// The server calculates the dates for the "Last …" shortcuts, in
 		// the dashboard's timezone.
+		// A new period gets its default grouping, rather than keeping the
+		// current one; by hour is only the default for a single day.
 		if (e.submitter?.name === 'period') {
-			$$('#period-start, #period-end').forEach((i) => { i.disabled = true })
+			$$('#period-start, #period-end, #hl-group').forEach((i) => { i.disabled = true })
 			return
 		}
 		if (get_date($1('#period-start').value) <= get_date($1('#period-end').value)) {
@@ -178,6 +180,7 @@ var bind_header = function() {
 		}
 
 		e.preventDefault()
+		$1('#hl-group').disabled = false
 		let end = $1('#period-end')
 		if (!end.classList.contains('red')) {
 			end.classList.add('red', 'border-red-500')
@@ -187,8 +190,10 @@ var bind_header = function() {
 
 	// Date inputs emit change while the year is still being typed.
 	on('#period-start, #period-end', 'blur', function() {
-		if (this.value && this.value !== this.defaultValue)
+		if (this.value && this.value !== this.defaultValue) {
+			$1('#hl-group').disabled = true
 			this.form.requestSubmit()
+		}
 	})
 
 	// Reload the dashboard when typing in the filter input, so the user

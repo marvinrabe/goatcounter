@@ -286,10 +286,10 @@ func getGroup(r *http.Request, rng analytics.Range) (analytics.Period, []analyti
 	//
 	// These numbers are based on what makes sense when you click "Last day ·
 	// week · month · quarter · half year · year", which is probably what most
-	// people use.
+	// people use. The default is the coarsest of them.
 	var allow []analytics.Period
 	switch d := rng.End.Sub(rng.Start).Hours() / 24; {
-	case d <= 6:
+	case d < 1.5: // One day, also with a DST change.
 		allow = []analytics.Period{analytics.Hour}
 	case d < 90:
 		allow = []analytics.Period{analytics.Hour, analytics.Day}
@@ -300,14 +300,11 @@ func getGroup(r *http.Request, rng analytics.Range) (analytics.Period, []analyti
 	}
 
 	// Keep the full date range, but avoid rendering millions of empty points.
-	group := analytics.ChartGroup(rng, allow[0])
-	allow = slices.DeleteFunc(allow, func(g analytics.Period) bool { return g < group })
+	group := analytics.ChartGroup(rng, allow[len(allow)-1])
+	finest := analytics.ChartGroup(rng, allow[0])
+	allow = slices.DeleteFunc(allow, func(g analytics.Period) bool { return g < finest })
 	if len(allow) == 0 {
 		allow = []analytics.Period{group}
-	}
-	// By day reads best when it's allowed, such as for the last week.
-	if slices.Contains(allow, analytics.Day) {
-		group = analytics.Day
 	}
 
 	want := strings.ToLower(r.URL.Query().Get("group"))
