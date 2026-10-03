@@ -12,8 +12,20 @@ import (
 	"github.com/sethvargo/go-limiter/memorystore"
 )
 
+// A bucket that has been idle for longer than its interval is full again, so
+// it can be dropped after that. The memorystore defaults keep every bucket for
+// 12 to 18 hours: one per IP address and User-Agent, so the memory grows with
+// the number of visitors in that time.
+const (
+	sweepInterval = time.Minute
+	sweepMinTTL   = time.Minute
+)
+
 func mustNewMem(tokens uint64, interval time.Duration) limiter.Store {
-	s, err := memorystore.New(&memorystore.Config{Tokens: tokens, Interval: interval})
+	s, err := memorystore.New(&memorystore.Config{
+		Tokens: tokens, Interval: interval,
+		SweepInterval: sweepInterval, SweepMinTTL: max(sweepMinTTL, interval),
+	})
 	if err != nil {
 		// memorystore.New never returns an error, but just in case.
 		panic(err)

@@ -50,6 +50,9 @@ copy --from=build /rootfs/ /
 copy --from=build /goatcounter/goatcounter /bin/goatcounter
 
 env        SSL_CERT_FILE=/etc/ca-certificates.crt
+# Collect garbage and return memory to the OS more aggressively near this soft
+# limit, to stay well below 64 MB.
+env        GOMEMLIMIT=48MiB
 expose     8080
 healthcheck cmd ["/bin/goatcounter", "healthcheck"]
 workdir    /home/goatcounter
