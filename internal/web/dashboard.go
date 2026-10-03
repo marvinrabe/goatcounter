@@ -305,6 +305,10 @@ func getGroup(r *http.Request, rng analytics.Range) (analytics.Period, []analyti
 	if len(allow) == 0 {
 		allow = []analytics.Period{group}
 	}
+	// By day reads best when it's allowed, such as for the last week.
+	if slices.Contains(allow, analytics.Day) {
+		group = analytics.Day
+	}
 
 	want := strings.ToLower(r.URL.Query().Get("group"))
 	for _, g := range allow {
